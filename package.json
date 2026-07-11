@@ -1,0 +1,63 @@
+{
+  "name": "thunder-accounting",
+  "version": "1.0.0",
+  "description": "雷霆记账 - 轻量级个人日常记账工具",
+  "main": "./app-out/main/main.js",
+  "author": "TukinokiShio",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0",
+    "sql.js": "^1.12.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.0"
+  },
+  "build": {
+    "appId": "com.thunder.accounting",
+    "productName": "雷霆记账",
+    "directories": {
+      "buildResources": "resources",
+      "output": "release"
+    },
+    "asarUnpack": [
+      "node_modules/sql.js/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.png",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "unicode": true
+    }
+  }
+}
