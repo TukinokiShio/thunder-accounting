@@ -5,7 +5,7 @@ export interface Bill {
   category2: string
   date: string
   note: string
-  type: string
+  type: 'expense' | 'income'
   created_at: string
 }
 
