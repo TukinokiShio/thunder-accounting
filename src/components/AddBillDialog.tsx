@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { CategorySelect } from './CategorySelect'
@@ -14,12 +14,36 @@ const emptyForm: AddBillForm = {
 
 export function AddBillDialog() {
   const isOpen = useStore((s) => s.isAddDialogOpen)
+  const editBillId = useStore((s) => s.editBillId)
+  const bills = useStore((s) => s.bills)
   const closeAddDialog = useStore((s) => s.closeAddDialog)
   const refreshBills = useStore((s) => s.refreshBills)
+  const addToast = useStore((s) => s.addToast)
 
   const [form, setForm] = useState<AddBillForm>(emptyForm)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [futureWarning, setFutureWarning] = useState(false)
+
+  const isEditMode = editBillId !== null
+
+  // Load existing bill data when editing
+  useEffect(() => {
+    if (isEditMode) {
+      const bill = bills.find((b) => b.id === editBillId)
+      if (bill) {
+        setForm({
+          amount: String(bill.amount),
+          category1: bill.category1,
+          category2: bill.category2,
+          date: bill.date,
+          note: bill.note
+        })
+      }
+    } else {
+      resetForm()
+    }
+  }, [isEditMode, editBillId])
 
   const resetForm = useCallback(() => {
     setForm({
@@ -27,6 +51,7 @@ export function AddBillDialog() {
       date: new Date().toISOString().slice(0, 10)
     })
     setError('')
+    setFutureWarning(false)
   }, [])
 
   const handleClose = () => {
@@ -36,6 +61,7 @@ export function AddBillDialog() {
 
   const handleSubmit = async () => {
     setError('')
+    setFutureWarning(false)
 
     // Validate
     const amount = parseFloat(form.amount)
@@ -60,27 +86,43 @@ export function AddBillDialog() {
       return
     }
 
+    // Future date warning (allow but warn)
+    const today = new Date().toISOString().slice(0, 10)
+    if (form.date > today && !futureWarning) {
+      setFutureWarning(true)
+      setError('⚠️ 日期晚于今天 — 确定这是一笔未来支出预登记吗？再次点击"保存"确认。')
+      return
+    }
+
+    const sanitizedAmount = Math.round(amount * 100) / 100
+    const billData = {
+      amount: sanitizedAmount,
+      category1: form.category1,
+      category2: form.category2,
+      date: form.date,
+      note: form.note.trim()
+    }
+
     setSubmitting(true)
     try {
-      await window.electronAPI.addBill({
-        amount: Math.round(amount * 100) / 100, // round to 2 decimal places
-        category1: form.category1,
-        category2: form.category2,
-        date: form.date,
-        note: form.note.trim()
-      })
+      if (isEditMode) {
+        await window.electronAPI.updateBill(editBillId!, billData)
+        addToast('success', '账单已更新')
+      } else {
+        await window.electronAPI.addBill(billData)
+        addToast('success', `已记录：${form.category1}·${form.category2} ¥${sanitizedAmount.toFixed(2)}`)
+      }
       resetForm()
       closeAddDialog()
       await refreshBills()
     } catch (e) {
-      console.error('Failed to add bill:', e)
+      console.error('Failed to save bill:', e)
       setError('保存失败，请重试')
     } finally {
       setSubmitting(false)
     }
   }
 
-  // Handle Enter key
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !submitting) {
       handleSubmit()
@@ -104,7 +146,9 @@ export function AddBillDialog() {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">记一笔</h2>
+          <h2 className="text-lg font-bold text-gray-900">
+            {isEditMode ? '编辑账单' : '记一笔'}
+          </h2>
           <button
             onClick={handleClose}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
@@ -171,9 +215,15 @@ export function AddBillDialog() {
             />
           </div>
 
-          {/* Error */}
+          {/* Error / Warning */}
           {error && (
-            <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+            <p className={`text-sm rounded-lg px-3 py-2 ${
+              futureWarning
+                ? 'text-amber-600 bg-amber-50 border border-amber-200'
+                : 'text-red-500 bg-red-50'
+            }`}>
+              {error}
+            </p>
           )}
         </div>
 
@@ -187,7 +237,7 @@ export function AddBillDialog() {
             disabled={submitting}
             className="btn-primary text-sm min-w-[80px]"
           >
-            {submitting ? '保存中...' : '保存'}
+            {submitting ? '保存中...' : isEditMode ? '更新' : '保存'}
           </button>
         </div>
       </div>

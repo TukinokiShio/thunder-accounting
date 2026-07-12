@@ -1,6 +1,7 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { presetCategories } from '@/data/categories'
+import { useClickOutside } from './useClickOutside'
 
 interface Props {
   category1: string
@@ -13,8 +14,8 @@ export function CategorySelect({ category1, category2, onCategory1Change, onCate
   const [open1, setOpen1] = useState(false)
   const [open2, setOpen2] = useState(false)
 
-  const ref1 = useRef<HTMLDivElement>(null)
-  const ref2 = useRef<HTMLDivElement>(null)
+  const ref1 = useClickOutside<HTMLDivElement>(() => setOpen1(false), open1)
+  const ref2 = useClickOutside<HTMLDivElement>(() => setOpen2(false), open2)
 
   const selectedCat = useMemo(
     () => presetCategories.find((c) => c.name === category1),
@@ -26,19 +27,8 @@ export function CategorySelect({ category1, category2, onCategory1Change, onCate
     [selectedCat]
   )
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref1.current && !ref1.current.contains(e.target as Node)) setOpen1(false)
-      if (ref2.current && !ref2.current.contains(e.target as Node)) setOpen2(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-
   function selectCat1(name: string) {
     onCategory1Change(name)
-    // onCategory1Change already resets category2 in the parent
     setOpen1(false)
   }
 

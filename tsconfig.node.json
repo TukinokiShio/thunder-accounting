@@ -14,5 +14,5 @@
     "declaration": true,
     "composite": true
   },
-  "include": ["electron/**/*.ts", "electron-vite.config.ts"]
+  "include": ["main-process/**/*.ts", "electron-vite.config.mjs"]
 }

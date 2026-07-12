@@ -8,11 +8,22 @@ import { useStore } from '@/store'
 
 export default function App() {
   const activePage = useStore((s) => s.activePage)
+  const openAddDialog = useStore((s) => s.openAddDialog)
 
   // 首次加载时刷新数据
   useEffect(() => {
     useStore.getState().refreshBills()
   }, [])
+
+  // 监听全局快捷键
+  useEffect(() => {
+    const unsub = window.electronAPI.onShortcut((action) => {
+      if (action === 'addBill') {
+        openAddDialog()
+      }
+    })
+    return unsub
+  }, [openAddDialog])
 
   return (
     <Layout>

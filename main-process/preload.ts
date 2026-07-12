@@ -40,7 +40,14 @@ const electronAPI = {
 
   // File write
   writeFile: (filePath: string, content: string) =>
-    ipcRenderer.invoke('file:write', filePath, content)
+    ipcRenderer.invoke('file:write', filePath, content),
+
+  // Shortcut listener
+  onShortcut: (callback: (action: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
+    ipcRenderer.on('shortcut:addBill', handler)
+    return () => ipcRenderer.removeListener('shortcut:addBill', handler)
+  }
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

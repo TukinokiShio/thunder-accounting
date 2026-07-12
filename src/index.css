@@ -17,6 +17,13 @@
     user-select: none;
   }
 
+  /* Dark mode background */
+  .dark body,
+  body.dark {
+    background-color: #111827;
+    color: #f3f4f6;
+  }
+
   /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
@@ -32,11 +39,19 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #9ca3af;
   }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: #4b5563;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+  }
 }
 
 @layer components {
   .card {
     @apply bg-white rounded-xl border border-gray-100 shadow-sm;
+    @apply dark:bg-gray-800 dark:border-gray-700;
   }
 
   .btn-primary {
@@ -50,6 +65,7 @@
     @apply bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-medium
            hover:bg-gray-200 active:bg-gray-300
            transition-colors duration-150;
+    @apply dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 dark:active:bg-gray-500;
   }
 
   .input-field {
@@ -58,5 +74,8 @@
            placeholder:text-gray-400
            focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400
            transition-all duration-150;
+    @apply dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100
+           dark:placeholder:text-gray-500
+           dark:focus:ring-primary-500/30 dark:focus:border-primary-400;
   }
 }

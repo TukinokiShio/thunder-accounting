@@ -1,6 +1,7 @@
 import type { Config } from 'tailwindcss'
 
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
@@ -17,6 +18,10 @@ export default {
           800: '#1e40af',
           900: '#1e3a8a',
           950: '#172554'
+        },
+        gray: {
+          750: '#2d3748',
+          850: '#1e2430'
         }
       },
       animation: {

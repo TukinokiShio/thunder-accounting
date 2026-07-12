@@ -39,6 +39,7 @@ export interface ElectronAPI {
   exportCSV: (filters?: { startDate?: string; endDate?: string }) => Promise<string>
   showSaveDialog: (defaultName: string) => Promise<string | null>
   writeFile: (filePath: string, content: string) => Promise<boolean>
+  onShortcut: (callback: (action: string) => void) => () => void
 }
 
 declare global {

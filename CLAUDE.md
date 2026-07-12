@@ -140,6 +140,54 @@ npm run dist:win      # 打包 Windows 安装包
 npm run dist:mac      # 打包 macOS 安装包
 ```
 
+## 自动化规则（强制）
+
+### 每次修改代码后必须执行
+
+1. **自动更新版本号**：根据改动规模修改 `package.json` 的 `version` 字段（规则见下方"版本号规范"）
+2. **同步版本号到代码**：更新 `src/components/Sidebar.tsx` 底部的版本显示文本
+3. **构建并打包**：运行 `npm run deploy`（一键完成：版本号同步 → 构建 → 打包 → 复制到输出目录 → 创建快捷方式）
+
+### 版本号规范（语义化版本 SemVer）
+
+版本号格式：`major.minor.patch`（如 `1.2.3`）
+
+| 改动规模 | 修改位 | 示例 | 判定标准 |
+|----------|--------|------|----------|
+| 🔴 **大版本** | **major**（第一位） | 1.0.0 → **2.0.0** | 新增页面/界面、大规模重构、产品方向变更 |
+| 🟡 **功能更新** | **minor**（第二位） | 1.0.0 → 1.**1**.0 | 修改/新增功能模块、新增组件、调整数据模型 |
+| 🟢 **小修复** | **patch**（第三位） | 1.0.0 → 1.0.**1** | 修 bug、调样式、改文案、优化性能、加注释、小重构 |
+
+**判定口诀**：
+- 用户能看到新页面/新界面 → major
+- 用户能看到功能变化（新功能/功能改进）→ minor
+- 用户看不到变化（修 bug/调样式/内部优化）→ patch
+
+### 输出目录
+
+```
+E:\Code\BlackHorse\VibeCoding\记账app\雷霆记账app_exe\
+├── 雷霆记账.exe.lnk    # 快捷方式（双击直接运行）
+└── win-unpacked\       # 完整的可执行程序目录
+    └── 雷霆记账.exe
+```
+
+### 部署脚本
+
+`npm run deploy` 等价于 `node scripts/deploy.cjs`，该脚本自动完成：
+1. 读取并递增 `package.json` 中对应级别的版本号（通过环境变量 `VERSION_BUMP` 指定：`major` / `minor` / `patch`，默认 `patch`）
+2. 更新 `src/components/Sidebar.tsx` 中的版本文本
+3. 执行 `npm run dist:win` 构建打包
+4. 将 `release/win-unpacked/` 复制到输出目录
+5. 在输出目录创建 `雷霆记账.exe.lnk` 快捷方式
+
+使用方式：
+```bash
+npm run deploy              # 默认 patch 级别升级
+npm run deploy -- major     # major 级别升级
+npm run deploy -- minor     # minor 级别升级
+```
+
 ## 设计原则
 
 1. **简洁优先** — UI 不花哨，记账流程不超过 3 步
@@ -147,3 +195,4 @@ npm run dist:mac      # 打包 macOS 安装包
 3. **分类可配** — 预设分类可增删改，用户可自定义
 4. **响应式** — 窗口尺寸自适应，最小支持 900×600
 5. **代码规范** — TypeScript 严格模式，组件单一职责
+6. **自动化部署** — 每次代码修改后自动更新版本号、打包、输出到指定目录

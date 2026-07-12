@@ -4,7 +4,7 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid
 } from 'recharts'
-import { Download } from 'lucide-react'
+import { Download, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store'
 import type { StatsResult } from '@/types'
 
@@ -17,6 +17,8 @@ export function Stats() {
   const [period, setPeriod] = useState<'thisMonth' | 'lastMonth' | 'last3Months'>('thisMonth')
   const [stats, setStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const addToast = useStore((s) => s.addToast)
 
   const now = new Date()
 
@@ -49,10 +51,11 @@ export function Stats() {
 
   useEffect(() => {
     setLoading(true)
+    setError(false)
     window.electronAPI
       .getStats(dateRange.start, dateRange.end)
-      .then(setStats)
-      .catch(console.error)
+      .then((s) => { setStats(s); setError(false) })
+      .catch((e) => { console.error(e); setError(true) })
       .finally(() => setLoading(false))
   }, [dateRange.start, dateRange.end])
 
@@ -67,9 +70,11 @@ export function Stats() {
       )
       if (filePath) {
         await window.electronAPI.writeFile(filePath, csv)
+        addToast('success', 'CSV 文件已导出')
       }
     } catch (e) {
       console.error('Export failed:', e)
+      addToast('error', '导出失败，请重试')
     }
   }
 
@@ -87,7 +92,7 @@ export function Stats() {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Period selector + export */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           {([
             ['thisMonth', '本月'],
             ['lastMonth', '上月'],
@@ -98,8 +103,8 @@ export function Stats() {
               onClick={() => setPeriod(key)}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${period === key
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }
               `}
             >
@@ -108,7 +113,7 @@ export function Stats() {
           ))}
         </div>
 
-        <button onClick={handleExport} className="btn-secondary text-sm flex items-center gap-1.5">
+        <button onClick={handleExport} className="btn-secondary dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1.5">
           <Download size={14} />
           导出 CSV
         </button>
@@ -118,25 +123,42 @@ export function Stats() {
         <div className="flex items-center justify-center py-32">
           <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
         </div>
+      ) : error ? (
+        <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
+          <AlertTriangle size={32} className="mx-auto mb-3 text-amber-500" />
+          <p className="text-gray-500 dark:text-gray-400">统计数据加载失败</p>
+          <button
+            onClick={() => {
+              window.electronAPI
+                .getStats(dateRange.start, dateRange.end)
+                .then(setStats)
+                .catch(console.error)
+                .finally(() => setLoading(false))
+            }}
+            className="mt-3 text-sm text-primary-500 hover:text-primary-600 font-medium"
+          >
+            点击重试
+          </button>
+        </div>
       ) : !stats || stats.count === 0 ? (
-        <div className="card py-16 text-center">
-          <p className="text-gray-400">该时间段暂无数据</p>
+        <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
+          <p className="text-gray-400 dark:text-gray-500">该时间段暂无数据</p>
         </div>
       ) : (
         <>
           {/* Summary */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="card p-4 text-center">
-              <p className="text-xs text-gray-500 mb-1">总支出</p>
-              <p className="text-xl font-bold text-gray-900">¥{stats.totalAmount.toFixed(2)}</p>
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">总支出</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">¥{stats.totalAmount.toFixed(2)}</p>
             </div>
-            <div className="card p-4 text-center">
-              <p className="text-xs text-gray-500 mb-1">总笔数</p>
-              <p className="text-xl font-bold text-gray-900">{stats.count}</p>
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">总笔数</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{stats.count}</p>
             </div>
-            <div className="card p-4 text-center">
-              <p className="text-xs text-gray-500 mb-1">日均</p>
-              <p className="text-xl font-bold text-gray-900">
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">日均</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
                 ¥{(stats.totalAmount / Math.max(1, lineData.length)).toFixed(2)}
               </p>
             </div>
@@ -145,8 +167,8 @@ export function Stats() {
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Pie chart - category breakdown */}
-            <div className="card p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">支出分类占比</h3>
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">支出分类占比</h3>
               <div className="flex flex-col sm:flex-row items-center gap-4">
                 {/* Donut chart */}
                 <div className="w-[200px] h-[200px] shrink-0">
@@ -190,9 +212,9 @@ export function Stats() {
                           className="w-2.5 h-2.5 rounded-full shrink-0"
                           style={{ backgroundColor: COLORS[idx % COLORS.length] }}
                         />
-                        <span className="text-gray-700 truncate flex-1 min-w-0">{item.name}</span>
-                        <span className="text-gray-400 shrink-0">{pct}%</span>
-                        <span className="text-gray-900 font-medium shrink-0 w-[72px] text-right">
+                        <span className="text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">{item.name}</span>
+                        <span className="text-gray-400 dark:text-gray-500 shrink-0">{pct}%</span>
+                        <span className="text-gray-900 dark:text-gray-100 font-medium shrink-0 w-[72px] text-right">
                           ¥{item.value.toFixed(2)}
                         </span>
                       </div>
@@ -203,15 +225,15 @@ export function Stats() {
             </div>
 
             {/* Line chart - daily trend */}
-            <div className="card p-5 lg:col-span-2">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">每日支出趋势</h3>
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">每日支出趋势</h3>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={lineData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
                     tick={{ fontSize: 11, fill: '#9ca3af' }}
-                    axisLine={{ stroke: '#e5e7eb' }}
+                    axisLine={{ stroke: '#4b5563' }}
                     tickLine={false}
                     interval="preserveStartEnd"
                   />
@@ -227,7 +249,9 @@ export function Stats() {
                     contentStyle={{
                       borderRadius: '8px',
                       border: '1px solid #e5e7eb',
-                      fontSize: '13px'
+                      fontSize: '13px',
+                      backgroundColor: '#1f2937',
+                      color: '#f9fafb'
                     }}
                   />
                   <Line
@@ -245,29 +269,29 @@ export function Stats() {
           </div>
 
           {/* Category detail table */}
-          <div className="card p-5">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">分类明细</h3>
+          <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">分类明细</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left py-2 px-3 text-gray-500 font-medium">一级分类</th>
-                    <th className="text-left py-2 px-3 text-gray-500 font-medium">二级分类</th>
-                    <th className="text-right py-2 px-3 text-gray-500 font-medium">笔数</th>
-                    <th className="text-right py-2 px-3 text-gray-500 font-medium">金额</th>
-                    <th className="text-right py-2 px-3 text-gray-500 font-medium">占比</th>
+                  <tr className="border-b border-gray-100 dark:border-gray-700">
+                    <th className="text-left py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">一级分类</th>
+                    <th className="text-left py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">二级分类</th>
+                    <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">笔数</th>
+                    <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">金额</th>
+                    <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">占比</th>
                   </tr>
                 </thead>
                 <tbody>
                   {stats.byCategory2.map((row, idx) => (
-                    <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                      <td className="py-2 px-3 text-gray-900">{row.category1}</td>
-                      <td className="py-2 px-3 text-gray-600">{row.category2}</td>
-                      <td className="py-2 px-3 text-right text-gray-600">{row.count}</td>
-                      <td className="py-2 px-3 text-right text-gray-900 font-medium">
+                    <tr key={idx} className="border-b border-gray-50 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-750 transition-colors">
+                      <td className="py-2 px-3 text-gray-900 dark:text-gray-200">{row.category1}</td>
+                      <td className="py-2 px-3 text-gray-600 dark:text-gray-400">{row.category2}</td>
+                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{row.count}</td>
+                      <td className="py-2 px-3 text-right text-gray-900 dark:text-gray-200 font-medium">
                         ¥{row.total.toFixed(2)}
                       </td>
-                      <td className="py-2 px-3 text-right text-gray-400">
+                      <td className="py-2 px-3 text-right text-gray-400 dark:text-gray-500">
                         {stats.totalAmount > 0
                           ? (row.total / stats.totalAmount * 100).toFixed(1) + '%'
                           : '-'

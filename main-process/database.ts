@@ -3,6 +3,9 @@ import fs from 'fs'
 import { app } from 'electron'
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SqlJsStatic = any
+
 let db: SqlJsDatabase
 let dbPath: string
 
@@ -80,33 +83,23 @@ function rowToBill(row: Record<string, unknown>): BillRow {
 }
 
 function queryAll(sql: string, params?: Record<string, string | number>): BillRow[] {
-  // sql.js uses positional params with :named format
-  // Convert to positional for simplicity with exec
-  let stmt: string
-  if (params) {
-    const values: (string | number)[] = []
-    stmt = sql.replace(/@(\w+)/g, (_match, name) => {
-      values.push(params[name])
-      return '?'
-    })
-    const results = db.exec(stmt, values)
-    if (!results.length || !results[0].columns.length) return []
-    const cols = results[0].columns
-    return results[0].values.map((row: unknown[]) => {
-      const obj: Record<string, unknown> = {}
-      cols.forEach((col, i) => { obj[col] = row[i] })
-      return rowToBill(obj)
-    })
-  } else {
-    const results = db.exec(stmt)
-    if (!results.length || !results[0].columns.length) return []
-    const cols = results[0].columns
-    return results[0].values.map((row: unknown[]) => {
-      const obj: Record<string, unknown> = {}
-      cols.forEach((col, i) => { obj[col] = row[i] })
-      return rowToBill(obj)
-    })
-  }
+  // sql.js uses positional params; convert @named to ? placeholders
+  const values: (string | number)[] = []
+  const stmt = params
+    ? sql.replace(/@(\w+)/g, (_match, name) => {
+        values.push(params[name])
+        return '?'
+      })
+    : sql
+
+  const results = db.exec(stmt, values)
+  if (!results.length || !results[0].columns.length) return []
+  const cols = results[0].columns
+  return results[0].values.map((row: unknown[]) => {
+    const obj: Record<string, unknown> = {}
+    cols.forEach((col: string, i: number) => { obj[col] = row[i] })
+    return rowToBill(obj)
+  })
 }
 
 function queryOne(sql: string, params?: Record<string, string | number>): BillRow | null {

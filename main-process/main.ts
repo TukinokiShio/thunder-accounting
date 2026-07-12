@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV } from './database'
@@ -38,6 +38,8 @@ app.whenReady().then(async () => {
   await initDatabase()
   registerIpcHandlers()
   createWindow()
+  setupMenu()
+  registerShortcuts()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -46,11 +48,96 @@ app.whenReady().then(async () => {
   })
 })
 
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+})
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
+
+// ─── Menu ──────────────────────────────────────────
+
+function setupMenu(): void {
+  const isMac = process.platform === 'darwin'
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const, label: '关于雷霆记账' },
+        { type: 'separator' as const },
+        { role: 'quit' as const, label: '退出' }
+      ]
+    }] : []),
+    {
+      label: '文件',
+      submenu: [
+        {
+          label: '记一笔',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => mainWindow?.webContents.send('shortcut:addBill')
+        },
+        { type: 'separator' },
+        isMac ? { role: 'close', label: '关闭窗口' } : { role: 'quit', label: '退出' }
+      ]
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'selectAll', label: '全选' }
+      ]
+    },
+    {
+      label: '视图',
+      submenu: [
+        { role: 'reload', label: '刷新' },
+        { role: 'forceReload', label: '强制刷新' },
+        { role: 'toggleDevTools', label: '开发者工具' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '重置缩放' },
+        { role: 'zoomIn', label: '放大' },
+        { role: 'zoomOut', label: '缩小' }
+      ]
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于雷霆记账',
+          click: () => {
+            dialog.showMessageBox(mainWindow!, {
+              type: 'info',
+              title: '关于 雷霆记账',
+              message: '⚡ 雷霆记账',
+              detail: '轻量级个人日常记账工具\n\n3秒完成一笔记账，分类清晰，统计直观。\n数据存储在本地，安全可靠。'
+            })
+          }
+        }
+      ]
+    }
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
+}
+
+// ─── Shortcuts ─────────────────────────────────────
+
+function registerShortcuts(): void {
+  // Ctrl+N / Cmd+N → 快速记一笔（渲染进程监听 shortcut:addBill）
+  globalShortcut.register('CommandOrControl+N', () => {
+    mainWindow?.webContents.send('shortcut:addBill', 'addBill')
+  })
+}
 
 // ─── IPC Handlers ──────────────────────────────────
 
