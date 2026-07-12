@@ -5,6 +5,7 @@ export interface Bill {
   category2: string
   date: string
   note: string
+  type: string
   created_at: string
 }
 
@@ -20,6 +21,7 @@ export interface AddBillForm {
   category2: string
   date: string
   note: string
+  type: 'expense' | 'income'
 }
 
 export interface StatsResult {
@@ -35,7 +37,7 @@ export interface ElectronAPI {
   getBills: (filters?: { startDate?: string; endDate?: string; category1?: string }) => Promise<Bill[]>
   updateBill: (id: number, params: Partial<Omit<Bill, 'id' | 'created_at'>>) => Promise<Bill>
   deleteBill: (id: number) => Promise<void>
-  getStats: (startDate: string, endDate: string) => Promise<StatsResult>
+  getStats: (startDate: string, endDate: string, type?: 'expense' | 'income') => Promise<StatsResult>
   exportCSV: (filters?: { startDate?: string; endDate?: string }) => Promise<string>
   showSaveDialog: (defaultName: string) => Promise<string | null>
   writeFile: (filePath: string, content: string) => Promise<boolean>

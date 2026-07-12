@@ -149,7 +149,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('bill:delete', (_event, id) => { deleteBill(id) })
 
   // Stats
-  ipcMain.handle('stats:get', (_event, startDate, endDate) => getStats(startDate, endDate))
+  ipcMain.handle('stats:get', (_event, startDate, endDate, type) => getStats(startDate, endDate, type))
 
   // Export
   ipcMain.handle('export:csv', (_event, filters) => exportCSV(filters?.startDate, filters?.endDate))

@@ -32,11 +32,19 @@ export async function initDatabase(): Promise<void> {
       category2 TEXT NOT NULL,
       date TEXT NOT NULL,
       note TEXT DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'expense',
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     )
   `)
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date)')
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_category1 ON bills(category1)')
+
+  // 兼容旧数据库：尝试添加 type 列
+  try {
+    db.run("ALTER TABLE bills ADD COLUMN type TEXT NOT NULL DEFAULT 'expense'")
+  } catch {
+    // 列已存在则忽略
+  }
 
   saveDb()
 }
@@ -59,6 +67,7 @@ export interface BillRow {
   category2: string
   date: string
   note: string
+  type: string
   created_at: string
 }
 
@@ -68,6 +77,7 @@ export interface AddBillParams {
   category2: string
   date: string
   note?: string
+  type?: 'expense' | 'income'
 }
 
 function rowToBill(row: Record<string, unknown>): BillRow {
@@ -78,6 +88,7 @@ function rowToBill(row: Record<string, unknown>): BillRow {
     category2: row.category2 as string,
     date: row.date as string,
     note: row.note as string,
+    type: row.type as string,
     created_at: row.created_at as string
   }
 }
@@ -128,14 +139,15 @@ function runStmt(sql: string, params?: Record<string, string | number>): number 
 
 export function addBill(params: AddBillParams): BillRow {
   const id = runStmt(`
-    INSERT INTO bills (amount, category1, category2, date, note)
-    VALUES (@amount, @category1, @category2, @date, @note)
+    INSERT INTO bills (amount, category1, category2, date, note, type)
+    VALUES (@amount, @category1, @category2, @date, @note, @type)
   `, {
     amount: params.amount,
     category1: params.category1,
     category2: params.category2,
     date: params.date,
-    note: params.note || ''
+    note: params.note || '',
+    type: params.type || 'expense'
   })
   return queryOne('SELECT * FROM bills WHERE id = ?', { id: String(id) })!
 }
@@ -176,6 +188,7 @@ export function updateBill(id: number, params: Partial<AddBillParams>): BillRow 
   if (params.category2 !== undefined) { fields.push('category2 = @category2'); values.category2 = params.category2 }
   if (params.date !== undefined) { fields.push('date = @date'); values.date = params.date }
   if (params.note !== undefined) { fields.push('note = @note'); values.note = params.note }
+  if (params.type !== undefined) { fields.push('type = @type'); values.type = params.type }
 
   if (fields.length > 0) {
     runStmt(`UPDATE bills SET ${fields.join(', ')} WHERE id = @id`, values)
@@ -197,17 +210,24 @@ export interface StatsResult {
   byDate: Array<{ date: string; total: number; count: number }>
 }
 
-export function getStats(startDate: string, endDate: string): StatsResult {
+export function getStats(startDate: string, endDate: string, type?: 'expense' | 'income'): StatsResult {
+  let typeFilter = ''
+  const params: (string | number)[] = [startDate, endDate]
+  if (type) {
+    typeFilter = ' AND type = ?'
+    params.push(type)
+  }
+
   const totalResult = db.exec(
-    'SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ?',
-    [startDate, endDate]
+    `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ?${typeFilter}`,
+    params
   )
   const totalRow = totalResult[0]?.values[0] ?? [0, 0]
   const totalAmount = totalRow[0] as number
   const count = totalRow[1] as number
 
   function execStats(sql: string): Array<Record<string, unknown>> {
-    const res = db.exec(sql, [startDate, endDate])
+    const res = db.exec(sql, params)
     if (!res.length || !res[0].columns.length) return []
     return res[0].values.map((row: unknown[]) => {
       const obj: Record<string, unknown> = {}
@@ -217,15 +237,15 @@ export function getStats(startDate: string, endDate: string): StatsResult {
   }
 
   const byCategory1 = execStats(
-    'SELECT category1, SUM(amount) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ? GROUP BY category1 ORDER BY total DESC'
+    `SELECT category1, SUM(amount) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ?${typeFilter} GROUP BY category1 ORDER BY total DESC`
   ) as Array<{ category1: string; total: number; count: number }>
 
   const byCategory2 = execStats(
-    'SELECT category1, category2, SUM(amount) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ? GROUP BY category1, category2 ORDER BY total DESC'
+    `SELECT category1, category2, SUM(amount) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ?${typeFilter} GROUP BY category1, category2 ORDER BY total DESC`
   ) as Array<{ category1: string; category2: string; total: number; count: number }>
 
   const byDate = execStats(
-    'SELECT date, SUM(amount) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date ASC'
+    `SELECT date, SUM(amount) as total, COUNT(*) as count FROM bills WHERE date >= ? AND date <= ?${typeFilter} GROUP BY date ORDER BY date ASC`
   ) as Array<{ date: string; total: number; count: number }>
 
   return { totalAmount, count, byCategory1, byCategory2, byDate }
@@ -235,9 +255,9 @@ export function getStats(startDate: string, endDate: string): StatsResult {
 
 export function exportCSV(startDate?: string, endDate?: string): string {
   const bills = getBills({ startDate, endDate })
-  const header = 'id,金额,一级分类,二级分类,日期,备注,创建时间\n'
+  const header = 'id,金额,一级分类,二级分类,日期,备注,类型,创建时间\n'
   const rows = bills.map(b =>
-    `${b.id},${b.amount},${b.category1},${b.category2},${b.date},"${b.note}",${b.created_at}`
+    `${b.id},${b.amount},${b.category1},${b.category2},${b.date},"${b.note}",${b.type},${b.created_at}`
   ).join('\n')
   return '﻿' + header + rows // BOM for Excel Chinese support
 }

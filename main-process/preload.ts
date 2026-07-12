@@ -8,6 +8,7 @@ const electronAPI = {
     category2: string
     date: string
     note?: string
+    type?: 'expense' | 'income'
   }) => ipcRenderer.invoke('bill:add', params),
 
   getBills: (filters?: {
@@ -22,13 +23,14 @@ const electronAPI = {
     category2: string
     date: string
     note: string
+    type: string
   }>) => ipcRenderer.invoke('bill:update', id, params),
 
   deleteBill: (id: number) => ipcRenderer.invoke('bill:delete', id),
 
   // Stats
-  getStats: (startDate: string, endDate: string) =>
-    ipcRenderer.invoke('stats:get', startDate, endDate),
+  getStats: (startDate: string, endDate: string, type?: 'expense' | 'income') =>
+    ipcRenderer.invoke('stats:get', startDate, endDate, type),
 
   // Export
   exportCSV: (filters?: { startDate?: string; endDate?: string }) =>

@@ -9,7 +9,8 @@ const emptyForm: AddBillForm = {
   category1: '',
   category2: '',
   date: new Date().toISOString().slice(0, 10),
-  note: ''
+  note: '',
+  type: 'expense'
 }
 
 export function AddBillDialog() {
@@ -37,7 +38,8 @@ export function AddBillDialog() {
           category1: bill.category1,
           category2: bill.category2,
           date: bill.date,
-          note: bill.note
+          note: bill.note,
+          type: (bill.type as 'expense' | 'income') || 'expense'
         })
       }
     } else {
@@ -100,7 +102,8 @@ export function AddBillDialog() {
       category1: form.category1,
       category2: form.category2,
       date: form.date,
-      note: form.note.trim()
+      note: form.note.trim(),
+      type: form.type
     }
 
     setSubmitting(true)
