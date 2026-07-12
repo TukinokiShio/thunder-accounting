@@ -142,7 +142,10 @@ $Shortcut.IconLocation = '${exePath.replace(/'/g, "''")}'
 $Shortcut.Description = '雷霆记账 — 轻量级个人日常记账工具'
 $Shortcut.Save()
 `
-  execSync(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
+  // Write to temp file with BOM so PowerShell reads Chinese correctly
+  const tmpFile = path.join(require('os').tmpdir(), 'thunder-shortcut.ps1')
+  fs.writeFileSync(tmpFile, '﻿' + psScript, 'utf-8')
+  execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`, { stdio: 'pipe' })
 }
 
 // 创建快捷方式到输出目录和桌面
