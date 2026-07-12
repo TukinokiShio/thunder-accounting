@@ -1,6 +1,6 @@
 {
   "name": "thunder-accounting",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "雷霆记账 - 轻量级个人日常记账工具",
   "main": "./app-out/main/main.js",
   "author": "TukinokiShio",

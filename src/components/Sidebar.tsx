@@ -48,7 +48,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-700">
-        <p className="text-xs text-gray-400 dark:text-gray-500">雷霆记账 v1.2.1</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500">雷霆记账 v1.3.0</p>
       </div>
     </aside>
   )

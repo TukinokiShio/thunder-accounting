@@ -13,6 +13,24 @@ const COLORS = [
   '#ec4899', '#06b6d4', '#f97316', '#64748b', '#84cc16'
 ]
 
+const RADIAN = Math.PI / 180
+
+// 环形图环外标签渲染（名称 + 百分比 + 引导线）
+const renderLabel = ({ cx, cy, midAngle, outerRadius, name, percent }: any) => {
+  const radius = outerRadius + 35
+  const x = cx + radius * Math.cos(-midAngle * RADIAN)
+  const y = cy + radius * Math.sin(-midAngle * RADIAN)
+  const textAnchor = x > cx ? 'start' : 'end'
+
+  return (
+    <text x={x} y={y} textAnchor={textAnchor} dominantBaseline="central"
+      className="text-xs fill-gray-700 dark:fill-gray-300"
+    >
+      {name} {(percent * 100).toFixed(0)}%
+    </text>
+  )
+}
+
 export function Stats() {
   const [period, setPeriod] = useState<'thisMonth' | 'lastMonth' | 'last3Months'>('thisMonth')
   const [stats, setStats] = useState<StatsResult | null>(null)
@@ -90,6 +108,15 @@ export function Stats() {
     date: d.date.slice(5), // MM-DD
     amount: d.total
   })) ?? []
+
+  // 找出支出最大的一级分类，用于第二个环形图
+  const topCategory1 = stats?.byCategory1[0]?.category1 ?? null
+
+  const subPieData = topCategory1
+    ? stats.byCategory2
+        .filter((c) => c.category1 === topCategory1)
+        .map((c) => ({ name: c.category2, value: c.total }))
+    : []
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -175,65 +202,83 @@ export function Stats() {
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Pie chart - category breakdown */}
+            {/* Ring chart 1 - 一级分类支出占比 */}
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">支出分类占比</h3>
-              <div className="flex flex-col sm:flex-row items-center gap-4">
-                {/* Donut chart */}
-                <div className="w-[200px] h-[200px] shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={95}
-                        innerRadius={55}
-                        strokeWidth={0}
-                      >
-                        {pieData.map((_, idx) => (
-                          <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: number) => [`¥${value.toFixed(2)}`, '金额']}
-                        labelFormatter={(name: string) => name}
-                        contentStyle={{
-                          borderRadius: '8px',
-                          border: '1px solid #e5e7eb',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                {/* Custom legend */}
-                <div className="flex-1 min-w-0 space-y-1.5 max-h-[200px] overflow-auto">
-                  {pieData.map((item, idx) => {
-                    const pct = stats.totalAmount > 0
-                      ? (item.value / stats.totalAmount * 100).toFixed(1)
-                      : '0'
-                    return (
-                      <div key={item.name} className="flex items-center gap-2 text-sm">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: COLORS[idx % COLORS.length] }}
-                        />
-                        <span className="text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">{item.name}</span>
-                        <span className="text-gray-400 dark:text-gray-500 shrink-0">{pct}%</span>
-                        <span className="text-gray-900 dark:text-gray-100 font-medium shrink-0 w-[72px] text-right">
-                          ¥{item.value.toFixed(2)}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">支出分类占比</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={95}
+                    innerRadius={55}
+                    strokeWidth={0}
+                    label={renderLabel}
+                    labelLine={true}
+                  >
+                    {pieData.map((_, idx) => (
+                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number) => [`¥${value.toFixed(2)}`, '金额']}
+                    labelFormatter={(name: string) => name}
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: '1px solid #e5e7eb',
+                      fontSize: '13px'
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
 
-            {/* Line chart - daily trend */}
+            {/* Ring chart 2 - 最大支出一级分类的二级分类明细 */}
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                {topCategory1 ? `「${topCategory1}」二级分类` : '二级分类明细'}
+              </h3>
+              {subPieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie
+                      data={subPieData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={95}
+                      innerRadius={55}
+                      strokeWidth={0}
+                      label={renderLabel}
+                      labelLine={true}
+                    >
+                      {subPieData.map((_, idx) => (
+                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value: number) => [`¥${value.toFixed(2)}`, '金额']}
+                      labelFormatter={(name: string) => name}
+                      contentStyle={{
+                        borderRadius: '8px',
+                        border: '1px solid #e5e7eb',
+                        fontSize: '13px'
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[280px] text-gray-400 dark:text-gray-500 text-sm">
+                  暂无明细数据
+                </div>
+              )}
+            </div>
+
+            {/* Line chart - 每日支出趋势 */}
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">每日支出趋势</h3>
               <ResponsiveContainer width="100%" height={260}>
