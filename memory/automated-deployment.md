@@ -1,6 +1,6 @@
 ---
 name: automated-deployment
-description: 自动化部署规则：每次代码修改后自动递增版本号、构建打包、输出到指定目录并创建快捷方式
+description: 自动化部署规则：每次代码修改后自动递增版本号、构建打包、输出到指定目录并更新桌面快捷方式
 metadata:
   type: project
 ---
@@ -28,6 +28,7 @@ metadata:
 - 执行 `npm run dist:win` 构建打包
 - 复制 `release/win-unpacked/` 到 `E:\Code\BlackHorse\VibeCoding\记账app\雷霆记账app_exe\`
 - 创建 `雷霆记账.exe.lnk` 快捷方式到输出目录
+- 创建 `雷霆记账.lnk` 快捷方式到桌面（`%USERPROFILE%\Desktop\`）
 
 ### 3. 输出目录结构
 ```
@@ -36,7 +37,10 @@ E:\Code\BlackHorse\VibeCoding\记账app\雷霆记账app_exe\
 └── win-unpacked\
     ├── 雷霆记账.exe
     └── ...
+
+C:\Users\d8502\Desktop\
+└── 雷霆记账.lnk              # 桌面快捷方式，每次部署自动更新
 ```
 
-**Why:** 用户要求每次修改代码后自动生成最新的可用 exe，确保随时可以演示/使用最新版本。
+**Why:** 用户要求每次代码修改后自动生成最新的可用 exe，并同步更新桌面快捷方式，确保随时可以双击桌面图标启动最新版本。
 **How to apply:** 每次代码修改完成后，判断改动规模，选择对应级别运行 `npm run deploy`。

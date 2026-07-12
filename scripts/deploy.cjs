@@ -27,6 +27,7 @@ const PKG_PATH = path.join(ROOT, 'package.json')
 const SIDEBAR_PATH = path.join(ROOT, 'src', 'components', 'Sidebar.tsx')
 const RELEASE_DIR = path.join(ROOT, 'release', 'win-unpacked')
 const OUTPUT_DIR = 'E:/Code/BlackHorse/VibeCoding/记账app/雷霆记账app_exe'
+const DESKTOP_DIR = path.join(require('os').homedir(), 'Desktop')
 
 // ─── 1. 读取并递增版本号 ───────────────────────
 
@@ -131,12 +132,8 @@ if (!fs.existsSync(exePath)) {
   }
 }
 
-const shortcutPath = path.join(OUTPUT_DIR, '雷霆记账.exe.lnk')
-
-// 使用 PowerShell 创建快捷方式
-if (process.platform === 'win32') {
-  try {
-    const psScript = `
+function createShortcut(shortcutPath) {
+  const psScript = `
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
 $Shortcut.TargetPath = '${exePath.replace(/'/g, "''")}'
@@ -145,8 +142,19 @@ $Shortcut.IconLocation = '${exePath.replace(/'/g, "''")}'
 $Shortcut.Description = '雷霆记账 — 轻量级个人日常记账工具'
 $Shortcut.Save()
 `
-    execSync(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
-    console.log('✅ 快捷方式已创建')
+  execSync(`powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`, { stdio: 'pipe' })
+}
+
+// 创建快捷方式到输出目录和桌面
+if (process.platform === 'win32') {
+  const outputShortcut = path.join(OUTPUT_DIR, '雷霆记账.exe.lnk')
+  const desktopShortcut = path.join(DESKTOP_DIR, '雷霆记账.lnk')
+
+  try {
+    createShortcut(outputShortcut)
+    console.log('✅ 输出目录快捷方式已创建')
+    createShortcut(desktopShortcut)
+    console.log('✅ 桌面快捷方式已创建')
   } catch (err) {
     console.warn('⚠️ 快捷方式创建失败，请手动创建：', err.message)
     // 创建 bat 文件作为备选
@@ -164,7 +172,8 @@ console.log('')
 console.log('🎉 部署完成！')
 console.log(`   版本：v${newVersion}`)
 console.log(`   输出：${OUTPUT_DIR}`)
-console.log(`   快捷方式：${shortcutPath}`)
+console.log(`   输出目录快捷方式：${path.join(OUTPUT_DIR, '雷霆记账.exe.lnk')}`)
+console.log(`   桌面快捷方式：${path.join(DESKTOP_DIR, '雷霆记账.lnk')}`)
 
 // ─── 辅助函数 ──────────────────────────────────
 
