@@ -148,16 +148,20 @@ $Shortcut.Save()
   execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`, { stdio: 'pipe' })
 }
 
-// 创建快捷方式到输出目录和桌面
+// 创建快捷方式：输出目录 + 桌面 + 开始菜单
 if (process.platform === 'win32') {
   const outputShortcut = path.join(OUTPUT_DIR, '雷霆记账.exe.lnk')
   const desktopShortcut = path.join(DESKTOP_DIR, '雷霆记账.lnk')
+  const startMenuDir = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+  const startMenuShortcut = path.join(startMenuDir, '雷霆记账.lnk')
 
   try {
     createShortcut(outputShortcut)
     console.log('✅ 输出目录快捷方式已创建')
     createShortcut(desktopShortcut)
-    console.log('✅ 桌面快捷方式已创建')
+    console.log('✅ 桌面快捷方式已覆盖')
+    createShortcut(startMenuShortcut)
+    console.log('✅ 开始菜单快捷方式已覆盖')
   } catch (err) {
     console.warn('⚠️ 快捷方式创建失败，请手动创建：', err.message)
     // 创建 bat 文件作为备选
@@ -172,11 +176,12 @@ if (process.platform === 'win32') {
 // ─── 完成 ──────────────────────────────────────
 
 console.log('')
+const startMenuDir = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs')
 console.log('🎉 部署完成！')
 console.log(`   版本：v${newVersion}`)
 console.log(`   输出：${OUTPUT_DIR}`)
-console.log(`   输出目录快捷方式：${path.join(OUTPUT_DIR, '雷霆记账.exe.lnk')}`)
 console.log(`   桌面快捷方式：${path.join(DESKTOP_DIR, '雷霆记账.lnk')}`)
+console.log(`   开始菜单快捷方式：${path.join(startMenuDir, '雷霆记账.lnk')}`)
 
 // ─── 辅助函数 ──────────────────────────────────
 
