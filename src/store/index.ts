@@ -31,8 +31,13 @@ interface AppState {
   // 筛选条件
   filterCategory1: string
   filterMonth: string // YYYY-MM
+  filterType: '' | 'expense' | 'income'
   setFilterCategory1: (cat: string) => void
   setFilterMonth: (month: string) => void
+  setFilterType: (t: '' | 'expense' | 'income') => void
+
+  // 刷新触发器（记一笔后 +1，首页监听触发自动刷新）
+  refreshTrigger: number
 
   // Toast 通知
   toasts: Toast[]
@@ -68,19 +73,23 @@ export const useStore = create<AppState>((set, get) => ({
     }
     try {
       const bills = await window.electronAPI.getBills(filters)
-      set({ bills })
+      set((s) => ({ bills, refreshTrigger: s.refreshTrigger + 1 }))
     } catch (e) {
       console.error('Failed to refresh bills:', e)
     }
   },
+
+  refreshTrigger: 0,
 
   stats: null,
   setStats: (stats) => set({ stats }),
 
   filterCategory1: '',
   filterMonth: '',
+  filterType: '',
   setFilterCategory1: (cat) => set({ filterCategory1: cat }),
   setFilterMonth: (month) => set({ filterMonth: month }),
+  setFilterType: (t) => set({ filterType: t }),
 
   toasts: [],
   addToast: (type, message) => {

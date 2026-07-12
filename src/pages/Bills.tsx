@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '@/store'
 import { presetCategories } from '@/data/categories'
+import { incomeCategories } from '@/data/incomeCategories'
 import { Search, Trash2, FilterX, Pencil } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import type { Bill } from '@/types'
@@ -9,8 +10,10 @@ export function Bills() {
   const bills = useStore((s) => s.bills)
   const filterCategory1 = useStore((s) => s.filterCategory1)
   const filterMonth = useStore((s) => s.filterMonth)
+  const filterType = useStore((s) => s.filterType)
   const setFilterCategory1 = useStore((s) => s.setFilterCategory1)
   const setFilterMonth = useStore((s) => s.setFilterMonth)
+  const setFilterType = useStore((s) => s.setFilterType)
   const refreshBills = useStore((s) => s.refreshBills)
   const openEditDialog = useStore((s) => s.openEditDialog)
   const addToast = useStore((s) => s.addToast)
@@ -32,12 +35,16 @@ export function Bills() {
       b.note.toLowerCase().includes(q) ||
       b.amount.toString().includes(q)
     )
+  }).filter((b) => {
+    if (!filterType) return true
+    return b.type === filterType
   })
 
-  const hasFilters = filterCategory1 || filterMonth
+  const hasFilters = filterCategory1 || filterMonth || filterType
   const clearFilters = () => {
     setFilterCategory1('')
     setFilterMonth('')
+    setFilterType('')
     setSearch('')
   }
 
@@ -45,7 +52,7 @@ export function Bills() {
     if (!deleteTarget) return
     try {
       await window.electronAPI.deleteBill(deleteTarget.id)
-      addToast('success', `已删除：${deleteTarget.category1}·${deleteTarget.category2} ¥${deleteTarget.amount.toFixed(2)}`)
+      addToast('success', `已删除：${deleteTarget.category1}·${deleteTarget.category2} ${deleteTarget.type === 'income' ? '+' : '-'}¥${deleteTarget.amount.toFixed(2)}`)
       setDeleteTarget(null)
       await refreshBills()
     } catch (e) {
@@ -55,7 +62,9 @@ export function Bills() {
   }
 
   const catIcon = (cat1: string) =>
-    presetCategories.find((c) => c.name === cat1)?.icon ?? '📦'
+    presetCategories.find((c) => c.name === cat1)?.icon ??
+    incomeCategories.find((c) => c.name === cat1)?.icon ??
+    '📦'
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -94,6 +103,17 @@ export function Bills() {
             ))}
           </select>
 
+          {/* Type filter */}
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
+            className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-auto text-sm min-w-[100px]"
+          >
+            <option value="">全部类型</option>
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+          </select>
+
           {/* Clear filters */}
           {hasFilters && (
             <button onClick={clearFilters} className="btn-secondary dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1">
@@ -110,8 +130,16 @@ export function Bills() {
           <span>共 {filtered.length} 条记录</span>
           <span>·</span>
           <span className="text-red-500 dark:text-red-400 font-medium">
-            合计 ¥{filtered.reduce((s, b) => s + b.amount, 0).toFixed(2)}
+            支出合计 ¥{filtered.filter(b => b.type === 'expense').reduce((s, b) => s + b.amount, 0).toFixed(2)}
           </span>
+          {filtered.some(b => b.type === 'income') && (
+            <>
+              <span>·</span>
+              <span className="text-green-500 dark:text-green-400 font-medium">
+                收入合计 ¥{filtered.filter(b => b.type === 'income').reduce((s, b) => s + b.amount, 0).toFixed(2)}
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -157,8 +185,12 @@ export function Bills() {
                 </div>
 
                 {/* Amount */}
-                <span className="text-sm font-semibold text-red-500 dark:text-red-400 shrink-0">
-                  -¥{bill.amount.toFixed(2)}
+                <span className={`text-sm font-semibold shrink-0 ${
+                  bill.type === 'income'
+                    ? 'text-green-500 dark:text-green-400'
+                    : 'text-red-500 dark:text-red-400'
+                }`}>
+                  {bill.type === 'income' ? '+' : '-'}¥{bill.amount.toFixed(2)}
                 </span>
 
                 {/* Edit */}
@@ -189,7 +221,7 @@ export function Bills() {
         open={deleteTarget !== null}
         title="确认删除"
         message={deleteTarget
-          ? `确定要删除「${deleteTarget.category1}·${deleteTarget.category2}」¥${deleteTarget.amount.toFixed(2)} 这条记录吗？删除后不可恢复。`
+          ? `确定要删除「${deleteTarget.category1}·${deleteTarget.category2}」${deleteTarget.type === 'income' ? '+' : '-'}¥${deleteTarget.amount.toFixed(2)} 这条记录吗？删除后不可恢复。`
           : ''
         }
         confirmLabel="删除"

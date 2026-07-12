@@ -7,7 +7,9 @@ import type { StatsResult } from '@/types'
 export function Home() {
   const bills = useStore((s) => s.bills)
   const refreshBills = useStore((s) => s.refreshBills)
+  const refreshTrigger = useStore((s) => s.refreshTrigger)
   const [stats, setStats] = useState<StatsResult | null>(null)
+  const [incomeStats, setIncomeStats] = useState<StatsResult | null>(null)
   const [lastMonthTotal, setLastMonthTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
@@ -20,12 +22,14 @@ export function Home() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      // 并行请求本月统计 + 上月统计 + 刷新账单
-      const [thisMonthStats, lastMonthStats] = await Promise.all([
-        window.electronAPI.getStats(monthStart, monthEnd),
+      // 并行请求本月支出统计 + 本月收入统计 + 上月统计 + 刷新账单
+      const [expenseStats, incomeStatsResult, lastMonthStats] = await Promise.all([
+        window.electronAPI.getStats(monthStart, monthEnd, 'expense'),
+        window.electronAPI.getStats(monthStart, monthEnd, 'income'),
         window.electronAPI.getStats(lastMonthStart, lastMonthEnd)
       ])
-      setStats(thisMonthStats)
+      setStats(expenseStats)
+      setIncomeStats(incomeStatsResult)
       setLastMonthTotal(lastMonthStats.totalAmount)
       await refreshBills()
     } catch (e) {
@@ -33,7 +37,7 @@ export function Home() {
     } finally {
       setLoading(false)
     }
-  }, [monthStart, monthEnd, lastMonthStart, lastMonthEnd, refreshBills])
+  }, [monthStart, monthEnd, lastMonthStart, lastMonthEnd, refreshBills, refreshTrigger])
 
   useEffect(() => {
     loadData()
@@ -41,7 +45,7 @@ export function Home() {
 
   // 今日支出
   const todayStr = format(today, 'yyyy-MM-dd')
-  const todayBills = bills.filter((b) => b.date === todayStr)
+  const todayBills = bills.filter((b) => b.date === todayStr && b.type === 'expense')
   const todayTotal = todayBills.reduce((sum, b) => sum + b.amount, 0)
 
   const monthTotal = stats?.totalAmount ?? 0
@@ -51,6 +55,9 @@ export function Home() {
   const momChange = lastMonthTotal > 0
     ? ((monthTotal - lastMonthTotal) / lastMonthTotal * 100)
     : 0
+
+  const incomeTotal = incomeStats?.totalAmount ?? 0
+  const balance = incomeTotal - monthTotal
 
   const statCards = [
     {
@@ -80,19 +87,35 @@ export function Home() {
       detail: '本月账单数',
       icon: List,
       color: 'text-purple-500 bg-purple-50 dark:bg-purple-900/20'
+    },
+    {
+      label: '本月收入',
+      value: loading ? '...' : `¥${incomeTotal.toFixed(2)}`,
+      detail: `${incomeStats?.count ?? 0} 笔`,
+      icon: TrendingUp,
+      color: 'text-green-500 bg-green-50 dark:bg-green-900/20'
+    },
+    {
+      label: '本月结余',
+      value: loading ? '...' : `¥${balance.toFixed(2)}`,
+      detail: balance >= 0 ? '收大于支' : '支大于收',
+      icon: Wallet,
+      color: balance >= 0
+        ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+        : 'text-red-500 bg-red-50 dark:bg-red-900/20'
     }
   ]
 
-  // Recent bills (top 5)
-  const recentBills = bills.slice(0, 5)
+  // Recent bills (all this month)
+  const recentBills = bills
 
-  // Top categories this month
-  const topCategories = stats?.byCategory1.slice(0, 5) ?? []
+  // Top categories this month (by secondary category)
+  const topCategories = stats?.byCategory2.slice(0, 5) ?? []
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon
           return (
@@ -117,7 +140,7 @@ export function Home() {
           {recentBills.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">暂无记录，点击右上角"记一笔"开始记账</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[420px] overflow-y-auto">
               {recentBills.map((bill) => (
                 <div
                   key={bill.id}
@@ -129,9 +152,15 @@ export function Home() {
                     </p>
                     <p className="text-xs text-gray-400 dark:text-gray-500">{bill.date}</p>
                   </div>
-                  <span className="text-sm font-semibold text-red-500 dark:text-red-400 ml-3 shrink-0">
-                    -¥{bill.amount.toFixed(2)}
-                  </span>
+                  {bill.type === 'income' ? (
+                    <span className="text-sm font-semibold text-green-500 dark:text-green-400 ml-3 shrink-0">
+                      +¥{bill.amount.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="text-sm font-semibold text-red-500 dark:text-red-400 ml-3 shrink-0">
+                      -¥{bill.amount.toFixed(2)}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -148,10 +177,10 @@ export function Home() {
               {topCategories.map((cat, idx) => {
                 const pct = monthTotal > 0 ? (cat.total / monthTotal * 100) : 0
                 return (
-                  <div key={cat.category1}>
+                  <div key={`${cat.category1}-${cat.category2}`}>
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="text-gray-700 dark:text-gray-300">
-                        {idx + 1}. {cat.category1}
+                        {idx + 1}. {cat.category1} · {cat.category2}
                       </span>
                       <span className="text-gray-900 dark:text-gray-100 font-medium">
                         ¥{cat.total.toFixed(2)}
