@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { CategorySelect } from './CategorySelect'
+import { incomeCategories } from '@/data/incomeCategories'
 import type { AddBillForm } from '@/types'
 
 const emptyForm: AddBillForm = {
@@ -110,10 +111,12 @@ export function AddBillDialog() {
     try {
       if (isEditMode) {
         await window.electronAPI.updateBill(editBillId!, billData)
-        addToast('success', '账单已更新')
+        const editLabel = form.type === 'income' ? '收入' : '支出'
+        addToast('success', `已更新${editLabel}：${form.category1}·${form.category2} ¥${sanitizedAmount.toFixed(2)}`)
       } else {
         await window.electronAPI.addBill(billData)
-        addToast('success', `已记录：${form.category1}·${form.category2} ¥${sanitizedAmount.toFixed(2)}`)
+        const label = form.type === 'income' ? '收入' : '支出'
+        addToast('success', `已记录${label}：${form.category1}·${form.category2} ¥${sanitizedAmount.toFixed(2)}`)
       }
       resetForm()
       closeAddDialog()
@@ -162,11 +165,36 @@ export function AddBillDialog() {
 
         {/* Body */}
         <div className="px-6 py-4 space-y-4">
+          {/* Type toggle */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <button
+              onClick={() => setForm(prev => ({ ...prev, type: 'expense', category1: '', category2: '' }))}
+              className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
+                ${form.type === 'expense'
+                  ? 'bg-white dark:bg-gray-600 text-red-500 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                }`}
+            >
+              支出
+            </button>
+            <button
+              onClick={() => setForm(prev => ({ ...prev, type: 'income', category1: '', category2: '' }))}
+              className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
+                ${form.type === 'income'
+                  ? 'bg-white dark:bg-gray-600 text-green-500 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                }`}
+            >
+              收入
+            </button>
+          </div>
+
           {/* 金额 */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">金额 (¥)</label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg font-medium">¥</span>
+              <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-lg font-medium
+                ${form.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>¥</span>
               <input
                 type="number"
                 step="0.01"
@@ -187,6 +215,7 @@ export function AddBillDialog() {
             <CategorySelect
               category1={form.category1}
               category2={form.category2}
+              categories={form.type === 'income' ? incomeCategories : undefined}
               onCategory1Change={(cat) => setForm(prev => ({ ...prev, category1: cat, category2: '' }))}
               onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
             />
