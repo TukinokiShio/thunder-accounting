@@ -16,6 +16,7 @@ const COLORS = [
 export function Stats() {
   const [period, setPeriod] = useState<'thisMonth' | 'lastMonth' | 'last3Months'>('thisMonth')
   const [stats, setStats] = useState<StatsResult | null>(null)
+  const [incomeStats, setIncomeStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const addToast = useStore((s) => s.addToast)
@@ -52,9 +53,11 @@ export function Stats() {
   useEffect(() => {
     setLoading(true)
     setError(false)
-    window.electronAPI
-      .getStats(dateRange.start, dateRange.end)
-      .then((s) => { setStats(s); setError(false) })
+    Promise.all([
+      window.electronAPI.getStats(dateRange.start, dateRange.end, 'expense'),
+      window.electronAPI.getStats(dateRange.start, dateRange.end, 'income')
+    ])
+      .then(([exp, inc]) => { setStats(exp); setIncomeStats(inc); setError(false) })
       .catch((e) => { console.error(e); setError(true) })
       .finally(() => setLoading(false))
   }, [dateRange.start, dateRange.end])
@@ -129,9 +132,11 @@ export function Stats() {
           <p className="text-gray-500 dark:text-gray-400">统计数据加载失败</p>
           <button
             onClick={() => {
-              window.electronAPI
-                .getStats(dateRange.start, dateRange.end)
-                .then(setStats)
+              Promise.all([
+                window.electronAPI.getStats(dateRange.start, dateRange.end, 'expense'),
+                window.electronAPI.getStats(dateRange.start, dateRange.end, 'income')
+              ])
+                .then(([exp, inc]) => { setStats(exp); setIncomeStats(inc) })
                 .catch(console.error)
                 .finally(() => setLoading(false))
             }}
@@ -140,26 +145,30 @@ export function Stats() {
             点击重试
           </button>
         </div>
-      ) : !stats || stats.count === 0 ? (
+      ) : (!stats || stats.count === 0) && (!incomeStats || incomeStats.count === 0) ? (
         <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
           <p className="text-gray-400 dark:text-gray-500">该时间段暂无数据</p>
         </div>
       ) : (
         <>
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">总支出</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">¥{stats.totalAmount.toFixed(2)}</p>
+              <p className="text-xl font-bold text-red-500">¥{stats.totalAmount.toFixed(2)}</p>
+            </div>
+            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">总收入</p>
+              <p className="text-xl font-bold text-green-500">¥{(incomeStats?.totalAmount ?? 0).toFixed(2)}</p>
             </div>
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">总笔数</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{stats.count}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{stats.count + (incomeStats?.count ?? 0)}</p>
             </div>
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">日均</p>
-              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                ¥{(stats.totalAmount / Math.max(1, lineData.length)).toFixed(2)}
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">结余</p>
+              <p className={`text-xl font-bold ${(incomeStats?.totalAmount ?? 0) - stats.totalAmount >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                ¥{((incomeStats?.totalAmount ?? 0) - stats.totalAmount).toFixed(2)}
               </p>
             </div>
           </div>
