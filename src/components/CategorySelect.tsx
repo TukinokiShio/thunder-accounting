@@ -2,15 +2,19 @@ import { useState, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { presetCategories } from '@/data/categories'
 import { useClickOutside } from './useClickOutside'
+import type { Category } from '@/types'
 
 interface Props {
   category1: string
   category2: string
   onCategory1Change: (cat: string) => void
   onCategory2Change: (cat: string) => void
+  categories?: Category[]
 }
 
-export function CategorySelect({ category1, category2, onCategory1Change, onCategory2Change }: Props) {
+export function CategorySelect({ category1, category2, onCategory1Change, onCategory2Change, categories }: Props) {
+  const cats = categories ?? presetCategories
+
   const [open1, setOpen1] = useState(false)
   const [open2, setOpen2] = useState(false)
 
@@ -18,8 +22,8 @@ export function CategorySelect({ category1, category2, onCategory1Change, onCate
   const ref2 = useClickOutside<HTMLDivElement>(() => setOpen2(false), open2)
 
   const selectedCat = useMemo(
-    () => presetCategories.find((c) => c.name === category1),
-    [category1]
+    () => cats.find((c) => c.name === category1),
+    [category1, cats]
   )
 
   const subCategories = useMemo(
@@ -54,7 +58,7 @@ export function CategorySelect({ category1, category2, onCategory1Change, onCate
 
         {open1 && (
           <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto animate-slide-up">
-            {presetCategories.map((cat) => (
+            {cats.map((cat) => (
               <button
                 key={cat.name}
                 type="button"
