@@ -22,23 +22,28 @@ export function Home() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      // 并行请求本月支出统计 + 本月收入统计 + 上月统计 + 刷新账单
+      // 并行请求本月支出统计 + 本月收入统计 + 上月统计（仅支出，用于环比）
       const [expenseStats, incomeStatsResult, lastMonthStats] = await Promise.all([
         window.electronAPI.getStats(monthStart, monthEnd, 'expense'),
         window.electronAPI.getStats(monthStart, monthEnd, 'income'),
-        window.electronAPI.getStats(lastMonthStart, lastMonthEnd)
+        window.electronAPI.getStats(lastMonthStart, lastMonthEnd, 'expense')
       ])
       setStats(expenseStats)
       setIncomeStats(incomeStatsResult)
       setLastMonthTotal(lastMonthStats.totalAmount)
-      await refreshBills()
     } catch (e) {
       console.error('Failed to load stats:', e)
     } finally {
       setLoading(false)
     }
-  }, [monthStart, monthEnd, lastMonthStart, lastMonthEnd, refreshBills, refreshTrigger])
+  }, [monthStart, monthEnd, lastMonthStart, lastMonthEnd, refreshTrigger])
 
+  // 账单数据加载：月份变化时重新拉取
+  useEffect(() => {
+    refreshBills()
+  }, [monthStart, monthEnd])
+
+  // 统计数据加载：挂载时及 CRUD 操作后刷新
   useEffect(() => {
     loadData()
   }, [loadData])

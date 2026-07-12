@@ -98,7 +98,7 @@ export function Bills() {
             className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-auto text-sm min-w-[120px]"
           >
             <option value="">全部分类</option>
-            {presetCategories.map((cat) => (
+            {(filterType === 'income' ? incomeCategories : presetCategories).map((cat) => (
               <option key={cat.name} value={cat.name}>{cat.icon} {cat.name}</option>
             ))}
           </select>
