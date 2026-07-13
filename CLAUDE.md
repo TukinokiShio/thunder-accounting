@@ -146,7 +146,9 @@ npm run dist:mac      # 打包 macOS 安装包
 
 1. **自动更新版本号**：根据改动规模修改 `package.json` 的 `version` 字段（规则见下方"版本号规范"）
 2. **同步版本号到代码**：更新 `src/components/Sidebar.tsx` 底部的版本显示文本
-3. **构建并打包**：运行 `npm run deploy`（一键完成：版本号同步 → 构建 → 打包 → 复制到输出目录 → 创建快捷方式）
+3. **同步更新 README.md**：根据改动内容更新 README（如功能变化、版本号、截图等），保持 README 始终反映项目最新状态
+4. **构建并打包**：运行 `npm run deploy`（一键完成：版本号同步 → 构建 → 打包 → 复制到输出目录 → 创建快捷方式）
+5. **推送 GitHub**：将所有变更（含 README）推送到 `https://github.com/TukinokiShio/thunder-accounting`
 
 ### 版本号规范（语义化版本 SemVer）
 
