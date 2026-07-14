@@ -133,12 +133,16 @@ if (!fs.existsSync(exePath)) {
 }
 
 function createShortcut(shortcutPath) {
+  // Prefer standalone .ico to avoid Windows icon cache issues
+  const iconSource = require('fs').existsSync(path.join(OUTPUT_DIR, 'icon.ico'))
+    ? path.join(OUTPUT_DIR, 'icon.ico')
+    : exePath
   const psScript = `
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
 $Shortcut.TargetPath = '${exePath.replace(/'/g, "''")}'
 $Shortcut.WorkingDirectory = '${destDir.replace(/'/g, "''")}'
-$Shortcut.IconLocation = '${exePath.replace(/'/g, "''")}'
+$Shortcut.IconLocation = '${iconSource.replace(/'/g, "''")}'
 $Shortcut.Description = '雷霆记账 — 轻量级个人日常记账工具'
 $Shortcut.Save()
 `
@@ -171,6 +175,45 @@ if (process.platform === 'win32') {
   }
 } else {
   console.log('⏭️ 非 Windows 环境，跳过快捷方式创建')
+}
+
+// ─── 6. 清除 Windows 兼容性标记 ──────────────
+// Windows 兼容性助手可能会自动给 EXE 打上"管理员运行"等标记，
+// 导致双击快捷方式无反应。每次部署后自动清除。
+
+if (process.platform === 'win32') {
+  console.log('🧹 清除兼容性标记...')
+  const clearCompatPs = `
+$exePath = '${exePath.replace(/'/g, "''")}'
+$baseKey = 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags'
+$keys = @(
+  '${baseKey}\\Layers',
+  '${baseKey}\\Compatibility Assistant\\Store',
+  '${baseKey}\\Compatibility Assistant\\Persisted',
+  '${baseKey}\\Compatibility Assistant\\Fix'
+)
+foreach ($key in $keys) {
+  if (Test-Path $key) {
+    $props = Get-ItemProperty $key -ErrorAction SilentlyContinue
+    if ($props) {
+      foreach ($prop in $props.PSObject.Properties) {
+        if ($prop.Name -like '*雷霆记账*' -or $prop.Name -like '*thunder-accounting*') {
+          Remove-ItemProperty -Path $key -Name $prop.Name -Force -ErrorAction SilentlyContinue
+          Write-Host "  Removed: $($prop.Name)"
+        }
+      }
+    }
+  }
+}
+`
+  const tmpCompatFile = path.join(require('os').tmpdir(), 'thunder-clear-compat.ps1')
+  fs.writeFileSync(tmpCompatFile, '﻿' + clearCompatPs, 'utf-8')
+  try {
+    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpCompatFile}"`, { stdio: 'pipe' })
+    console.log('✅ 兼容性标记已清除')
+  } catch (err) {
+    console.warn('⚠️ 清除兼容性标记失败（不影响使用）：', err.message)
+  }
 }
 
 // ─── 完成 ──────────────────────────────────────
