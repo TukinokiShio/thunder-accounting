@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV } from './database'
@@ -6,12 +6,18 @@ import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, expo
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  // 运行时图标路径（开发模式 vs 生产模式）
+  const iconPath = process.env.ELECTRON_RENDERER_URL
+    ? path.join(__dirname, '../resources/icon.png')
+    : path.join(process.resourcesPath, 'icon.png')
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
     minWidth: 900,
     minHeight: 600,
     title: '雷霆记账',
+    icon: nativeImage.createFromPath(iconPath),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       sandbox: false,
