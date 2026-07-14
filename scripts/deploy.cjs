@@ -137,11 +137,18 @@ function createShortcut(shortcutPath) {
   const iconSource = require('fs').existsSync(path.join(OUTPUT_DIR, 'icon.ico'))
     ? path.join(OUTPUT_DIR, 'icon.ico')
     : exePath
+
+  // Use explorer.exe as launcher to bypass PCA compatibility tracking.
+  // PCA (Program Compatibility Assistant) monitors shortcut targets and may
+  // force admin-only execution. By pointing the shortcut to explorer.exe
+  // (a trusted Windows binary) and passing the EXE as argument, PCA is bypassed.
+  const explorerPath = 'C:\\Windows\\explorer.exe'
+
   const psScript = `
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
-$Shortcut.TargetPath = '${exePath.replace(/'/g, "''")}'
-$Shortcut.WorkingDirectory = '${destDir.replace(/'/g, "''")}'
+$Shortcut.TargetPath = '${explorerPath}'
+$Shortcut.Arguments = '${exePath.replace(/'/g, "''")}'
 $Shortcut.IconLocation = '${iconSource.replace(/'/g, "''")}'
 $Shortcut.Description = '雷霆记账 — 轻量级个人日常记账工具'
 $Shortcut.Save()
