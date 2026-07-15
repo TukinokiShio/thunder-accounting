@@ -60,7 +60,7 @@ export function Sidebar({ onOpenSettings }: Props) {
           <Settings size={16} />
           设置
         </button>
-        <p className="text-xs text-gray-400 dark:text-gray-500 px-2">雷霆记账 v1.5.0</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 px-2">雷霆记账 v1.5.1</p>
       </div>
     </aside>
   )

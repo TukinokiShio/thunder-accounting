@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Download, Upload, Trash2, Zap, Github } from 'lucide-react'
 import { useStore } from '@/store'
+import pkg from '../../package.json'
 
 interface Props {
   isOpen: boolean
@@ -27,6 +28,8 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
       if (filePath) {
         await window.electronAPI.writeFile(filePath, json)
         addToast('success', '数据备份已导出')
+      } else {
+        addToast('info', '已取消导出')
       }
     } catch (e) {
       console.error('Export failed:', e)
@@ -181,7 +184,7 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
               </div>
               <div>
                 <div className="font-semibold text-gray-900 text-sm">雷霆记账</div>
-                <div className="text-xs text-gray-400">v1.4.0 — 轻量级个人日常记账工具</div>
+                <div className="text-xs text-gray-400">v{pkg.version} — 轻量级个人日常记账工具</div>
               </div>
             </div>
 

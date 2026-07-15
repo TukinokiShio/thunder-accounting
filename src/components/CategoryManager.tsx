@@ -25,22 +25,8 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
 
   const categories = tab === 'expense' ? expenseCategories : incomeCategories
 
-  // For editing, we track by index since Category doesn't have id
-  const selectedIdx = categories.findIndex((_, i) => i === selectedId)
-  const editingCat = selectedIdx >= 0 ? categories[selectedIdx] : null
-
   // We need categories with IDs for update/delete. Store raw rows separately.
   const [catMeta, setCatMeta] = useState<Array<{ id: number; is_preset: number }>>([])
-
-  // Load metadata when categories change
-  const loadMeta = useCallback(async () => {
-    try {
-      const rows = await window.electronAPI.getCategories(tab)
-      setCatMeta(rows.map(r => ({ id: r.id, is_preset: r.is_preset })))
-    } catch {
-      // ignore
-    }
-  }, [tab])
 
   // Select a category for editing
   const selectCategory = useCallback(async (idx: number) => {

@@ -439,27 +439,21 @@ export function exportCSV(startDate?: string, endDate?: string): string {
 
 // ─── Backup / Restore ─────────────────────────────
 
+function rowsToObjects(result: { columns: string[]; values: unknown[][] }): Record<string, unknown>[] {
+  if (!result.columns.length) return []
+  return result.values.map((row) => {
+    const obj: Record<string, unknown> = {}
+    result.columns.forEach((col, i) => { obj[col] = row[i] })
+    return obj
+  })
+}
+
 export function exportAllJSON(): string {
   const bills = db.exec('SELECT * FROM bills ORDER BY id ASC')
   const categories = db.exec('SELECT * FROM categories ORDER BY id ASC')
 
-  const billCols = bills.length ? bills[0].columns : []
-  const billRows = bills.length ? bills[0].values : []
-
-  const catCols = categories.length ? categories[0].columns : []
-  const catRows = categories.length ? categories[0].values : []
-
-  const billsJson = billRows.map((row: unknown[]) => {
-    const obj: Record<string, unknown> = {}
-    billCols.forEach((col: string, i: number) => { obj[col] = row[i] })
-    return obj
-  })
-
-  const catsJson = catRows.map((row: unknown[]) => {
-    const obj: Record<string, unknown> = {}
-    catCols.forEach((col: string, i: number) => { obj[col] = row[i] })
-    return obj
-  })
+  const billsJson = bills.length ? rowsToObjects(bills[0]) : []
+  const catsJson = categories.length ? rowsToObjects(categories[0]) : []
 
   return JSON.stringify({
     version: 1,
@@ -470,7 +464,7 @@ export function exportAllJSON(): string {
 }
 
 export function importAllJSON(json: string): { bills: number; categories: number } {
-  let data: { bills?: unknown[]; categories?: unknown[] }
+  let data: { bills?: unknown[]; categories?: unknown[]; version?: number }
   try {
     data = JSON.parse(json)
   } catch {
@@ -481,44 +475,64 @@ export function importAllJSON(json: string): { bills: number; categories: number
     throw new Error('备份数据中没有 bills 数组')
   }
 
-  // Clear existing data
-  db.run('DELETE FROM bills')
-  // Delete custom categories only, keep presets
-  db.run('DELETE FROM categories WHERE is_preset = 0')
-
-  // Restore bills
-  let billCount = 0
-  const billStmt = db.prepare(
-    'INSERT INTO bills (id, amount, category1, category2, date, note, type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  )
-  for (const b of data.bills as Array<Record<string, unknown>>) {
-    billStmt.run([
-      b.id, b.amount, b.category1, b.category2, b.date,
-      b.note ?? '', b.type ?? 'expense', b.created_at ?? new Date().toISOString()
-    ])
-    billCount++
-  }
-  billStmt.free()
-
-  // Restore categories (only custom ones; presets are managed by initPresetCategories)
-  let catCount = 0
-  if (data.categories && Array.isArray(data.categories)) {
-    const catStmt = db.prepare(
-      'INSERT INTO categories (id, name, icon, children, type, is_preset, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    )
-    for (const c of data.categories as Array<Record<string, unknown>>) {
-      if (c.is_preset === 1) continue // skip presets, they are auto-initialized
-      catStmt.run([
-        c.id, c.name, c.icon, c.children, c.type,
-        0, c.sort_order ?? 0, c.created_at ?? new Date().toISOString()
-      ])
-      catCount++
+  // Validate bill rows before any destructive operation
+  const billsArr = data.bills as Array<Record<string, unknown>>
+  for (let i = 0; i < billsArr.length; i++) {
+    const b = billsArr[i]
+    if (typeof b.id !== 'number' || typeof b.amount !== 'number') {
+      throw new Error(`账单数据格式无效，第 ${i + 1} 行：缺少 id 或 amount`)
     }
-    catStmt.free()
+    if (typeof b.category1 !== 'string' || typeof b.category2 !== 'string') {
+      throw new Error(`账单数据格式无效，第 ${i + 1} 行：缺少分类信息`)
+    }
   }
 
-  saveDb()
-  return { bills: billCount, categories: catCount }
+  // Wrap restore in a transaction so a mid-import error rolls back
+  db.run('BEGIN TRANSACTION')
+  try {
+    // Clear existing data
+    db.run('DELETE FROM bills')
+    // Delete custom categories only, keep presets
+    db.run('DELETE FROM categories WHERE is_preset = 0')
+
+    // Restore bills
+    let billCount = 0
+    const billStmt = db.prepare(
+      'INSERT INTO bills (id, amount, category1, category2, date, note, type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    for (const b of billsArr) {
+      billStmt.run([
+        b.id, b.amount, b.category1, b.category2, b.date ?? '',
+        b.note ?? '', b.type ?? 'expense', b.created_at ?? new Date().toISOString()
+      ])
+      billCount++
+    }
+    billStmt.free()
+
+    // Restore categories (only custom ones; presets are managed by initPresetCategories)
+    let catCount = 0
+    if (data.categories && Array.isArray(data.categories)) {
+      const catStmt = db.prepare(
+        'INSERT INTO categories (id, name, icon, children, type, is_preset, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      for (const c of data.categories as Array<Record<string, unknown>>) {
+        if (c.is_preset === 1) continue // skip presets, they are auto-initialized
+        catStmt.run([
+          c.id, c.name, c.icon, c.children, c.type,
+          0, c.sort_order ?? 0, c.created_at ?? new Date().toISOString()
+        ])
+        catCount++
+      }
+      catStmt.free()
+    }
+
+    db.run('COMMIT')
+    saveDb()
+    return { bills: billCount, categories: catCount }
+  } catch (e) {
+    db.run('ROLLBACK')
+    throw e
+  }
 }
 
 export function clearAllData(): void {

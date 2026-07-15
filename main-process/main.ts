@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage } from 'electron'
 import path from 'path'
-import fs from 'fs'
+import fs from 'fs/promises'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, exportAllJSON, importAllJSON, clearAllData } from './database'
 
 let mainWindow: BrowserWindow | null = null
@@ -175,7 +176,7 @@ function registerIpcHandlers(): void {
 
   // File write
   ipcMain.handle('file:write', (_event, filePath: string, content: string) => {
-    fs.writeFileSync(filePath, content, 'utf-8')
+    writeFileSync(filePath, content, 'utf-8')
     return true
   })
 
@@ -202,6 +203,7 @@ function registerIpcHandlers(): void {
     })
     if (result.canceled || !result.filePaths.length) return null
     const filePath = result.filePaths[0]
-    return { filePath, content: fs.readFileSync(filePath, 'utf-8') }
+    const content = await fs.readFile(filePath, 'utf-8')
+    return { filePath, content }
   })
 }
