@@ -64,6 +64,20 @@ const electronAPI = {
   deleteCategory: (id: number) =>
     ipcRenderer.invoke('category:delete', id),
 
+  // Backup / Restore / Clear
+  exportBackup: () =>
+    ipcRenderer.invoke('backup:export'),
+
+  importBackup: (json: string) =>
+    ipcRenderer.invoke('backup:import', json),
+
+  clearAllData: () =>
+    ipcRenderer.invoke('data:clear'),
+
+  // Open file dialog
+  showOpenDialog: () =>
+    ipcRenderer.invoke('dialog:open'),
+
   // Shortcut listener
   onShortcut: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)

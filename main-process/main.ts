@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory } from './database'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, exportAllJSON, importAllJSON, clearAllData } from './database'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -184,4 +184,24 @@ function registerIpcHandlers(): void {
   ipcMain.handle('category:add', (_event, params) => addCategory(params))
   ipcMain.handle('category:update', (_event, id, params) => updateCategory(id, params))
   ipcMain.handle('category:delete', (_event, id) => { deleteCategory(id) })
+
+  // Backup / Restore / Clear
+  ipcMain.handle('backup:export', () => exportAllJSON())
+  ipcMain.handle('backup:import', (_event, json: string) => importAllJSON(json))
+  ipcMain.handle('data:clear', () => { clearAllData() })
+
+  // Open file dialog
+  ipcMain.handle('dialog:open', async () => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      filters: [
+        { name: 'JSON 文件', extensions: ['json'] },
+        { name: '所有文件', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    const filePath = result.filePaths[0]
+    return { filePath, content: fs.readFileSync(filePath, 'utf-8') }
+  })
 }

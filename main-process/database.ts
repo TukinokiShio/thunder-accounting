@@ -436,3 +436,93 @@ export function exportCSV(startDate?: string, endDate?: string): string {
   ).join('\n')
   return '﻿' + header + rows // BOM for Excel Chinese support
 }
+
+// ─── Backup / Restore ─────────────────────────────
+
+export function exportAllJSON(): string {
+  const bills = db.exec('SELECT * FROM bills ORDER BY id ASC')
+  const categories = db.exec('SELECT * FROM categories ORDER BY id ASC')
+
+  const billCols = bills.length ? bills[0].columns : []
+  const billRows = bills.length ? bills[0].values : []
+
+  const catCols = categories.length ? categories[0].columns : []
+  const catRows = categories.length ? categories[0].values : []
+
+  const billsJson = billRows.map((row: unknown[]) => {
+    const obj: Record<string, unknown> = {}
+    billCols.forEach((col: string, i: number) => { obj[col] = row[i] })
+    return obj
+  })
+
+  const catsJson = catRows.map((row: unknown[]) => {
+    const obj: Record<string, unknown> = {}
+    catCols.forEach((col: string, i: number) => { obj[col] = row[i] })
+    return obj
+  })
+
+  return JSON.stringify({
+    version: 1,
+    exported_at: new Date().toISOString(),
+    bills: billsJson,
+    categories: catsJson
+  }, null, 2)
+}
+
+export function importAllJSON(json: string): { bills: number; categories: number } {
+  let data: { bills?: unknown[]; categories?: unknown[] }
+  try {
+    data = JSON.parse(json)
+  } catch {
+    throw new Error('JSON 格式无效')
+  }
+
+  if (!data.bills || !Array.isArray(data.bills)) {
+    throw new Error('备份数据中没有 bills 数组')
+  }
+
+  // Clear existing data
+  db.run('DELETE FROM bills')
+  // Delete custom categories only, keep presets
+  db.run('DELETE FROM categories WHERE is_preset = 0')
+
+  // Restore bills
+  let billCount = 0
+  const billStmt = db.prepare(
+    'INSERT INTO bills (id, amount, category1, category2, date, note, type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  )
+  for (const b of data.bills as Array<Record<string, unknown>>) {
+    billStmt.run([
+      b.id, b.amount, b.category1, b.category2, b.date,
+      b.note ?? '', b.type ?? 'expense', b.created_at ?? new Date().toISOString()
+    ])
+    billCount++
+  }
+  billStmt.free()
+
+  // Restore categories (only custom ones; presets are managed by initPresetCategories)
+  let catCount = 0
+  if (data.categories && Array.isArray(data.categories)) {
+    const catStmt = db.prepare(
+      'INSERT INTO categories (id, name, icon, children, type, is_preset, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    for (const c of data.categories as Array<Record<string, unknown>>) {
+      if (c.is_preset === 1) continue // skip presets, they are auto-initialized
+      catStmt.run([
+        c.id, c.name, c.icon, c.children, c.type,
+        0, c.sort_order ?? 0, c.created_at ?? new Date().toISOString()
+      ])
+      catCount++
+    }
+    catStmt.free()
+  }
+
+  saveDb()
+  return { bills: billCount, categories: catCount }
+}
+
+export function clearAllData(): void {
+  db.run('DELETE FROM bills')
+  db.run('DELETE FROM categories WHERE is_preset = 0')
+  saveDb()
+}

@@ -45,6 +45,10 @@ export interface ElectronAPI {
   addCategory: (params: { name: string; icon?: string; children?: string[]; type?: 'expense' | 'income' }) => Promise<CategoryRow>
   updateCategory: (id: number, params: { name?: string; icon?: string; children?: string[] }) => Promise<CategoryRow>
   deleteCategory: (id: number) => Promise<void>
+  exportBackup: () => Promise<string>
+  importBackup: (json: string) => Promise<{ bills: number; categories: number }>
+  clearAllData: () => Promise<void>
+  showOpenDialog: () => Promise<{ filePath: string; content: string } | null>
   onShortcut: (callback: (action: string) => void) => () => void
 }
 

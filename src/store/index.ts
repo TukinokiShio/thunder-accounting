@@ -19,8 +19,8 @@ export interface Toast {
 
 interface AppState {
   // 当前选中的侧边栏页面
-  activePage: 'home' | 'bills' | 'stats'
-  setActivePage: (page: 'home' | 'bills' | 'stats') => void
+  activePage: 'home' | 'bills' | 'stats' | 'categories'
+  setActivePage: (page: 'home' | 'bills' | 'stats' | 'categories') => void
 
   // 记一笔弹窗
   isAddDialogOpen: boolean

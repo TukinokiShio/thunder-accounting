@@ -5,12 +5,13 @@ import { Bills } from '@/pages/Bills'
 import { Stats } from '@/pages/Stats'
 import { AddBillDialog } from '@/components/AddBillDialog'
 import { CategoryManager } from '@/components/CategoryManager'
+import { SettingsDialog } from '@/components/SettingsDialog'
 import { useStore } from '@/store'
 
 export default function App() {
   const activePage = useStore((s) => s.activePage)
   const openAddDialog = useStore((s) => s.openAddDialog)
-  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // 首次加载时刷新数据
   useEffect(() => {
@@ -30,12 +31,13 @@ export default function App() {
   }, [openAddDialog])
 
   return (
-    <Layout onOpenCategoryManager={() => setCategoryManagerOpen(true)}>
+    <Layout onOpenSettings={() => setSettingsOpen(true)}>
       {activePage === 'home' && <Home />}
       {activePage === 'bills' && <Bills />}
       {activePage === 'stats' && <Stats />}
+      {activePage === 'categories' && <CategoryManager isOpen={true} onClose={() => {}} mode="page" />}
       <AddBillDialog />
-      <CategoryManager isOpen={categoryManagerOpen} onClose={() => setCategoryManagerOpen(false)} />
+      <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Layout>
   )
 }
