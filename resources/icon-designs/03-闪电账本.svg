@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1b2a"/>
+      <stop offset="100%" stop-color="#1b2838"/>
+    </linearGradient>
+    <linearGradient id="book3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#2d5a87"/>
+    </linearGradient>
+    <linearGradient id="pages3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff"/>
+      <stop offset="100%" stop-color="#e8e8e8"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角方形背景 -->
+  <rect x="40" y="40" width="432" height="432" rx="96" ry="96" fill="url(#bg3)"/>
+  <!-- 账本/书 -->
+  <g transform="translate(256,240)">
+    <!-- 书的左半 -->
+    <path d="M0,0 L-100,-160 Q-100,-170 -90,-170 L-10,-170 Q0,-170 0,-160 L0,0 Z" fill="url(#book3)" stroke="#4a90d9" stroke-width="2"/>
+    <!-- 书的右半 -->
+    <path d="M0,0 L100,-160 Q100,-170 90,-170 L10,-170 Q0,-170 0,-160 L0,0 Z" fill="url(#book3)" stroke="#4a90d9" stroke-width="2" opacity="0.7"/>
+    <!-- 书页线条 -->
+    <line x1="-70" y1="-130" x2="-15" y2="-130" stroke="#4a90d9" stroke-width="1.5" opacity="0.5"/>
+    <line x1="-70" y1="-110" x2="-15" y2="-110" stroke="#4a90d9" stroke-width="1.5" opacity="0.5"/>
+    <line x1="-70" y1="-90" x2="-15" y2="-90" stroke="#4a90d9" stroke-width="1.5" opacity="0.5"/>
+    <!-- 书脊 -->
+    <line x1="0" y1="-170" x2="0" y2="0" stroke="#ffd700" stroke-width="3"/>
+  </g>
+  <!-- 闪电在封面上 -->
+  <polygon points="268,100 210,200 245,200 200,340 310,210 265,210 305,85" fill="#ffd700" stroke="#ffec99" stroke-width="1.5" opacity="0.95"/>
+</svg>

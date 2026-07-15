@@ -109,7 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_bills_category1 ON bills(category1);
 
 ## 预设分类数据
 
-见 `src/data/categories.ts`，10 个一级大类，共 57 个二级小类：
+见 `src/data/categories.ts`，10 个一级大类，共 55 个二级小类：
 餐饮食品、交通出行、购物消费、住房物业、医疗健康、教育学习、娱乐休闲、人情往来、金融保险、其他杂项。
 
 ## IPC API（主进程 ↔ 渲染进程）

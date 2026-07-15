@@ -1,18 +1,22 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Layout } from '@/components/Layout'
 import { Home } from '@/pages/Home'
 import { Bills } from '@/pages/Bills'
 import { Stats } from '@/pages/Stats'
 import { AddBillDialog } from '@/components/AddBillDialog'
+import { CategoryManager } from '@/components/CategoryManager'
 import { useStore } from '@/store'
 
 export default function App() {
   const activePage = useStore((s) => s.activePage)
   const openAddDialog = useStore((s) => s.openAddDialog)
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
 
   // 首次加载时刷新数据
   useEffect(() => {
-    useStore.getState().refreshBills()
+    const store = useStore.getState()
+    store.refreshBills()
+    store.refreshCategories()
   }, [])
 
   // 监听全局快捷键
@@ -26,11 +30,12 @@ export default function App() {
   }, [openAddDialog])
 
   return (
-    <Layout>
+    <Layout onOpenCategoryManager={() => setCategoryManagerOpen(true)}>
       {activePage === 'home' && <Home />}
       {activePage === 'bills' && <Bills />}
       {activePage === 'stats' && <Stats />}
       <AddBillDialog />
+      <CategoryManager isOpen={categoryManagerOpen} onClose={() => setCategoryManagerOpen(false)} />
     </Layout>
   )
 }

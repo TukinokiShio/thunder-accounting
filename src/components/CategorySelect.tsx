@@ -1,19 +1,21 @@
 import { useState, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { presetCategories } from '@/data/categories'
+import { useStore } from '@/store'
 import { useClickOutside } from './useClickOutside'
 import type { Category } from '@/types'
 
 interface Props {
   category1: string
   category2: string
+  type: 'expense' | 'income'
   onCategory1Change: (cat: string) => void
   onCategory2Change: (cat: string) => void
-  categories?: Category[]
 }
 
-export function CategorySelect({ category1, category2, onCategory1Change, onCategory2Change, categories }: Props) {
-  const cats = categories ?? presetCategories
+export function CategorySelect({ category1, category2, type, onCategory1Change, onCategory2Change }: Props) {
+  const expenseCategories = useStore((s) => s.expenseCategories)
+  const incomeCategories = useStore((s) => s.incomeCategories)
+  const cats: Category[] = type === 'income' ? incomeCategories : expenseCategories
 
   const [open1, setOpen1] = useState(false)
   const [open2, setOpen2] = useState(false)

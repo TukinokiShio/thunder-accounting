@@ -1,5 +1,15 @@
 import { create } from 'zustand'
-import type { Bill, StatsResult } from '@/types'
+import type { Bill, Category, StatsResult } from '@/types'
+
+function parseCategoryRow(row: { name: string; icon: string; children: string; id: number; is_preset: number }): Category {
+  let children: string[] = []
+  try {
+    children = JSON.parse(row.children)
+  } catch {
+    children = []
+  }
+  return { name: row.name, icon: row.icon, children }
+}
 
 export interface Toast {
   id: string
@@ -43,6 +53,11 @@ interface AppState {
   toasts: Toast[]
   addToast: (type: Toast['type'], message: string) => void
   removeToast: (id: string) => void
+
+  // 分类管理
+  expenseCategories: Category[]
+  incomeCategories: Category[]
+  refreshCategories: () => Promise<void>
 }
 
 let toastId = 0
@@ -97,5 +112,22 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({ toasts: [...s.toasts, { id, type, message }] }))
     setTimeout(() => get().removeToast(id), 3000)
   },
-  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  expenseCategories: [],
+  incomeCategories: [],
+  refreshCategories: async () => {
+    try {
+      const [expRows, incRows] = await Promise.all([
+        window.electronAPI.getCategories('expense'),
+        window.electronAPI.getCategories('income')
+      ])
+      set({
+        expenseCategories: expRows.map(parseCategoryRow),
+        incomeCategories: incRows.map(parseCategoryRow)
+      })
+    } catch (e) {
+      console.error('Failed to refresh categories:', e)
+    }
+  }
 }))

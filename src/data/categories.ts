@@ -4,7 +4,7 @@ export const presetCategories: Category[] = [
   {
     name: '餐饮食品',
     icon: '🍽️',
-    children: ['早餐', '午餐', '晚餐', '零食饮料', '水果', '外卖配送', '聚餐宴请']
+    children: ['早餐', '午餐', '晚餐', '外卖外带', '聚餐宴请', '买菜做饭']
   },
   {
     name: '交通出行',
@@ -14,12 +14,17 @@ export const presetCategories: Category[] = [
   {
     name: '购物消费',
     icon: '🛒',
-    children: ['服饰鞋帽', '数码电子', '日用品', '美妆护肤', '家居百货', '宠物用品']
+    children: ['服饰鞋帽', '数码电子', '日用品', '美妆护肤', '家居百货', '宠物用品', '零食饮料', '水果']
   },
   {
     name: '住房物业',
     icon: '🏠',
     children: ['房租', '房贷', '水电燃气', '物业费', '维修装修', '家具家电']
+  },
+  {
+    name: '旅游出行',
+    icon: '✈️',
+    children: ['旅行度假', '机票酒店', '景点门票', '旅行团费', '当地交通', '旅行购物']
   },
   {
     name: '医疗健康',
@@ -34,7 +39,7 @@ export const presetCategories: Category[] = [
   {
     name: '娱乐休闲',
     icon: '🎮',
-    children: ['电影演出', '游戏充值', '旅行度假', '运动健身', '咖啡茶馆', 'KTV酒吧']
+    children: ['电影演出', '游戏充值', '运动健身', '咖啡茶馆', 'KTV酒吧']
   },
   {
     name: '人情往来',

@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { CategorySelect } from './CategorySelect'
-import { incomeCategories } from '@/data/incomeCategories'
 import type { AddBillForm } from '@/types'
 
 const emptyForm: AddBillForm = {
@@ -215,7 +214,7 @@ export function AddBillDialog() {
             <CategorySelect
               category1={form.category1}
               category2={form.category2}
-              categories={form.type === 'income' ? incomeCategories : undefined}
+              type={form.type}
               onCategory1Change={(cat) => setForm(prev => ({ ...prev, category1: cat, category2: '' }))}
               onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
             />

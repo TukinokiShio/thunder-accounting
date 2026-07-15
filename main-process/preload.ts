@@ -44,6 +44,26 @@ const electronAPI = {
   writeFile: (filePath: string, content: string) =>
     ipcRenderer.invoke('file:write', filePath, content),
 
+  // Categories
+  getCategories: (type?: 'expense' | 'income') =>
+    ipcRenderer.invoke('category:getAll', type),
+
+  addCategory: (params: {
+    name: string
+    icon?: string
+    children?: string[]
+    type?: 'expense' | 'income'
+  }) => ipcRenderer.invoke('category:add', params),
+
+  updateCategory: (id: number, params: {
+    name?: string
+    icon?: string
+    children?: string[]
+  }) => ipcRenderer.invoke('category:update', id, params),
+
+  deleteCategory: (id: number) =>
+    ipcRenderer.invoke('category:delete', id),
+
   // Shortcut listener
   onShortcut: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)

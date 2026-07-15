@@ -41,7 +41,21 @@ export interface ElectronAPI {
   exportCSV: (filters?: { startDate?: string; endDate?: string }) => Promise<string>
   showSaveDialog: (defaultName: string) => Promise<string | null>
   writeFile: (filePath: string, content: string) => Promise<boolean>
+  getCategories: (type?: 'expense' | 'income') => Promise<CategoryRow[]>
+  addCategory: (params: { name: string; icon?: string; children?: string[]; type?: 'expense' | 'income' }) => Promise<CategoryRow>
+  updateCategory: (id: number, params: { name?: string; icon?: string; children?: string[] }) => Promise<CategoryRow>
+  deleteCategory: (id: number) => Promise<void>
   onShortcut: (callback: (action: string) => void) => () => void
+}
+
+export interface CategoryRow {
+  id: number
+  name: string
+  icon: string
+  children: string  // JSON string
+  type: string
+  is_preset: number
+  created_at: string
 }
 
 declare global {

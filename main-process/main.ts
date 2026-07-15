@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV } from './database'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory } from './database'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -178,4 +178,10 @@ function registerIpcHandlers(): void {
     fs.writeFileSync(filePath, content, 'utf-8')
     return true
   })
+
+  // Categories
+  ipcMain.handle('category:getAll', (_event, type) => getCategories(type))
+  ipcMain.handle('category:add', (_event, params) => addCategory(params))
+  ipcMain.handle('category:update', (_event, id, params) => updateCategory(id, params))
+  ipcMain.handle('category:delete', (_event, id) => { deleteCategory(id) })
 }

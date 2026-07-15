@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useStore } from '@/store'
-import { presetCategories } from '@/data/categories'
-import { incomeCategories } from '@/data/incomeCategories'
 import { Search, Trash2, FilterX, Pencil } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import type { Bill } from '@/types'
@@ -17,6 +15,8 @@ export function Bills() {
   const refreshBills = useStore((s) => s.refreshBills)
   const openEditDialog = useStore((s) => s.openEditDialog)
   const addToast = useStore((s) => s.addToast)
+  const expenseCategories = useStore((s) => s.expenseCategories)
+  const incomeCategories = useStore((s) => s.incomeCategories)
 
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null)
@@ -61,10 +61,13 @@ export function Bills() {
     }
   }
 
+  const allCategories = useMemo(() =>
+    [...expenseCategories, ...incomeCategories],
+    [expenseCategories, incomeCategories]
+  )
+
   const catIcon = (cat1: string) =>
-    presetCategories.find((c) => c.name === cat1)?.icon ??
-    incomeCategories.find((c) => c.name === cat1)?.icon ??
-    '📦'
+    allCategories.find((c) => c.name === cat1)?.icon ?? '📦'
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
@@ -98,7 +101,7 @@ export function Bills() {
             className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-auto text-sm min-w-[120px]"
           >
             <option value="">全部分类</option>
-            {(filterType === 'income' ? incomeCategories : presetCategories).map((cat) => (
+            {(filterType === 'income' ? incomeCategories : expenseCategories).map((cat) => (
               <option key={cat.name} value={cat.name}>{cat.icon} {cat.name}</option>
             ))}
           </select>

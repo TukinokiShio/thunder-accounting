@@ -3,7 +3,7 @@
 > 轻量级个人日常记账工具 — 3 秒完成一笔记账，分类清晰，统计直观
 
 [![License](https://img.shields.io/github/license/TukinokiShio/thunder-accounting)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.4-blue)](./package.json)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](./package.json)
 
 ---
 
@@ -11,7 +11,8 @@
 
 - **极速记账** — 弹窗式记账，3 步完成：选分类 → 输金额 → 确认
 - **支出 / 收入双模式** — 支持支出和收入记录，收支结余一目了然
-- **二级分类** — 10 个一级大类，57 个二级小类，分类精准
+- **二级分类** — 11 个一级大类，61 个二级小类，支持自定义分类管理
+- **自定义分类** — 在 App 中自由增删改分类，可选择 emoji 图标
 - **数据统计** — 饼图展示分类占比，折线图展示消费趋势，双环形图对比收支结构
 - **账单列表** — 按月份筛选，支持编辑和删除
 - **CSV 导出** — 一键导出账单数据

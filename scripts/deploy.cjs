@@ -194,10 +194,10 @@ if (process.platform === 'win32') {
 $exePath = '${exePath.replace(/'/g, "''")}'
 $baseKey = 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags'
 $keys = @(
-  '${baseKey}\\Layers',
-  '${baseKey}\\Compatibility Assistant\\Store',
-  '${baseKey}\\Compatibility Assistant\\Persisted',
-  '${baseKey}\\Compatibility Assistant\\Fix'
+  "\\$baseKey\\Layers",
+  "\\$baseKey\\Compatibility Assistant\\Store",
+  "\\$baseKey\\Compatibility Assistant\\Persisted",
+  "\\$baseKey\\Compatibility Assistant\\Fix"
 )
 foreach ($key in $keys) {
   if (Test-Path $key) {
