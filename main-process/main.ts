@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage 
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, exportAllJSON, importAllJSON, clearAllData } from './database'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData } from './database'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -201,6 +201,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('category:add', (_event, params) => addCategory(params))
   ipcMain.handle('category:update', (_event, id, params) => updateCategory(id, params))
   ipcMain.handle('category:delete', (_event, id) => { deleteCategory(id) })
+  ipcMain.handle('category:reorder', (_event, orderedIds: number[]) => { reorderCategories(orderedIds) })
 
   // Backup / Restore / Clear
   ipcMain.handle('backup:export', () => exportAllJSON())

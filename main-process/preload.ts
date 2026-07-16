@@ -64,6 +64,9 @@ const electronAPI = {
   deleteCategory: (id: number) =>
     ipcRenderer.invoke('category:delete', id),
 
+  reorderCategories: (orderedIds: number[]) =>
+    ipcRenderer.invoke('category:reorder', orderedIds),
+
   // Backup / Restore / Clear
   exportBackup: () =>
     ipcRenderer.invoke('backup:export'),

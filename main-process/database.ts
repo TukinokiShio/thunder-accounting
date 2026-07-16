@@ -280,6 +280,19 @@ export function deleteCategory(id: number): void {
   saveDb()
 }
 
+/**
+ * 拖拽排序：按传入的 ID 顺序重新分配 sort_order（0, 1, 2, ...）。
+ * 预设分类和自定义分类均可参与排序。
+ */
+export function reorderCategories(orderedIds: number[]): void {
+  const stmt = db.prepare('UPDATE categories SET sort_order = ? WHERE id = ?')
+  for (let i = 0; i < orderedIds.length; i++) {
+    stmt.run([i, orderedIds[i]])
+  }
+  stmt.free()
+  saveDb()
+}
+
 // ─── Bill CRUD ────────────────────────────────────
 
 export interface BillRow {
