@@ -3,7 +3,7 @@
 > 轻量级个人日常记账工具 — 3 秒完成一笔记账，分类清晰，统计直观
 
 [![License](https://img.shields.io/github/license/TukinokiShio/thunder-accounting)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-1.6.0-blue)](./package.json)
+[![Version](https://img.shields.io/badge/version-1.6.1-blue)](./package.json)
 
 ---
 
@@ -66,6 +66,19 @@ npm run dist:win     # 打包 Windows 安装包（.exe）
 npm run dist:mac     # 打包 macOS 安装包（.dmg）
 npm run deploy       # 一键部署：版本号递增 → 构建 → 打包 → 输出到指定目录
 ```
+
+### 测试与提交质量门禁
+
+```bash
+npm test             # 全量单元测试（Vitest）
+```
+
+本仓库配置了 **git commit 质量门禁**（Claude Code PreToolUse hook）：
+
+- 提交前必须通过双重检查——**单元测试全量通过** + **质量审查无严重问题**，两项检查各自生成通过标记后 commit 才会放行
+- 标记与工作区内容指纹（stateHash）绑定：检查后再改任何文件，标记自动失效，须重新检查
+- 在 Claude Code 中使用 `/gitcommit` 命令一键完成「并行双检 → 自动修复 → 提交」流程
+- 相关文件：`.claude/hooks/quality-gate.cjs`（门禁脚本）、`.claude/settings.json`（hook 配置）、`.claude/commands/gitcommit.md`（提交流程）
 
 ## 📁 项目结构
 
