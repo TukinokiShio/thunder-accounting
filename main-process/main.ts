@@ -56,7 +56,12 @@ app.whenReady().then(async () => {
 })
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
+  try {
+    globalShortcut.unregisterAll()
+  } catch (e) {
+    // unregisterAll 在某些平台上可能抛出异常，静默处理
+    console.error('注销全局快捷键失败：', e)
+  }
 })
 
 app.on('window-all-closed', () => {
@@ -108,7 +113,8 @@ function setupMenu(): void {
       submenu: [
         { role: 'reload', label: '刷新' },
         { role: 'forceReload', label: '强制刷新' },
-        { role: 'toggleDevTools', label: '开发者工具' },
+        // 生产环境隐藏开发者工具，仅开发模式下可用
+        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const, label: '开发者工具' }]),
         { type: 'separator' },
         { role: 'resetZoom', label: '重置缩放' },
         { role: 'zoomIn', label: '放大' },
@@ -174,10 +180,20 @@ function registerIpcHandlers(): void {
     return result.canceled ? null : result.filePath
   })
 
-  // File write
+  // File write（仅允许写入用户数据目录或文档目录，防止路径遍历攻击）
   ipcMain.handle('file:write', (_event, filePath: string, content: string) => {
-    writeFileSync(filePath, content, 'utf-8')
-    return true
+    try {
+      const allowedPaths = [app.getPath('userData'), app.getPath('documents')]
+      const normalized = path.normalize(filePath)
+      if (!allowedPaths.some(p => normalized.startsWith(p))) {
+        throw new Error('不允许写入此路径')
+      }
+      writeFileSync(filePath, content, 'utf-8')
+      return true
+    } catch (e) {
+      console.error('文件写入失败：', e)
+      throw e
+    }
   })
 
   // Categories

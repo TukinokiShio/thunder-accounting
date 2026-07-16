@@ -3,7 +3,7 @@
 > 轻量级个人日常记账工具 — 3 秒完成一笔记账，分类清晰，统计直观
 
 [![License](https://img.shields.io/github/license/TukinokiShio/thunder-accounting)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](./package.json)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue)](./package.json)
 
 ---
 
@@ -16,6 +16,7 @@
 - **数据统计** — 饼图展示分类占比，折线图展示消费趋势，双环形图对比收支结构
 - **账单列表** — 按月份筛选，支持编辑和删除
 - **CSV 导出** — 一键导出账单数据
+- **中英双语** — 界面支持中文 / English 一键切换，偏好本地持久化
 - **本地存储** — 基于 SQLite，数据完全本地，无需网络
 - **跨平台** — 支持 Windows 10+ / macOS 12+
 

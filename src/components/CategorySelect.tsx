@@ -1,7 +1,13 @@
+/**
+ * 二级分类联动选择器。
+ * 左侧下拉选一级分类 → 右侧下拉自动加载对应的二级分类列表。
+ * 使用 useClickOutside hook 实现点击外部关闭下拉。
+ */
 import { useState, useMemo } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useStore } from '@/store'
 import { useClickOutside } from './useClickOutside'
+import { useLanguage } from '@/i18n/LanguageContext'
 import type { Category } from '@/types'
 
 interface Props {
@@ -16,6 +22,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
   const expenseCategories = useStore((s) => s.expenseCategories)
   const incomeCategories = useStore((s) => s.incomeCategories)
   const cats: Category[] = type === 'income' ? incomeCategories : expenseCategories
+  const { t } = useLanguage()
 
   const [open1, setOpen1] = useState(false)
   const [open2, setOpen2] = useState(false)
@@ -45,7 +52,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
 
   return (
     <div className="flex gap-2">
-      {/* 一级分类 */}
+      {/* primary category dropdown */}
       <div ref={ref1} className="relative flex-1">
         <button
           type="button"
@@ -53,7 +60,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
           className="input-field flex items-center justify-between text-left"
         >
           <span className={category1 ? 'text-gray-900' : 'text-gray-400'}>
-            {category1 ? `${selectedCat?.icon ?? ''} ${category1}` : '选择一级分类'}
+            {category1 ? `${selectedCat?.icon ?? ''} ${category1}` : t('选择一级分类')}
           </span>
           <ChevronDown size={14} className={`text-gray-400 transition-transform ${open1 ? 'rotate-180' : ''}`} />
         </button>
@@ -77,7 +84,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
         )}
       </div>
 
-      {/* 二级分类 */}
+      {/* secondary category dropdown */}
       <div ref={ref2} className="relative flex-1">
         <button
           type="button"
@@ -86,7 +93,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
           className="input-field flex items-center justify-between text-left disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <span className={category2 ? 'text-gray-900' : 'text-gray-400'}>
-            {category2 || '选择二级分类'}
+            {category2 || t('选择二级分类')}
           </span>
           <ChevronDown size={14} className={`text-gray-400 transition-transform ${open2 ? 'rotate-180' : ''}`} />
         </button>

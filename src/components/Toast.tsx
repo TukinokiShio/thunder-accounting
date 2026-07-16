@@ -1,12 +1,19 @@
+/**
+ * Toast 通知容器组件。
+ * 固定在屏幕右下角，根据类型（success/error/info）显示不同颜色和图标的通知条。
+ * 每条通知 3 秒后自动消失。
+ */
 import { useStore } from '@/store'
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react'
 
+// Toast 类型 → Lucide 图标映射
 const iconMap = {
   success: CheckCircle,
   error: AlertCircle,
   info: Info
 }
 
+// Toast 类型 → Tailwind 颜色样式映射
 const colorMap = {
   success: 'border-green-200 bg-green-50 text-green-800',
   error: 'border-red-200 bg-red-50 text-red-800',

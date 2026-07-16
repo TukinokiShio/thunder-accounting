@@ -1,3 +1,8 @@
+/**
+ * 预设支出分类数据。
+ * 共 11 个大类、55 个二级分类，用于首次启动时写入数据库。
+ * 用户可在分类管理中增删改自定义分类，预设分类的名称和结构受保护。
+ */
 import type { Category } from '@/types'
 
 export const presetCategories: Category[] = [

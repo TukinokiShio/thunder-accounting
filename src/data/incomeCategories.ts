@@ -1,3 +1,8 @@
+/**
+ * 预设收入分类数据。
+ * 共 6 个大类、17 个二级分类，结构与支出分类一致。
+ * 首次启动时自动写入数据库，预设分类受保护不可删除。
+ */
 import type { Category } from '@/types'
 
 export const incomeCategories: Category[] = [

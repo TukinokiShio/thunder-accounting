@@ -191,5 +191,146 @@ describe('useStore', () => {
       const uniqueIds = new Set(ids);
       expect(uniqueIds.size).toBe(ids.length);
     });
+
+    it('should handle all toast types', () => {
+      useStore.getState().addToast('success', '成功消息');
+      useStore.getState().addToast('error', '错误消息');
+      useStore.getState().addToast('info', '信息消息');
+
+      const toasts = useStore.getState().toasts;
+      expect(toasts).toHaveLength(3);
+      expect(toasts[0].type).toBe('success');
+      expect(toasts[1].type).toBe('error');
+      expect(toasts[2].type).toBe('info');
+    });
+
+    it('should not remove wrong toast id', () => {
+      useStore.getState().addToast('success', '消息');
+      useStore.getState().removeToast('non-existent-id');
+      expect(useStore.getState().toasts).toHaveLength(1);
+    });
+
+    it('should handle consecutive add/remove operations', () => {
+      useStore.getState().addToast('info', '1');
+      useStore.getState().addToast('info', '2');
+      useStore.getState().addToast('info', '3');
+
+      let toasts = useStore.getState().toasts;
+      useStore.getState().removeToast(toasts[1].id);
+      toasts = useStore.getState().toasts;
+
+      expect(toasts).toHaveLength(2);
+      expect(toasts[0].message).toBe('1');
+      expect(toasts[1].message).toBe('3');
+    });
+  });
+
+  describe('expenseCategories', () => {
+    it('should start with empty array', () => {
+      expect(useStore.getState().expenseCategories).toEqual([]);
+    });
+
+    it('should be settable via setState', () => {
+      const cats = [{ name: '测试', icon: '🧪', children: ['子分类'] }];
+      useStore.setState({ expenseCategories: cats });
+      expect(useStore.getState().expenseCategories).toEqual(cats);
+    });
+  });
+
+  describe('incomeCategories', () => {
+    it('should start with empty array', () => {
+      expect(useStore.getState().incomeCategories).toEqual([]);
+    });
+
+    it('should be settable via setState', () => {
+      const cats = [{ name: '工资', icon: '💼', children: ['基本工资'] }];
+      useStore.setState({ incomeCategories: cats });
+      expect(useStore.getState().incomeCategories).toEqual(cats);
+    });
+  });
+
+  describe('store integration scenarios', () => {
+    it('should maintain state consistency across multiple actions', () => {
+      const store = useStore.getState();
+
+      // Set filters
+      store.setFilterMonth('2026-07');
+      store.setFilterCategory1('餐饮食品');
+      store.setFilterType('expense');
+
+      // Set bills
+      const bills = [{
+        id: 1, amount: 50, category1: '餐饮食品',
+        category2: '午餐', date: '2026-07-15', note: '',
+        type: 'expense' as const, created_at: '2026-07-15T12:00:00Z',
+      }];
+      store.setBills(bills);
+
+      // Set stats
+      store.setStats({
+        totalAmount: 50, count: 1,
+        byCategory1: [], byCategory2: [], byDate: [],
+      });
+
+      // Add toast
+      store.addToast('success', '完成');
+
+      // Verify all state
+      const state = useStore.getState();
+      expect(state.filterMonth).toBe('2026-07');
+      expect(state.filterCategory1).toBe('餐饮食品');
+      expect(state.filterType).toBe('expense');
+      expect(state.bills).toEqual(bills);
+      expect(state.stats).not.toBeNull();
+      expect(state.toasts).toHaveLength(1);
+    });
+
+    it('should clear filters properly', () => {
+      const store = useStore.getState();
+      store.setFilterMonth('2026-07');
+      store.setFilterCategory1('餐饮食品');
+      store.setFilterType('expense');
+
+      store.setFilterMonth('');
+      store.setFilterCategory1('');
+      store.setFilterType('');
+
+      const state = useStore.getState();
+      expect(state.filterMonth).toBe('');
+      expect(state.filterCategory1).toBe('');
+      expect(state.filterType).toBe('');
+    });
+
+    it('should open/close dialog without affecting other state', () => {
+      const store = useStore.getState();
+      store.setFilterMonth('2026-07');
+
+      store.openAddDialog();
+      expect(useStore.getState().isAddDialogOpen).toBe(true);
+      expect(useStore.getState().filterMonth).toBe('2026-07');
+
+      store.closeAddDialog();
+      expect(useStore.getState().isAddDialogOpen).toBe(false);
+      expect(useStore.getState().filterMonth).toBe('2026-07');
+    });
+
+    it('should correctly switch between edit and create modes', () => {
+      const store = useStore.getState();
+
+      // Open edit mode
+      store.openEditDialog(99);
+      expect(useStore.getState().isAddDialogOpen).toBe(true);
+      expect(useStore.getState().editBillId).toBe(99);
+
+      // Switch to create mode
+      store.openAddDialog();
+      expect(useStore.getState().isAddDialogOpen).toBe(true);
+      expect(useStore.getState().editBillId).toBeNull();
+
+      // Close
+      store.closeAddDialog();
+      expect(useStore.getState().isAddDialogOpen).toBe(false);
+      expect(useStore.getState().editBillId).toBeNull();
+    });
   });
 });

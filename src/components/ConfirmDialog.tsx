@@ -1,4 +1,9 @@
+/**
+ * 通用确认弹窗组件。
+ * 支持普通模式和危险操作模式（danger 属性开启红色高亮），由调用方控制 open/onConfirm/onCancel。
+ */
 import { X } from 'lucide-react'
+import { useLanguage } from '@/i18n/LanguageContext'
 
 interface Props {
   open: boolean
@@ -15,12 +20,16 @@ export function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = '确认',
-  cancelLabel = '取消',
+  confirmLabel,
+  cancelLabel,
   danger = false,
   onConfirm,
   onCancel
 }: Props) {
+  const { t } = useLanguage()
+  const finalConfirmLabel = confirmLabel ?? t('确认')
+  const finalCancelLabel = cancelLabel ?? t('取消')
+
   if (!open) return null
 
   return (
@@ -44,7 +53,7 @@ export function ConfirmDialog({
 
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className="btn-secondary text-sm">
-            {cancelLabel}
+            {finalCancelLabel}
           </button>
           <button
             onClick={onConfirm}
@@ -54,7 +63,7 @@ export function ConfirmDialog({
                 : 'btn-primary'
               }`}
           >
-            {confirmLabel}
+            {finalConfirmLabel}
           </button>
         </div>
       </div>

@@ -1,6 +1,14 @@
+/**
+ * 侧边导航栏组件。
+ * 显示应用 Logo、四个导航项（总览/账单/统计/分类管理）、底部设置按钮和版本号。
+ * 当前激活的导航项高亮显示。
+ */
 import { Home, FileText, PieChart, Zap, Settings, Tags } from 'lucide-react'
 import { useStore } from '@/store'
+import { useLanguage } from '@/i18n/LanguageContext'
+import pkg from '../../package.json'
 
+/** 导航项配置：页面 ID → 显示文本 → Lucide 图标 */
 const navItems = [
   { id: 'home' as const, label: '总览', icon: Home },
   { id: 'bills' as const, label: '账单', icon: FileText },
@@ -15,18 +23,19 @@ interface Props {
 export function Sidebar({ onOpenSettings }: Props) {
   const activePage = useStore((s) => s.activePage)
   const setActivePage = useStore((s) => s.setActivePage)
+  const { t } = useLanguage()
 
   return (
     <aside className="w-56 bg-white dark:bg-gray-850 border-r border-gray-100 dark:border-gray-700 flex flex-col shrink-0">
-      {/* Logo */}
+      {/* Logo 区域 */}
       <div className="h-14 flex items-center gap-2 px-5 border-b border-gray-100 dark:border-gray-700">
         <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
           <Zap size={18} className="text-white" />
         </div>
-        <span className="font-bold text-gray-900 dark:text-gray-100">雷霆记账</span>
+        <span className="font-bold text-gray-900 dark:text-gray-100">{t('雷霆记账')}</span>
       </div>
 
-      {/* Nav items */}
+      {/* 导航菜单项 */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {
           const Icon = item.icon
@@ -45,22 +54,22 @@ export function Sidebar({ onOpenSettings }: Props) {
               `}
             >
               <Icon size={18} />
-              {item.label}
+              {t(item.label)}
             </button>
           )
         })}
       </nav>
 
-      {/* Footer */}
+      {/* 底部：设置按钮 + 版本号 */}
       <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-700 space-y-2">
         <button
           onClick={onOpenSettings}
           className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-750 transition-colors"
         >
           <Settings size={16} />
-          设置
+          {t('设置')}
         </button>
-        <p className="text-xs text-gray-400 dark:text-gray-500 px-2">雷霆记账 v1.5.1</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 px-2">{t('雷霆记账')} v{pkg.version}</p>
       </div>
     </aside>
   )
