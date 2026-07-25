@@ -31,15 +31,14 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   const [newChild, setNewChild] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // ─── 拖拽排序 state (ref 避免高频 dragOver 闭包过期) ───
-  const dragRef = useRef<number | null>(null)
-
+  // ─── 拖拽排序 state ─────────────────────────────────────
   /**
-   * 持久化的 name → id 映射。
-   * 每次 selectCategory 或 tab 切换时更新，handleDragEnd 用它构建 orderedIds，
-   * 避免在拖拽结束时额外发起 getCategories IPC 调用（可能失败或返回过期数据）。
+   * 拖拽期间维护一个局部顺序数组（useRef），不修改 store。
+   * dragEnd 时一次性保存到 DB 并更新 store，彻底消除乐观更新带来的竞态风险。
    */
-  const nameToIdRef = useRef<Map<string, number>>(new Map())
+  const dragOrderRef = useRef<string[]>([])        // 拖拽中的 name 顺序
+  const dragIdxRef = useRef<number | null>(null)    // 被拖拽项的原始 index
+  const nameToIdRef = useRef<Map<string, number>>(new Map())  // name → id
 
   const categories = tab === 'expense' ? expenseCategories : incomeCategories
 
@@ -163,59 +162,44 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   }
 
   // ─── 拖拽排序 ──────────────────────────────────────────
-  // 核心设计：
-  //   1. handleDragOver 用 useRef + useStore.getState() 做乐观更新，
-  //      避免 React 闭包在 ~60fps 的 dragOver 事件下过期。
-  //   2. handleDragEnd 用持久化的 nameToIdRef 构建 orderedIds，
-  //      不依赖额外的 IPC 调用，确保数据一致。
-  //   3. 保存成功后全面刷新，Toast 确认。
+  // 不依赖 store 乐观更新。用局部 ref 数组在拖拽过程中维护顺序，
+  // dragEnd 时一次性地写入 DB + 刷新 store，彻底消除竞态。
 
   const handleDragStart = (idx: number) => {
-    dragRef.current = idx
+    dragIdxRef.current = idx
+    dragOrderRef.current = categories.map(c => c.name)
   }
 
   const handleDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault()
-    const from = dragRef.current
+    const from = dragIdxRef.current
     if (from === null || from === idx) return
-    // 直接从 store 读取最新分类数组，避免闭包过期
-    const cats = tab === 'expense'
-      ? [...useStore.getState().expenseCategories]
-      : [...useStore.getState().incomeCategories]
-    const [moved] = cats.splice(from, 1)
-    cats.splice(idx, 0, moved)
-    if (tab === 'expense') {
-      useStore.setState({ expenseCategories: cats })
-    } else {
-      useStore.setState({ incomeCategories: cats })
-    }
-    dragRef.current = idx
+    const names = [...dragOrderRef.current]
+    const [moved] = names.splice(from, 1)
+    names.splice(idx, 0, moved)
+    dragOrderRef.current = names
+    dragIdxRef.current = idx
   }
 
   const handleDragEnd = async () => {
-    dragRef.current = null
-    const current = tab === 'expense'
-      ? useStore.getState().expenseCategories
-      : useStore.getState().incomeCategories
-    // 从 nameToIdRef 构建 orderedIds；若 map 为空则先加载
-    if (nameToIdRef.current.size === 0) {
+    const names = dragOrderRef.current
+    dragIdxRef.current = null
+    dragOrderRef.current = []
+    if (names.length === 0) return
+
+    if (nameToIdRef.current.size === 0) await loadMeta()
+    let ids = names.map(n => nameToIdRef.current.get(n)).filter((id): id is number => id !== undefined)
+
+    if (ids.length !== names.length) {
       await loadMeta()
+      ids = names.map(n => nameToIdRef.current.get(n)).filter((id): id is number => id !== undefined)
     }
-    let orderedIds = current
-      .map(c => nameToIdRef.current.get(c.name))
-      .filter((id): id is number => id !== undefined)
-    // 如果映射有缺失（如首次拖拽时 map 未就绪），重新加载后再试
-    if (orderedIds.length !== current.length) {
-      await loadMeta()
-      orderedIds = current
-        .map(c => nameToIdRef.current.get(c.name))
-        .filter((id): id is number => id !== undefined)
-    }
-    if (orderedIds.length > 0) {
+
+    if (ids.length > 0) {
       try {
-        await window.electronAPI.reorderCategories(orderedIds)
+        await window.electronAPI.reorderCategories(ids)
         await refreshCategories()
-        await loadMeta() // 刷新 nameToIdRef
+        await loadMeta()
       } catch (e) {
         console.error('Failed to save category order:', e)
         addToast('error', t('保存失败，请重试'))

@@ -38,3 +38,4 @@ npm-debug.log*
 
 # 质量门禁通过标记（本地生成，不入库）
 .claude/quality-gate/
+.workbuddy/
