@@ -1,22 +1,52 @@
 /**
  * 账单列表页面。
- * 支持：搜索（按分类/备注/金额）、月份筛选、分类筛选、支出/收入类型切换。
+ * 支持：搜索（按分类/备注/金额）、时间段快速筛选（本周/本月/近3月/近6月/近一年）、
+ * 分类筛选、支出/收入类型切换。
  * 列表项悬停显示编辑和删除按钮。
  */
 import { useEffect, useState, useMemo } from 'react'
 import { useStore } from '@/store'
 import { Search, Trash2, FilterX, Pencil } from 'lucide-react'
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths, subDays } from 'date-fns'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useLanguage } from '@/i18n/LanguageContext'
 import type { Bill } from '@/types'
+
+/** 快速时间段选项 */
+type PeriodKey = 'week' | 'month' | '3months' | '6months' | 'year'
+
+const PERIODS: { key: PeriodKey; labelKey: string; calc: () => { start: string; end: string } }[] = [
+  { key: 'week', labelKey: '本周', calc: () => {
+    const now = new Date()
+    return { start: format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'), end: format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd') }
+  }},
+  { key: 'month', labelKey: '本月', calc: () => {
+    const now = new Date()
+    return { start: format(startOfMonth(now), 'yyyy-MM-dd'), end: format(endOfMonth(now), 'yyyy-MM-dd') }
+  }},
+  { key: '3months', labelKey: '近3月', calc: () => {
+    const now = new Date()
+    return { start: format(startOfMonth(subMonths(now, 2)), 'yyyy-MM-dd'), end: format(endOfMonth(now), 'yyyy-MM-dd') }
+  }},
+  { key: '6months', labelKey: '近6月', calc: () => {
+    const now = new Date()
+    return { start: format(startOfMonth(subMonths(now, 5)), 'yyyy-MM-dd'), end: format(endOfMonth(now), 'yyyy-MM-dd') }
+  }},
+  { key: 'year', labelKey: '近一年', calc: () => {
+    const now = new Date()
+    return { start: format(subDays(now, 365), 'yyyy-MM-dd'), end: format(now, 'yyyy-MM-dd') }
+  }}
+]
 
 export function Bills() {
   const bills = useStore((s) => s.bills)
   const filterCategory1 = useStore((s) => s.filterCategory1)
   const filterMonth = useStore((s) => s.filterMonth)
+  const filterDateRange = useStore((s) => s.filterDateRange)
   const filterType = useStore((s) => s.filterType)
   const setFilterCategory1 = useStore((s) => s.setFilterCategory1)
   const setFilterMonth = useStore((s) => s.setFilterMonth)
+  const setFilterDateRange = useStore((s) => s.setFilterDateRange)
   const setFilterType = useStore((s) => s.setFilterType)
   const refreshBills = useStore((s) => s.refreshBills)
   const notifyChange = useStore((s) => s.notifyChange)
@@ -28,13 +58,29 @@ export function Bills() {
 
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null)
+  const [activePeriod, setActivePeriod] = useState<PeriodKey | null>(null)
 
   // 筛选条件变化时重新从数据库拉取账单
   useEffect(() => {
     refreshBills()
-  }, [filterCategory1, filterMonth, refreshBills])
+  }, [filterCategory1, filterMonth, filterDateRange, refreshBills])
 
-  /** 前端搜索过滤：在分类名、备注、金额中模糊匹配用户输入的关键词，再叠加类型筛选 */
+  /** 点击快速时间段按钮 */
+  const handlePeriodClick = (p: PeriodKey) => {
+    if (activePeriod === p) {
+      // 再次点击取消选择
+      setActivePeriod(null)
+      setFilterDateRange(null)
+    } else {
+      setActivePeriod(p)
+      const period = PERIODS.find(pp => pp.key === p)
+      if (period) {
+        setFilterDateRange(period.calc())
+      }
+    }
+  }
+
+  /** 前端搜索过滤 */
   const filtered = bills.filter((b) => {
     if (!search) return true
     const q = search.toLowerCase()
@@ -49,15 +95,16 @@ export function Bills() {
     return b.type === filterType
   })
 
-  const hasFilters = filterCategory1 || filterMonth || filterType
+  const hasFilters = filterCategory1 || filterMonth || filterDateRange || filterType
   const clearFilters = () => {
     setFilterCategory1('')
     setFilterMonth('')
+    setFilterDateRange(null)
     setFilterType('')
     setSearch('')
+    setActivePeriod(null)
   }
 
-  /** 确认删除账单，调用主进程 IPC 后刷新列表并通知首页更新统计 */
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return
     try {
@@ -84,8 +131,26 @@ export function Bills() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
-      {/* ── 筛选栏：搜索 + 月份 + 分类 + 类型 ── */}
-      <div className="card dark:bg-gray-800 dark:border-gray-700 p-4">
+      {/* ── 筛选栏 ── */}
+      <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
+        {/* 快速时间段 */}
+        <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-700 rounded-lg p-1 w-fit">
+          {PERIODS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => handlePeriodClick(p.key)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                activePeriod === p.key
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              {t(p.labelKey)}
+            </button>
+          ))}
+        </div>
+
+        {/* 精确筛选 */}
         <div className="flex flex-wrap items-center gap-3">
           {/* 搜索框 */}
           <div className="relative flex-1 min-w-[180px]">
@@ -99,7 +164,7 @@ export function Bills() {
             />
           </div>
 
-          {/* 月份筛选 */}
+          {/* 月份筛选（精确到月） */}
           <input
             type="month"
             value={filterMonth}
@@ -119,7 +184,7 @@ export function Bills() {
             ))}
           </select>
 
-          {/* 类型筛选（支出/收入） */}
+          {/* 类型筛选 */}
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
@@ -130,7 +195,7 @@ export function Bills() {
             <option value="income">{t('收入')}</option>
           </select>
 
-          {/* 清除所有筛选条件 */}
+          {/* 清除筛选 */}
           {hasFilters && (
             <button onClick={clearFilters} className="btn-secondary dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1">
               <FilterX size={14} />
@@ -140,7 +205,7 @@ export function Bills() {
         </div>
       </div>
 
-      {/* 汇总行：总条数 + 支出合计 + 收入合计 */}
+      {/* 汇总行 */}
       {filtered.length > 0 && (
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 px-1">
           <span>{t('共 {n} 条记录').replace('{n}', String(filtered.length))}</span>
@@ -177,12 +242,10 @@ export function Bills() {
                 key={bill.id}
                 className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50/50 dark:hover:bg-gray-750 transition-colors group"
               >
-                {/* 分类图标 */}
                 <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg shrink-0">
                   {catIcon(bill.category1)}
                 </div>
 
-                {/* 分类名 + 日期 + 备注 */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -200,7 +263,6 @@ export function Bills() {
                   </div>
                 </div>
 
-                {/* 金额（红色支出 / 绿色收入） */}
                 <span className={`text-sm font-semibold shrink-0 ${
                   bill.type === 'income'
                     ? 'text-green-500 dark:text-green-400'
@@ -209,7 +271,6 @@ export function Bills() {
                   {bill.type === 'income' ? '+' : '-'}¥{bill.amount.toFixed(2)}
                 </span>
 
-                {/* 编辑按钮（悬停显示） */}
                 <button
                   onClick={() => openEditDialog(bill.id)}
                   className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 opacity-0 group-hover:opacity-100 transition-all"
@@ -218,7 +279,6 @@ export function Bills() {
                   <Pencil size={14} />
                 </button>
 
-                {/* 删除按钮（悬停显示） */}
                 <button
                   onClick={() => setDeleteTarget(bill)}
                   className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
@@ -232,7 +292,6 @@ export function Bills() {
         )}
       </div>
 
-      {/* 删除确认弹窗 */}
       <ConfirmDialog
         open={deleteTarget !== null}
         title={t('确认删除')}

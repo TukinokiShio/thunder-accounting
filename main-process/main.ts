@@ -202,7 +202,6 @@ function registerIpcHandlers(): void {
   ipcMain.handle('category:update', (_event, id, params) => updateCategory(id, params))
   ipcMain.handle('category:delete', (_event, id) => { deleteCategory(id) })
   ipcMain.handle('category:reorder', (_event, orderedIds) => {
-    console.log('[Debug] reorderCategories called, ids:', JSON.stringify(orderedIds))
     reorderCategories(orderedIds)
   })
 

@@ -273,10 +273,9 @@ export function updateCategory(id: number, params: UpdateCategoryParams): Catego
   return rowTo<CategoryRow>(obj)
 }
 
-/** 删除分类。SQL 层通过 is_preset = 0 保护预设分类不被误删，双保险。 */
+/** 删除分类（预设和自定义均可删除）。预设分类删除后重启应用会通过 initPresetCategories 自动恢复。 */
 export function deleteCategory(id: number): void {
-  // 仅允许删除自定义分类，预设分类受保护（SQL WHERE 条件 + 前端拦截双重保护）
-  db.run('DELETE FROM categories WHERE id = ? AND is_preset = 0', [id])
+  db.run('DELETE FROM categories WHERE id = ?', [id])
   saveDb()
 }
 

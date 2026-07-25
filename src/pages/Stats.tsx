@@ -1,61 +1,80 @@
 /**
  * 统计概览页面。
- * 展示支出/收入汇总卡片、支出分类环形图（一级 + 二级下钻）、每日支出趋势折线图、分类明细表。
+ * 展示支出/收入汇总卡片、支出分类环形图（一级 + 二级下钻）+ Legend + 明细表、
+ * 每日支出趋势折线图。
  * 支持本月 / 上月 / 近3个月三个时间粒度切换，以及 CSV 导出。
+ *
+ * 参考：https://github.com/qsor/budget-manager（图表+表格组合模式）
+ *       https://github.com/iambhavesh55/personal-finance-dashboard（Legend 替代 inline labels）
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  LineChart, Line, XAxis, YAxis, CartesianGrid
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts'
+import type { LegendProps } from 'recharts'
 import { Download, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import type { StatsResult } from '@/types'
 
-// 饼图/环形图配色方案（10 色，从 Tailwind 色板选取，相邻色视觉区分度足够）
 const COLORS = [
   '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
   '#ec4899', '#06b6d4', '#f97316', '#64748b', '#84cc16'
 ]
 
-/** Recharts Pie 组件的 label render prop 参数 */
-interface PieLabelProps {
-  cx: number
-  cy: number
-  midAngle: number
-  innerRadius: number
-  outerRadius: number
-  name: string
-  percent: number
-  index: number
+/** 计算总金额的百分比 */
+function pct(value: number, total: number): string {
+  if (total <= 0) return '0.0%'
+  return ((value / total) * 100).toFixed(1) + '%'
 }
 
-// 角度 → 弧度转换系数，用于环形图标签的三角函数定位计算
-const RADIAN = Math.PI / 180
-
 /**
- * 环形图环外标签渲染函数（Recharts Pie 的 label prop）。
- * 通过三角函数将标签定位到环外 35px 处，显示分类名称和百分比。
- * 标签水平位置以圆心为基准：x > cx 时右对齐，否则左对齐，避免文字重叠。
+ * 自定义 Legend 渲染函数：显示颜色圆点 + 分类名 + 百分比。
+ * Legend 代替 inline label，彻底避免标签重叠问题。
  */
-const renderLabel = ({ cx, cy, midAngle, outerRadius, name, percent }: PieLabelProps) => {
-  const radius = outerRadius + 35
-  const x = cx + radius * Math.cos(-midAngle * RADIAN)
-  const y = cy + radius * Math.sin(-midAngle * RADIAN)
-  const textAnchor = x > cx ? 'start' : 'end'
-
+const renderLegend = ({ payload }: LegendProps) => {
+  if (!payload) return null
   return (
-    <text x={x} y={y} textAnchor={textAnchor} dominantBaseline="central"
-      className="text-xs fill-gray-700 dark:fill-gray-300"
-    >
-      {name} {(percent * 100).toFixed(0)}%
-    </text>
+    <ul className="flex flex-wrap gap-x-3 gap-y-1 justify-center text-xs mt-2">
+      {payload.map((entry, idx) => (
+        <li key={entry.value} className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+          <span>{entry.value}</span>
+          <span className="text-gray-400 dark:text-gray-500">
+            {pct(entry.payload?.value ?? 0, payload.reduce((s, p) => s + (p.payload?.value ?? 0), 0))}
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
-/** 统计页面主组件。数据加载采用 Promise.all 并行查询支出和收入统计。 */
+/** 自定义 tooltip 内容：分类名 + 金额 + 笔数 + 占比 */
+const renderTooltip = (
+  total: number,
+  byCategory2?: StatsResult['byCategory2']
+) => ({ active, payload }: any) => {
+  if (!active || !payload?.length) return null
+  const item = payload[0]
+  const name = item.name
+  const value = item.value as number
+  // 在 byCategory2 中查找对应的 count（仅二级分类有，一级分类无 count）
+  const count = byCategory2
+    ? byCategory2.filter(c => c.category2 === name).reduce((s, c) => s + c.count, 0)
+    : null
+  return (
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-3 py-2 text-sm">
+      <p className="font-medium text-gray-900 dark:text-gray-100">{name}</p>
+      <p className="text-gray-600 dark:text-gray-400">¥{value.toFixed(2)}</p>
+      <p className="text-gray-400 dark:text-gray-500 text-xs">
+        {pct(value, total)} · {count !== null ? `${count} 笔` : ''}
+      </p>
+    </div>
+  )
+}
+
 export function Stats() {
   const [period, setPeriod] = useState<'thisMonth' | 'lastMonth' | 'last3Months'>('thisMonth')
   const [stats, setStats] = useState<StatsResult | null>(null)
@@ -67,7 +86,6 @@ export function Stats() {
 
   const now = new Date()
 
-  // 根据选中的时间粒度（本月/上月/近3个月）计算起止日期和显示标签
   const dateRange = (() => {
     switch (period) {
       case 'thisMonth':
@@ -107,7 +125,6 @@ export function Stats() {
       .finally(() => setLoading(false))
   }, [dateRange.start, dateRange.end])
 
-  /** CSV 导出流程：查询数据 → 弹出保存对话框 → 写入文件 → 提示成功 */
   const handleExport = async () => {
     try {
       const csv = await window.electronAPI.exportCSV({
@@ -127,27 +144,26 @@ export function Stats() {
     }
   }
 
-  // 一级分类 → 环形图数据（名称 + 金额）
   const pieData = stats?.byCategory1.map((c) => ({
     name: c.category1,
     value: c.total
   })) ?? []
 
-  // 每日汇总 → 折线图数据（X 轴取 MM-DD，避免年份占空间）
   const lineData = stats?.byDate.map((d) => ({
-    date: d.date.slice(5), // 截取月-日部分（如 "01-15"），省去年份
+    date: d.date.slice(5),
     amount: d.total
   })) ?? []
 
-  // 金额最高的一级分类，用于二级分类环形图下钻
   const topCategory1 = stats?.byCategory1[0]?.category1 ?? null
 
-  // 排名第一的一级分类下的二级分类明细 → 第二个环形图数据
   const subPieData = topCategory1
     ? stats.byCategory2
         .filter((c) => c.category1 === topCategory1)
         .map((c) => ({ name: c.category2, value: c.total }))
     : []
+
+  const totalAmount = stats?.totalAmount ?? 0
+  const incomeTotal = incomeStats?.totalAmount ?? 0
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -203,21 +219,21 @@ export function Stats() {
             {t('点击重试')}
           </button>
         </div>
-      ) : (!stats || stats.count === 0) && (!incomeStats || incomeStats.count === 0) ? (
+      ) : !stats || stats.count === 0 && (!incomeStats || incomeStats.count === 0) ? (
         <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
           <p className="text-gray-400 dark:text-gray-500">{t('该时间段暂无数据')}</p>
         </div>
       ) : (
         <>
-          {/* ── 汇总卡片：总支出 / 总收入 / 总笔数 / 结余 ── */}
+          {/* ── 汇总卡片 ── */}
           <div className="grid grid-cols-4 gap-4">
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总支出')}</p>
-              <p className="text-xl font-bold text-red-500">¥{stats.totalAmount.toFixed(2)}</p>
+              <p className="text-xl font-bold text-red-500">¥{totalAmount.toFixed(2)}</p>
             </div>
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总收入')}</p>
-              <p className="text-xl font-bold text-green-500">¥{(incomeStats?.totalAmount ?? 0).toFixed(2)}</p>
+              <p className="text-xl font-bold text-green-500">¥{incomeTotal.toFixed(2)}</p>
             </div>
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总笔数')}</p>
@@ -225,18 +241,18 @@ export function Stats() {
             </div>
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('结余')}</p>
-              <p className={`text-xl font-bold ${(incomeStats?.totalAmount ?? 0) - stats.totalAmount >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                ¥{((incomeStats?.totalAmount ?? 0) - stats.totalAmount).toFixed(2)}
+              <p className={`text-xl font-bold ${incomeTotal - totalAmount >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                ¥{(incomeTotal - totalAmount).toFixed(2)}
               </p>
             </div>
           </div>
 
-          {/* ── 图表区：两个环形图 + 折线图 ── */}
+          {/* ── 图表区 ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 环形图 1：支出分类占比 */}
+            {/* 环形图 1：支出分类占比（Legend + 明细表替代 inline label） */}
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('支出分类占比')}</h3>
-              <ResponsiveContainer width="100%" height={280}>
+              <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -244,36 +260,45 @@ export function Stats() {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    outerRadius={95}
-                    innerRadius={55}
+                    outerRadius={85}
+                    innerRadius={50}
                     strokeWidth={0}
-                    label={renderLabel}
-                    labelLine={true}
                   >
                     {pieData.map((_, idx) => (
                       <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
-                    formatter={(value: number) => [`¥${value.toFixed(2)}`, t('金额')]}
-                    labelFormatter={(name: string) => name}
-                    contentStyle={{
-                      borderRadius: '8px',
-                      border: '1px solid #e5e7eb',
-                      fontSize: '13px'
-                    }}
-                  />
+                  <Tooltip content={renderTooltip(totalAmount, stats?.byCategory2)} />
+                  <Legend content={renderLegend} />
                 </PieChart>
               </ResponsiveContainer>
+              {/* 一级分类明细小表 */}
+              {stats.byCategory1.length > 0 && (
+                <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
+                  {stats.byCategory1.map((row, idx) => (
+                    <div key={row.category1} className="flex items-center justify-between py-1.5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
+                        <span className="text-gray-700 dark:text-gray-300">{row.category1}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+                        <span>{row.count} {t('笔')}</span>
+                        <span className="font-medium text-gray-900 dark:text-gray-100">¥{row.total.toFixed(2)}</span>
+                        <span className="text-gray-400">{pct(row.total, totalAmount)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* 环形图 2：第一大类的二级分类明细（下钻） */}
+            {/* 环形图 2：二级分类下钻 */}
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
                 {topCategory1 ? `「${topCategory1}」${t('二级分类')}` : t('二级分类明细')}
               </h3>
               {subPieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
+                <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
                       data={subPieData}
@@ -281,35 +306,46 @@ export function Stats() {
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      outerRadius={95}
-                      innerRadius={55}
+                      outerRadius={85}
+                      innerRadius={50}
                       strokeWidth={0}
-                      label={renderLabel}
-                      labelLine={true}
                     >
                       {subPieData.map((_, idx) => (
                         <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip
-                      formatter={(value: number) => [`¥${value.toFixed(2)}`, t('金额')]}
-                      labelFormatter={(name: string) => name}
-                      contentStyle={{
-                        borderRadius: '8px',
-                        border: '1px solid #e5e7eb',
-                        fontSize: '13px'
-                      }}
-                    />
+                    <Tooltip content={renderTooltip(totalAmount)} />
+                    <Legend content={renderLegend} />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex items-center justify-center h-[280px] text-gray-400 dark:text-gray-500 text-sm">
+                <div className="flex items-center justify-center h-[240px] text-gray-400 dark:text-gray-500 text-sm">
                   {t('暂无数据')}
+                </div>
+              )}
+              {/* 二级分类明细小表 */}
+              {subPieData.length > 0 && topCategory1 && (
+                <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
+                  {stats.byCategory2
+                    .filter(c => c.category1 === topCategory1)
+                    .map((row, idx) => (
+                      <div key={row.category2} className="flex items-center justify-between py-1.5 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
+                          <span className="text-gray-700 dark:text-gray-300">{row.category2}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+                          <span>{row.count} {t('笔')}</span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100">¥{row.total.toFixed(2)}</span>
+                          <span className="text-gray-400">{pct(row.total, totalAmount)}</span>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
 
-            {/* 折线图：每日支出趋势（全宽） */}
+            {/* 折线图 */}
             <div className="card dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('每日支出趋势')}</h3>
               <ResponsiveContainer width="100%" height={260}>
@@ -353,7 +389,7 @@ export function Stats() {
             </div>
           </div>
 
-          {/* ── 分类明细表：所有二级分类的金额/笔数/占比 ── */}
+          {/* ── 全量分类明细表 ── */}
           <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('分类明细')}</h3>
             <div className="overflow-x-auto">
@@ -377,10 +413,7 @@ export function Stats() {
                         ¥{row.total.toFixed(2)}
                       </td>
                       <td className="py-2 px-3 text-right text-gray-400 dark:text-gray-500">
-                        {stats.totalAmount > 0
-                          ? (row.total / stats.totalAmount * 100).toFixed(1) + '%'
-                          : '-'
-                        }
+                        {pct(row.total, totalAmount)}
                       </td>
                     </tr>
                   ))}

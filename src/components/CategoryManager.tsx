@@ -4,10 +4,11 @@
  * 预设分类的名称不可修改，但图标和子分类可调整。
  */
 import { useState, useRef, useCallback } from 'react'
-import { X, Plus, Trash2, Settings, GripVertical } from 'lucide-react'
+import { X, Plus, Settings, GripVertical } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { EmojiPicker } from './EmojiPicker'
+import { ConfirmDialog } from './ConfirmDialog'
 
 interface Props {
   isOpen: boolean
@@ -32,32 +33,25 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   const [saving, setSaving] = useState(false)
 
   // ─── 拖拽排序 state ─────────────────────────────────────
-  /**
-   * 拖拽期间维护一个局部顺序数组（useRef），不修改 store。
-   * dragEnd 时一次性保存到 DB 并更新 store，彻底消除乐观更新带来的竞态风险。
-   */
-  const dragOrderRef = useRef<string[]>([])        // 拖拽中的 name 顺序
-  const dragIdxRef = useRef<number | null>(null)    // 被拖拽项的原始 index
-  const nameToIdRef = useRef<Map<string, number>>(new Map())  // name → id
+  const dragOrderRef = useRef<string[]>([])
+  const dragIdxRef = useRef<number | null>(null)
+  const nameToIdRef = useRef<Map<string, number>>(new Map())
 
   const categories = tab === 'expense' ? expenseCategories : incomeCategories
 
   const [catMeta, setCatMeta] = useState<Array<{ id: number; is_preset: number }>>([])
 
-  /** 加载指定 type 的分类元数据（id、is_preset），同时刷新 nameToIdRef */
   const loadMeta = useCallback(async () => {
     try {
       const rows = await window.electronAPI.getCategories(tab)
       const meta = rows.map(r => ({ id: r.id, is_preset: r.is_preset }))
       setCatMeta(meta)
-      // 同步更新 name → id 映射
       nameToIdRef.current = new Map(rows.map(r => [r.name, r.id]))
     } catch (e) {
       console.error('Failed to load category meta:', e)
     }
   }, [tab])
 
-  /** 点击列表项选中分类，异步加载元数据 */
   const selectCategory = async (idx: number) => {
     setSelectedId(idx)
     setIsCreating(false)
@@ -71,24 +65,33 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
 
   const isPreset = selectedId !== null && catMeta[selectedId]?.is_preset === 1
 
-  /** 保存分类（新增/更新）：用 isCreating（同步）区分，避免依赖异步 catMeta */
+  /** 收集最终的子分类列表：合并 editChildren + 输入框中未添加的 newChild */
+  const collectChildren = (): string[] => {
+    const list = [...editChildren]
+    const pending = newChild.trim()
+    if (pending && !list.includes(pending)) {
+      list.push(pending)
+    }
+    return list.map(c => c.trim()).filter(Boolean)
+  }
+
   const handleSave = async () => {
     if (!editName.trim()) {
       addToast('error', t('请输入分类名称'))
       return
     }
-    if (editChildren.length === 0) {
+    const children = collectChildren()
+    if (children.length === 0) {
       addToast('error', t('请至少添加一个二级分类'))
       return
     }
-
     setSaving(true)
     try {
       if (isCreating) {
         await window.electronAPI.addCategory({
           name: editName.trim(),
           icon: editIcon,
-          children: editChildren.map(c => c.trim()).filter(Boolean),
+          children,
           type: tab
         })
         addToast('success', t('已新增分类「{name}」').replace('{name}', editName.trim()))
@@ -96,7 +99,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
         await window.electronAPI.updateCategory(catMeta[selectedId].id, {
           name: editName.trim(),
           icon: editIcon,
-          children: editChildren.map(c => c.trim()).filter(Boolean)
+          children
         })
         addToast('success', t('已更新分类「{name}」').replace('{name}', editName.trim()))
       } else {
@@ -115,17 +118,17 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     }
   }
 
-  /** 删除自定义分类（预设受保护） */
+  /** 删除确认弹窗 */
+  const [deleteConfirm, setDeleteConfirm] = useState<{ name: string; id: number } | null>(null)
+
   const handleDelete = async () => {
-    if (selectedId === null || !catMeta[selectedId]) return
-    if (isPreset) {
-      addToast('error', t('预设分类不可删除'))
-      return
-    }
+    if (!deleteConfirm) return
+    const { id, name } = deleteConfirm
     setSaving(true)
+    setDeleteConfirm(null)
     try {
-      await window.electronAPI.deleteCategory(catMeta[selectedId].id)
-      addToast('success', t('已删除分类「{name}」').replace('{name}', editName))
+      await window.electronAPI.deleteCategory(id)
+      addToast('success', t('已删除分类「{name}」').replace('{name}', name))
       await refreshCategories()
       setSelectedId(null)
       setIsCreating(false)
@@ -136,6 +139,18 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     } finally {
       setSaving(false)
     }
+  }
+
+  /** 列表项 × 点击：按名称查找 ID，弹出确认框 */
+  const handleListItemDelete = (idx: number) => {
+    const cat = categories[idx]
+    if (!cat) return
+    const id = nameToIdRef.current.get(cat.name)
+    if (!id) {
+      addToast('error', t('删除失败，请重试'))
+      return
+    }
+    setDeleteConfirm({ name: cat.name, id })
   }
 
   const resetForm = () => {
@@ -162,8 +177,6 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   }
 
   // ─── 拖拽排序 ──────────────────────────────────────────
-  // 不依赖 store 乐观更新。用局部 ref 数组在拖拽过程中维护顺序，
-  // dragEnd 时一次性地写入 DB + 刷新 store，彻底消除竞态。
 
   const handleDragStart = (idx: number) => {
     dragIdxRef.current = idx
@@ -186,15 +199,12 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     dragIdxRef.current = null
     dragOrderRef.current = []
     if (names.length === 0) return
-
     if (nameToIdRef.current.size === 0) await loadMeta()
     let ids = names.map(n => nameToIdRef.current.get(n)).filter((id): id is number => id !== undefined)
-
     if (ids.length !== names.length) {
       await loadMeta()
       ids = names.map(n => nameToIdRef.current.get(n)).filter((id): id is number => id !== undefined)
     }
-
     if (ids.length > 0) {
       try {
         await window.electronAPI.reorderCategories(ids)
@@ -239,7 +249,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
           </button>
         </div>
 
-        {/* Category list（可拖拽排序） */}
+        {/* Category list（每项右侧有 × 删除按钮，悬停显示） */}
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           {categories.map((cat, idx) => (
             <div
@@ -249,14 +259,13 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
               onDragOver={(e) => handleDragOver(e, idx)}
               onDragEnd={handleDragEnd}
               onClick={() => selectCategory(idx)}
-              className={`w-full flex items-center gap-1 px-3 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer select-none
+              className={`w-full flex items-center gap-1 px-3 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer select-none group
                 ${selectedId === idx
                   ? 'bg-primary-50 text-primary-700 font-medium'
                   : 'text-gray-700 hover:bg-gray-50'
                 }
               `}
             >
-              {/* 拖拽手柄 */}
               <span
                 className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -264,8 +273,16 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
                 <GripVertical size={14} />
               </span>
               <span className="text-lg shrink-0">{cat.icon}</span>
-              <span className="truncate">{cat.name}</span>
-              <span className="text-xs text-gray-400 ml-auto shrink-0">{cat.children.length}</span>
+              <span className="truncate flex-1">{cat.name}</span>
+              <span className="text-xs text-gray-400 shrink-0 mr-0.5">{cat.children.length}</span>
+              {/* × 删除按钮（仅悬停时显示） */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleListItemDelete(idx) }}
+                className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                title={t('删除此分类')}
+              >
+                <X size={14} />
+              </button>
             </div>
           ))}
 
@@ -333,15 +350,14 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 text-sm text-gray-700 group"
                     >
                       {child}
-                      {!isPreset && (
-                        <button
-                          type="button"
-                          onClick={() => removeChild(child)}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <X size={12} />
-                        </button>
-                      )}
+                      {/* 二级分类右侧 × 删除按钮 */}
+                      <button
+                        type="button"
+                        onClick={() => removeChild(child)}
+                        className="text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
                     </span>
                   ))
                 )}
@@ -370,18 +386,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-              {selectedId !== null && !isPreset ? (
-                <button
-                  onClick={handleDelete}
-                  disabled={saving}
-                  className="flex items-center gap-1 text-sm text-red-500 hover:text-red-600 font-medium disabled:opacity-40 transition-colors"
-                >
-                  <Trash2 size={14} />
-                  {t('删除此分类')}
-                </button>
-              ) : (
-                <div />
-              )}
+              <div />
               <button
                 onClick={handleSave}
                 disabled={saving}
@@ -413,11 +418,24 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     </div>
   )
 
+  const deleteDialog = (
+    <ConfirmDialog
+      open={deleteConfirm !== null}
+      title={t('确认删除')}
+      message={deleteConfirm ? `「${deleteConfirm.name}」` : ''}
+      confirmLabel={t('删除')}
+      danger
+      onConfirm={handleDelete}
+      onCancel={() => setDeleteConfirm(null)}
+    />
+  )
+
   if (isPage) {
     return (
       <div className="h-full flex flex-col">
         {headerContent}
         {bodyContent}
+        {deleteDialog}
       </div>
     )
   }
@@ -428,6 +446,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
       <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col animate-slide-up">
         {headerContent}
         {bodyContent}
+        {deleteDialog}
       </div>
     </div>
   )

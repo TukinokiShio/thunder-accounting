@@ -42,9 +42,11 @@ interface AppState {
 
   filterCategory1: string
   filterMonth: string
+  filterDateRange: { start: string; end: string } | null
   filterType: '' | 'expense' | 'income'
   setFilterCategory1: (cat: string) => void
   setFilterMonth: (month: string) => void
+  setFilterDateRange: (range: { start: string; end: string } | null) => void
   setFilterType: (t: '' | 'expense' | 'income') => void
 
   // refreshBills 不再自动递增 refreshTrigger（否则与 Home 的 useEffect 形成循环）。
@@ -76,13 +78,16 @@ export const useStore = create<AppState>((set, get) => ({
   bills: [],
   setBills: (bills) => set({ bills }),
   /**
-   * 根据当前筛选条件（月份、分类）从数据库拉取账单列表。
-   * 月份筛选转换为该月的起止日期范围（如 2026-07 → 2026-07-01 至 2026-07-31）。
+   * 根据当前筛选条件从数据库拉取账单列表。
+   * 优先使用 filterDateRange（周/季/半年/年等预设），其次使用 filterMonth（月份选择器）。
    */
   refreshBills: async () => {
-    const { filterCategory1, filterMonth } = get()
+    const { filterCategory1, filterDateRange, filterMonth } = get()
     const filters: { startDate?: string; endDate?: string; category1?: string } = {}
-    if (filterMonth) {
+    if (filterDateRange) {
+      filters.startDate = filterDateRange.start
+      filters.endDate = filterDateRange.end
+    } else if (filterMonth) {
       const [y, m] = filterMonth.split('-')
       const lastDay = new Date(Number(y), Number(m), 0).getDate()
       filters.startDate = `${filterMonth}-01`
@@ -107,9 +112,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   filterCategory1: '',
   filterMonth: '',
+  filterDateRange: null,
   filterType: '',
   setFilterCategory1: (cat) => set({ filterCategory1: cat }),
-  setFilterMonth: (month) => set({ filterMonth: month }),
+  setFilterMonth: (month) => set({ filterMonth: month, filterDateRange: null }),
+  setFilterDateRange: (range) => set({ filterDateRange: range, filterMonth: '' }),
   setFilterType: (t) => set({ filterType: t }),
 
   toasts: [],

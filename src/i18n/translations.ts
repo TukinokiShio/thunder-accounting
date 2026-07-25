@@ -184,4 +184,10 @@ export const T: Record<string, string> = {
   'JSON 文件': 'JSON Files',
 
   // ── 菜单（主进程不翻译，仅占位） ──
+
+  // ── 账单页快速时间段 ──
+  '本周': 'This Week',
+  '近3月': '3 Months',
+  '近6月': '6 Months',
+  '近一年': '1 Year',
 }
