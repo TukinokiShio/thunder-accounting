@@ -3,7 +3,7 @@
  * 管理：页面路由、记账弹窗开关、账单列表/筛选、分类数据、Toast 通知、数据刷新触发器。
  */
 import { create } from 'zustand'
-import type { Bill, Category, StatsResult } from '@/types'
+import type { Bill, Category, StatsResult, CloudBaseUser } from '@/types'
 
 /** 将数据库行（children 为 JSON 字符串）解析为前端 Category 类型 */
 function parseCategoryRow(row: { name: string; icon: string; children: string; id: number; is_preset: number }): Category {
@@ -61,6 +61,16 @@ interface AppState {
   expenseCategories: Category[]
   incomeCategories: Category[]
   refreshCategories: () => Promise<void>
+
+  // ─── Auth State ───
+  user: CloudBaseUser | null
+  isCheckingSession: boolean
+  syncStatus: 'idle' | 'syncing' | 'error' | 'offline'
+  syncError: string | null
+  setUser: (user: CloudBaseUser | null) => void
+  setCheckingSession: (v: boolean) => void
+  setSyncStatus: (status: AppState['syncStatus'], error?: string) => void
+  appLogout: () => Promise<void>
 }
 
 let toastId = 0
@@ -144,5 +154,22 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error('Failed to refresh categories:', e)
     }
+  },
+
+  // ─── Auth State ───
+  user: null,
+  isCheckingSession: true,
+  syncStatus: 'offline',
+  syncError: null,
+  setUser: (user) => set({ user, syncStatus: user ? 'idle' : 'offline' }),
+  setCheckingSession: (isCheckingSession) => set({ isCheckingSession }),
+  setSyncStatus: (syncStatus, syncError) => set({ syncStatus, syncError: syncError || null }),
+  appLogout: async () => {
+    try {
+      await window.electronAPI.logout()
+    } catch (e) {
+      console.error('退出登录失败:', e)
+    }
+    set({ user: null, syncStatus: 'offline', syncError: null })
   }
 }))

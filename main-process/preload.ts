@@ -86,7 +86,39 @@ const electronAPI = {
     const handler = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
     ipcRenderer.on('shortcut:addBill', handler)
     return () => ipcRenderer.removeListener('shortcut:addBill', handler)
-  }
+  },
+
+  // Auth
+  sendCode: (email: string) =>
+    ipcRenderer.invoke('auth:sendCode', email),
+
+  register: (email: string, password: string, verifyCode: string) =>
+    ipcRenderer.invoke('auth:register', email, password, verifyCode),
+
+  login: (email: string, password: string) =>
+    ipcRenderer.invoke('auth:login', email, password),
+
+  logout: () =>
+    ipcRenderer.invoke('auth:logout'),
+
+  checkSession: () =>
+    ipcRenderer.invoke('auth:checkSession'),
+
+  saveCredentials: (email: string, password: string) =>
+    ipcRenderer.invoke('auth:saveCredentials', email, password),
+
+  loadCredentials: () =>
+    ipcRenderer.invoke('auth:loadCredentials'),
+
+  changePassword: (oldPassword: string, newPassword: string, verifyCode: string) =>
+    ipcRenderer.invoke('auth:changePassword', oldPassword, newPassword, verifyCode),
+
+  sendReauthCode: () =>
+    ipcRenderer.invoke('auth:sendReauthCode'),
+
+  // Sync
+  getSyncStatus: () =>
+    ipcRenderer.invoke('sync:getStatus')
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

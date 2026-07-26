@@ -42,6 +42,13 @@ export interface StatsResult {
   byDate: Array<{ date: string; total: number; count: number }>
 }
 
+/** CloudBase 用户信息 */
+export interface CloudBaseUser {
+  uid: string
+  email: string
+  emailVerified: boolean
+}
+
 /** 主进程通过 preload.ts 暴露给渲染进程的 IPC API */
 export interface ElectronAPI {
   addBill: (params: Omit<Bill, 'id' | 'created_at'>) => Promise<Bill>
@@ -62,6 +69,18 @@ export interface ElectronAPI {
   clearAllData: () => Promise<void>
   showOpenDialog: () => Promise<{ filePath: string; content: string } | null>
   onShortcut: (callback: (action: string) => void) => () => void
+  // Auth
+  sendCode: (email: string) => Promise<void>
+  register: (email: string, password: string, verifyCode: string) => Promise<CloudBaseUser>
+  login: (email: string, password: string) => Promise<{ user: CloudBaseUser }>
+  logout: () => Promise<void>
+  checkSession: () => Promise<{ user: CloudBaseUser } | null>
+  // Sync
+  getSyncStatus: () => Promise<{ isLoggedIn: boolean }>
+  saveCredentials: (email: string, password: string) => Promise<void>
+  loadCredentials: () => Promise<{ email: string; password: string }>
+  changePassword: (oldPassword: string, newPassword: string, verifyCode: string) => Promise<void>
+  sendReauthCode: () => Promise<void>
 }
 
 /** 数据库分类行（children 为 JSON 字符串，需调用处手动解析） */

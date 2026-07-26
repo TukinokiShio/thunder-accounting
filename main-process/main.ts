@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData } from './database'
+import { initCloudBase, registerWithEmail, loginWithEmail, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode } from './cloudbase'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -43,6 +44,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   await initDatabase()
+  initCloudBase()
   registerIpcHandlers()
   createWindow()
   setupMenu()
@@ -154,12 +156,29 @@ function registerShortcuts(): void {
 
 // ─── IPC Handlers ──────────────────────────────────
 
+/** 后台静默同步辅助函数：已登录时推送数据到云端，失败静默忽略 */
+function trySync(fn: () => Promise<void>): void {
+  if (!isLoggedIn()) return
+  fn().catch(e => console.error('后台同步失败:', e))
+}
+
 function registerIpcHandlers(): void {
   // Bill CRUD
-  ipcMain.handle('bill:add', (_event, params) => addBill(params))
+  ipcMain.handle('bill:add', (_event, params) => {
+    const bill = addBill(params)
+    trySync(() => upsertRemoteBill(bill))
+    return bill
+  })
   ipcMain.handle('bill:getAll', (_event, filters) => getBills(filters))
-  ipcMain.handle('bill:update', (_event, id, params) => updateBill(id, params))
-  ipcMain.handle('bill:delete', (_event, id) => { deleteBill(id) })
+  ipcMain.handle('bill:update', (_event, id, params) => {
+    const bill = updateBill(id, params)
+    trySync(() => upsertRemoteBill(bill))
+    return bill
+  })
+  ipcMain.handle('bill:delete', (_event, id) => {
+    deleteBill(id)
+    trySync(() => deleteRemoteBill(id))
+  })
 
   // Stats
   ipcMain.handle('stats:get', (_event, startDate, endDate, type) => getStats(startDate, endDate, type))
@@ -198,9 +217,20 @@ function registerIpcHandlers(): void {
 
   // Categories
   ipcMain.handle('category:getAll', (_event, type) => getCategories(type))
-  ipcMain.handle('category:add', (_event, params) => addCategory(params))
-  ipcMain.handle('category:update', (_event, id, params) => updateCategory(id, params))
-  ipcMain.handle('category:delete', (_event, id) => { deleteCategory(id) })
+  ipcMain.handle('category:add', (_event, params) => {
+    const cat = addCategory(params)
+    trySync(() => upsertRemoteCategory(cat))
+    return cat
+  })
+  ipcMain.handle('category:update', (_event, id, params) => {
+    const cat = updateCategory(id, params)
+    trySync(() => upsertRemoteCategory(cat))
+    return cat
+  })
+  ipcMain.handle('category:delete', (_event, id) => {
+    deleteCategory(id)
+    trySync(() => deleteRemoteCategory(id))
+  })
   ipcMain.handle('category:reorder', (_event, orderedIds) => {
     reorderCategories(orderedIds)
   })
@@ -224,5 +254,53 @@ function registerIpcHandlers(): void {
     const filePath = result.filePaths[0]
     const content = await fs.readFile(filePath, 'utf-8')
     return { filePath, content }
+  })
+
+  // ─── Auth IPC Handlers ──────────────────────────
+
+  ipcMain.handle('auth:sendCode', async (_event, email: string) => {
+    return sendVerificationCode(email)
+  })
+
+  ipcMain.handle('auth:register', async (_event, email: string, password: string, verifyCode: string) => {
+    return registerWithEmail(email, password, verifyCode)
+  })
+
+  ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
+    return loginWithEmail(email, password)
+  })
+
+  ipcMain.handle('auth:logout', async () => {
+    await logout()
+  })
+
+  ipcMain.handle('auth:checkSession', async () => {
+    return checkSession()
+  })
+
+  // ─── Sync IPC Handlers ──────────────────────────
+
+  ipcMain.handle('sync:getStatus', () => {
+    return { isLoggedIn: isLoggedIn() }
+  })
+
+  // ─── Remember Credentials ─────────────────────
+
+  ipcMain.handle('auth:saveCredentials', (_event, email: string, password: string) => {
+    saveCredentials(email, password)
+  })
+
+  ipcMain.handle('auth:loadCredentials', () => {
+    return loadCredentials()
+  })
+
+  // ─── Change Password ───────────────────────────
+
+  ipcMain.handle('auth:sendReauthCode', async () => {
+    return sendReauthCode()
+  })
+
+  ipcMain.handle('auth:changePassword', async (_event, oldPassword: string, newPassword: string, verifyCode: string) => {
+    return changePassword(oldPassword, newPassword, verifyCode)
   })
 }

@@ -1,67 +1,82 @@
 # 雷霆记账 — 项目文档
 
+> v1.7.2 | 最后更新：2026-07-26
+
 ## 产品概述
 
 | 项目 | 说明 |
 |------|------|
-| **产品名称** | 雷霆记账 |
+| **产品名称** | 雷霆记账 (Thunder Books) |
 | **产品定位** | 轻量级个人日常记账工具 |
 | **目标平台** | Windows 10+ / macOS 12+ |
 | **货币单位** | 人民币（¥） |
 | **核心理念** | 3秒完成一笔记账，分类清晰，统计直观 |
+| **GitHub** | https://github.com/TukinokiShio/thunder-accounting |
 
 ## 技术栈
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
-| 框架 | Electron 30+ | 跨平台桌面壳 |
+| 框架 | Electron 33+ | 跨平台桌面壳 |
 | 前端 | React 18 + TypeScript | UI 层 |
-| 构建 | Vite 5 | 开发与打包 |
+| 构建 | Vite 5 + electron-vite | 统一管理主进程/preload/渲染进程 |
 | 样式 | TailwindCSS 3 + shadcn/ui | 原子化 CSS + 组件库 |
-| 数据库 | sql.js | 纯 JS/WASM 实现的 SQLite，无需原生编译 |
-| 图表 | Recharts | 饼图、折线图 |
+| 数据库 | sql.js (WASM SQLite) | 无需原生编译，WAL 模式 |
+| 图表 | Recharts | 饼图、环形图、折线图 |
 | 状态管理 | Zustand | 轻量全局状态 |
-| 打包 | electron-builder | 生成 Windows/macOS 安装包 |
-| 构建工具 | electron-vite | 统一管理主进程/preload/渲染进程构建 |
+| 图标 | lucide-react | 矢量图标库 |
+| 云服务 | @cloudbase/node-sdk | 腾讯云 CloudBase 认证与同步 |
+| 打包 | electron-builder | NSIS 安装包 |
 
 ## 项目结构
 
 ```
 记账app/
-├── CLAUDE.md                  # 本文件
+├── CLAUDE.md                     # 本文件（AI 项目文档）
 ├── package.json
-├── tsconfig.json
-├── tsconfig.node.json
-├── tsconfig.web.json
-├── electron.vite.config.mjs   # electron-vite 配置
-├── tailwind.config.ts
-├── postcss.config.js
+├── electron.vite.config.mjs      # electron-vite 配置
 ├── index.html
-├── main-process/              # Electron 主进程
-│   ├── main.ts                # 主进程入口，窗口管理
-│   ├── preload.ts             # 预加载脚本，暴露 IPC API
-│   └── database.ts            # SQLite 数据库（sql.js）
-├── src/                       # React 渲染进程
-│   ├── main.tsx               # React 入口
-│   ├── App.tsx                # 根组件，路由
-│   ├── index.css              # TailwindCSS 入口
-│   ├── types/                 # TypeScript 类型定义
-│   │   └── index.ts           # Bill, Category 等类型
-│   ├── store/                 # Zustand 状态管理
-│   │   └── index.ts           # 全局 store
-│   ├── data/                  # 预设数据
-│   │   └── categories.ts      # 预设分类数据
-│   ├── components/            # 通用组件
-│   │   ├── ui/                # shadcn/ui 组件
-│   │   ├── Layout.tsx         # 主布局（侧边栏 + 内容区）
-│   │   ├── Sidebar.tsx        # 侧边导航
-│   │   ├── AddBillDialog.tsx  # 记一笔弹窗
-│   │   └── CategorySelect.tsx # 二级分类联动选择器
-│   └── pages/                 # 页面
-│       ├── Home.tsx           # 首页 / 仪表盘
-│       ├── Bills.tsx          # 账单列表
-│       └── Stats.tsx          # 统计概览
-└── resources/                 # 应用图标等静态资源
+├── main-process/                 # Electron 主进程
+│   ├── main.ts                   # 窗口管理，IPC 注册，应用菜单，快捷键
+│   ├── preload.ts                # contextBridge 暴露 24 个 IPC 方法
+│   ├── database.ts               # SQLite CRUD、迁移、统计导出
+│   ├── cloudbase.ts              # 腾讯云 CloudBase 云同步
+│   └── sql.js.d.ts               # sql.js 类型声明
+├── src/                          # React 渲染进程
+│   ├── main.tsx                  # React 入口（错误捕获）
+│   ├── App.tsx                   # 根组件（路由、登录检查、快捷键监听）
+│   ├── index.css                 # TailwindCSS 入口
+│   ├── types/index.ts            # Bill, Category 等类型
+│   ├── store/index.ts            # Zustand 全局状态
+│   ├── data/categories.ts        # 预设分类（11 支出 + 6 收入）
+│   ├── i18n/                     # 国际化
+│   │   ├── LanguageContext.tsx    # 语言 Context + Provider
+│   │   └── translations.ts       # 中英映射（~193 词条）
+│   ├── utils/                    # 工具函数
+│   │   ├── settings.ts           # 偏好设置持久化
+│   │   ├── date.ts               # 日期工具
+│   │   └── errorMessages.ts      # 错误信息友好化
+│   ├── pages/
+│   │   ├── Home.tsx              # 首页仪表盘（6 统计卡片 + Top5 分类）
+│   │   ├── Bills.tsx             # 账单列表（多维度筛选 + 搜索 + 编辑）
+│   │   ├── Stats.tsx             # 统计图表（环形图 + 折线图 + 明细表）
+│   │   └── Login.tsx             # 登录/注册（邮箱密码 + 校验 + 语言切换）
+│   └── components/
+│       ├── ui/                   # shadcn/ui 基础组件
+│       ├── Layout.tsx            # 主布局（侧边栏 + 顶栏 + 同步状态）
+│       ├── Sidebar.tsx           # 侧边导航栏
+│       ├── AddBillDialog.tsx     # 记账弹窗（新增 + 编辑复用）
+│       ├── CategoryManager.tsx   # 分类管理（拖拽排序 + 增删改）
+│       ├── CategorySelect.tsx    # 二级分类联动选择器
+│       ├── SettingsDialog.tsx    # 设置弹窗
+│       ├── AuthGuard.tsx         # 登录路由守卫
+│       ├── ConfirmDialog.tsx     # 确认弹窗
+│       ├── EmojiPicker.tsx       # Emoji 图标选择器
+│       ├── Toast.tsx             # Toast 通知
+│       └── useClickOutside.ts    # 点击外部 Hook
+├── scripts/
+│   └── deploy.cjs               # 一键部署脚本
+└── resources/                    # 应用图标
 ```
 
 ## 数据模型
@@ -70,13 +85,15 @@
 
 ```typescript
 interface Bill {
-  id: number;           // 自增主键
+  id: number;
   amount: number;       // 金额（元，正数）
   category1: string;    // 一级分类名称
   category2: string;    // 二级分类名称
   date: string;         // 日期 ISO 8601 (YYYY-MM-DD)
-  note: string;         // 备注（可选，默认空字符串）
-  created_at: string;   // 创建时间 ISO 8601
+  note: string;         // 备注
+  type: 'expense' | 'income';  // 支出/收入
+  created_at: string;
+  updated_at: string;
 }
 ```
 
@@ -84,9 +101,15 @@ interface Bill {
 
 ```typescript
 interface Category {
-  name: string;         // 一级分类名称
+  id: number;
+  name: string;         // 分类名称
   icon: string;         // Emoji 图标
-  children: string[];   // 二级分类名称列表
+  children: string[];   // 二级分类列表
+  type: 'expense' | 'income';
+  is_preset: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 ```
 
@@ -100,101 +123,133 @@ CREATE TABLE IF NOT EXISTS bills (
   category2 TEXT NOT NULL,
   date TEXT NOT NULL,
   note TEXT DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  type TEXT DEFAULT 'expense',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date);
-CREATE INDEX IF NOT EXISTS idx_bills_category1 ON bills(category1);
+CREATE TABLE IF NOT EXISTS categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  icon TEXT DEFAULT '📦',
+  children TEXT DEFAULT '[]',
+  type TEXT DEFAULT 'expense',
+  is_preset INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT
+);
 ```
 
-## 预设分类数据
+## 已实现功能
 
-见 `src/data/categories.ts`，10 个一级大类，共 55 个二级小类：
-餐饮食品、交通出行、购物消费、住房物业、医疗健康、教育学习、娱乐休闲、人情往来、金融保险、其他杂项。
+### 记账
+- 极速记账弹窗（3 步完成），Enter 提交 / Escape 关闭
+- 支出/收入双模式，各自独立分类体系
+- 金额校验（>0、≤99,999,999.99、四舍五入到分）
+- 未来日期预登记二次确认
+- 全局快捷键 `Ctrl+N` / `Cmd+N`
 
-## IPC API（主进程 ↔ 渲染进程）
+### 分类管理
+- 11 个支出预设分类 + 6 个收入预设分类
+- 自定义分类新增、编辑、删除
+- 拖拽排序持久化到数据库
+- Emoji 图标选择器
+- 预设分类名称保护
 
-通过 preload.ts 暴露 `window.electronAPI`：
+### 首页仪表盘
+- 6 个统计卡片（今日支出、本月支出、日均支出环比、累计记录、本月收入、本月结余）
+- 最近记录列表
+- Top 5 支出分类排行榜
 
-```typescript
-interface ElectronAPI {
-  // 账单 CRUD
-  addBill(bill: Omit<Bill, 'id' | 'created_at'>): Promise<Bill>;
-  getBills(filters?: { startDate?: string; endDate?: string; category1?: string }): Promise<Bill[]>;
-  updateBill(id: number, bill: Partial<Bill>): Promise<Bill>;
-  deleteBill(id: number): Promise<void>;
-  // 统计
-  getStats(params: { startDate: string; endDate: string }): Promise<StatsResult>;
-  // 导出
-  exportCSV(filters?: { startDate?: string; endDate?: string }): Promise<string>;
-}
-```
+### 账单列表
+- 时间段筛选（本周/本月/近3月/近6月/近一年 + 月份选择）
+- 分类筛选 + 类型筛选（全部/支出/收入）
+- 前端搜索（分类/备注/金额）
+- 汇总行（记录数、支出合计、收入合计）
+
+### 统计图表
+- 时间粒度：本月/上月/近3个月
+- 支出分类占比环形图 + 二级分类下钻环形图
+- 每日支出趋势折线图
+- 分类明细全量表
+- CSV 导出（UTF-8 BOM，防注入）
+
+### 用户认证系统
+- 邮箱密码注册/登录（腾讯 CloudBase Auth）
+- 密码强度校验 + 邮箱格式校验
+- 会话持久化（accessToken + refreshToken 自动刷新）
+- 密码修改（邮箱验证码）
+- 记住账号
+
+### 云同步
+- 账单 CRUD 后台静默同步到云端
+- 分类 CRUD 后台静默同步到云端
+- 同步状态指示器（Layout 顶栏）
+
+### 设置
+- 语言切换（中文 / English）
+- 时区设置（8 个时区）
+- JSON 数据备份/恢复（事务保护）
+- 清除所有数据（三步确认）
+- 账户信息、关于信息
+
+### 国际化
+- 约 193 个中英翻译词条
+- 全界面覆盖
+
+## IPC API
+
+通过 `window.electronAPI` 暴露 24 个方法：
+- **账单**(4): addBill, getBills, updateBill, deleteBill
+- **分类**(5): getCategories, addCategory, updateCategory, deleteCategory, reorderCategories
+- **统计**(1): getStats
+- **导出**(1): exportCSV
+- **备份**(3): exportBackup, importBackup, clearAllData
+- **文件**(2): showSaveDialog, showOpenDialog
+- **认证**(6): register, login, logout, checkSession, saveEmail, loadEmail, changePassword, sendReauthCode
+- **同步**(1): getSyncStatus
+- **快捷键**(1): onShortcut
 
 ## 开发命令
 
 ```bash
 npm install           # 安装依赖
-npm run dev           # 启动开发服务器（Vite + Electron 热重载）
+npm run dev           # 启动开发服务器
 npm run build         # 构建生产版本
 npm run dist:win      # 打包 Windows 安装包
 npm run dist:mac      # 打包 macOS 安装包
+npm test              # 运行单元测试
+npm run deploy        # 一键部署（版本号→构建→打包→快捷方式）
 ```
 
-## 自动化规则（强制）
+## 版本号规范（SemVer）
 
-### 每次修改代码后必须执行
+| 改动规模 | 修改位 | 判定标准 |
+|----------|--------|----------|
+| major | 第一位 | 新页面/新界面 |
+| minor | 第二位 | 功能变化（新功能/功能改进） |
+| patch | 第三位 | 修 bug/调样式/内部优化 |
 
-1. **自动更新版本号**：根据改动规模修改 `package.json` 的 `version` 字段（规则见下方"版本号规范"）
-2. **同步版本号到代码**：更新 `src/components/Sidebar.tsx` 底部的版本显示文本
-3. **同步更新 README.md**：根据改动内容更新 README（如功能变化、版本号、截图等），保持 README 始终反映项目最新状态
-4. **构建并打包**：运行 `npm run deploy`（一键完成：版本号同步 → 构建 → 打包 → 复制到输出目录 → 创建快捷方式）
-5. **推送 GitHub**：将所有变更（含 README）推送到 `https://github.com/TukinokiShio/thunder-accounting`
-
-### 版本号规范（语义化版本 SemVer）
-
-版本号格式：`major.minor.patch`（如 `1.2.3`）
-
-| 改动规模 | 修改位 | 示例 | 判定标准 |
-|----------|--------|------|----------|
-| 🔴 **大版本** | **major**（第一位） | 1.0.0 → **2.0.0** | 新增页面/界面、大规模重构、产品方向变更 |
-| 🟡 **功能更新** | **minor**（第二位） | 1.0.0 → 1.**1**.0 | 修改/新增功能模块、新增组件、调整数据模型 |
-| 🟢 **小修复** | **patch**（第三位） | 1.0.0 → 1.0.**1** | 修 bug、调样式、改文案、优化性能、加注释、小重构 |
-
-**判定口诀**：
-- 用户能看到新页面/新界面 → major
-- 用户能看到功能变化（新功能/功能改进）→ minor
-- 用户看不到变化（修 bug/调样式/内部优化）→ patch
-
-### 输出目录
+## 输出目录
 
 ```
 E:\Code\BlackHorse\VibeCoding\记账app\雷霆记账app_exe\
-├── 雷霆记账.exe.lnk    # 快捷方式（双击直接运行）
-└── win-unpacked\       # 完整的可执行程序目录
+├── 雷霆记账.exe.lnk    # 快捷方式
+└── win-unpacked\       # 完整可执行程序目录
     └── 雷霆记账.exe
 ```
 
-### 部署脚本
+## 测试与质量
 
-`npm run deploy` 等价于 `node scripts/deploy.cjs`，该脚本自动完成：
-1. 读取并递增 `package.json` 中对应级别的版本号（通过环境变量 `VERSION_BUMP` 指定：`major` / `minor` / `patch`，默认 `patch`）
-2. 更新 `src/components/Sidebar.tsx` 中的版本文本
-3. 执行 `npm run dist:win` 构建打包
-4. 将 `release/win-unpacked/` 复制到输出目录
-5. 在输出目录创建 `雷霆记账.exe.lnk` 快捷方式
-
-使用方式：
-```bash
-npm run deploy              # 默认 patch 级别升级
-npm run deploy -- major     # major 级别升级
-npm run deploy -- minor     # minor 级别升级
-```
+- Vitest 测试框架，8 个组件测试文件
+- 提交质量门禁：单元测试全量通过 + 质量审查（`.claude/hooks/quality-gate.cjs`）
 
 ## 设计原则
 
-1. **简洁优先** — UI 不花哨，记账流程不超过 3 步
-2. **数据本地** — 所有数据存储在本地 SQLite，无需网络
-3. **分类可配** — 预设分类可增删改，用户可自定义
-4. **响应式** — 窗口尺寸自适应，最小支持 900×600
-5. **代码规范** — TypeScript 严格模式，组件单一职责
-6. **自动化部署** — 每次代码修改后自动更新版本号、打包、输出到指定目录
+1. **简洁优先** — 记账不超 3 步
+2. **数据本地** — SQLite 主存储，云端辅助同步
+3. **分类可配** — 预设 + 自定义，拖拽排序
+4. **响应式** — 最小 900×600
+5. **TypeScript 严格模式**
+6. **自动化部署**

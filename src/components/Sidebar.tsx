@@ -3,7 +3,7 @@
  * 显示应用 Logo、四个导航项（总览/账单/统计/分类管理）、底部设置按钮和版本号。
  * 当前激活的导航项高亮显示。
  */
-import { Home, FileText, PieChart, Zap, Settings, Tags } from 'lucide-react'
+import { Home, FileText, PieChart, Zap, Settings, Tags, LogOut } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import pkg from '../../package.json'
@@ -23,7 +23,13 @@ interface Props {
 export function Sidebar({ onOpenSettings }: Props) {
   const activePage = useStore((s) => s.activePage)
   const setActivePage = useStore((s) => s.setActivePage)
+  const user = useStore((s) => s.user)
+  const appLogout = useStore((s) => s.appLogout)
   const { t } = useLanguage()
+
+  const handleLogout = async () => {
+    await appLogout()
+  }
 
   return (
     <aside className="w-56 bg-white dark:bg-gray-850 border-r border-gray-100 dark:border-gray-700 flex flex-col shrink-0">
@@ -59,6 +65,30 @@ export function Sidebar({ onOpenSettings }: Props) {
           )
         })}
       </nav>
+
+      {/* 用户信息 */}
+      {user && (
+        <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
+              <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
+                {user.email[0].toUpperCase()}
+              </span>
+            </div>
+            <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{user.email}</span>
+          </div>
+          {!user.emailVerified && (
+            <p className="text-xs text-amber-500 mt-1 ml-9">邮箱未验证</p>
+          )}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <LogOut size={13} />
+            退出登录
+          </button>
+        </div>
+      )}
 
       {/* 底部：设置按钮 + 版本号 */}
       <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-700 space-y-2">

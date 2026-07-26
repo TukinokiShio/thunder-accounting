@@ -8,7 +8,7 @@ export default defineConfig({
       outDir: 'app-out/main',
       rollupOptions: {
         input: resolve(__dirname, 'main-process/main.ts'),
-        external: ['sql.js']
+        external: ['sql.js', '@cloudbase/node-sdk']
       }
     }
   },

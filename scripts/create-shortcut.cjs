@@ -1,36 +1,25 @@
-const { execSync } = require('child_process')
+// Create desktop shortcut for 雷霆记账
+// Target: release/win-unpacked/雷霆记账.exe
 const fs = require('fs')
 const path = require('path')
-const os = require('os')
 
-const exePath = 'E:\\Code\\BlackHorse\\VibeCoding\\记账app\\雷霆记账app_exe\\win-unpacked\\雷霆记账.exe'
-const icoPath = 'E:\\Code\\BlackHorse\\VibeCoding\\记账app\\雷霆记账app_exe\\icon.ico'
-const explorerPath = 'C:\\Windows\\explorer.exe'
-const shortcutPath = path.join(os.homedir(), 'Desktop', '雷霆记账.lnk')
+const desktopPath = path.join(require('os').homedir(), 'Desktop')
+const targetExe = 'E:\\Code\\BlackHorse\\VibeCoding\\记账app\\release\\win-unpacked\\雷霆记账.exe'
 
-// Delete old shortcut if exists
-try { fs.unlinkSync(shortcutPath) } catch (e) {}
-// Also delete the English-named one
-try { fs.unlinkSync(path.join(os.homedir(), 'Desktop', 'Thunder Accounting.lnk')) } catch (e) {}
-
-// Prefer standalone .ico to avoid Windows icon cache issues
-const iconSource = fs.existsSync(icoPath) ? icoPath : exePath
-
-// Use explorer.exe as launcher to bypass PCA compatibility tracking
+// Write a PowerShell script that creates the shortcut
 const psScript = `
 $WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
-$Shortcut.TargetPath = '${explorerPath}'
-$Shortcut.Arguments = '${exePath.replace(/'/g, "''")}'
-$Shortcut.IconLocation = '${iconSource.replace(/'/g, "''")}'
-$Shortcut.Description = '雷霆记账'
+$Shortcut = $WshShell.CreateShortcut("${desktopPath}\\雷霆记账.lnk")
+$Shortcut.TargetPath = "${targetExe}"
+$Shortcut.WorkingDirectory = "${path.dirname(targetExe)}"
+$Shortcut.Description = "雷霆记账 - 个人记账工具"
+$Shortcut.IconLocation = "${targetExe},0"
 $Shortcut.Save()
-Write-Host 'OK'
+Write-Output "Shortcut updated: ${desktopPath}\\雷霆记账.lnk -> ${targetExe}"
 `
 
-// Write temp file with BOM for proper UTF-8 in PowerShell
-const tmpFile = path.join(os.tmpdir(), 'thunder-desk-shortcut.ps1')
-fs.writeFileSync(tmpFile, '﻿' + psScript, 'utf-8')
-console.log('Creating shortcut...')
-execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`, { stdio: 'inherit' })
-console.log('Done! Shortcut: ' + shortcutPath)
+const psPath = path.join(__dirname, 'update-shortcut.ps1')
+fs.writeFileSync(psPath, psScript, 'utf-8')
+console.log('PowerShell script written to:', psPath)
+console.log('Please run this script outside the sandbox:')
+console.log(`  powershell -ExecutionPolicy Bypass -File "${psPath}"`)

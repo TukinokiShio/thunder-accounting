@@ -6,6 +6,7 @@ import { Stats } from '@/pages/Stats'
 import { AddBillDialog } from '@/components/AddBillDialog'
 import { CategoryManager } from '@/components/CategoryManager'
 import { SettingsDialog } from '@/components/SettingsDialog'
+import { AuthGuard } from '@/components/AuthGuard'
 /**
  * 应用根组件。
  * 初始化时加载分类和账单数据，注册全局快捷键（Ctrl+N 快速记账）。
@@ -19,11 +20,23 @@ export default function App() {
   const openAddDialog = useStore((s) => s.openAddDialog)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // 首次加载时刷新数据
+  // 启动时检查登录状态
   useEffect(() => {
     const store = useStore.getState()
-    store.refreshBills()
-    store.refreshCategories()
+    store.setCheckingSession(true)
+    window.electronAPI.checkSession()
+      .then(result => store.setUser(result?.user || null))
+      .catch(e => console.error('检查登录状态失败:', e))
+      .finally(() => store.setCheckingSession(false))
+  }, [])
+
+  // 首次加载时刷新数据（登录后）
+  useEffect(() => {
+    const store = useStore.getState()
+    if (store.user) {
+      store.refreshBills()
+      store.refreshCategories()
+    }
   }, [])
 
   // 监听全局快捷键
@@ -38,14 +51,16 @@ export default function App() {
 
   return (
     <LanguageProvider>
-      <Layout onOpenSettings={() => setSettingsOpen(true)}>
-        {activePage === 'home' && <Home />}
-        {activePage === 'bills' && <Bills />}
-        {activePage === 'stats' && <Stats />}
-        {activePage === 'categories' && <CategoryManager isOpen={true} onClose={() => {}} mode="page" />}
-        <AddBillDialog />
-        <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      </Layout>
+      <AuthGuard>
+        <Layout onOpenSettings={() => setSettingsOpen(true)}>
+          {activePage === 'home' && <Home />}
+          {activePage === 'bills' && <Bills />}
+          {activePage === 'stats' && <Stats />}
+          {activePage === 'categories' && <CategoryManager isOpen={true} onClose={() => {}} mode="page" />}
+          <AddBillDialog />
+          <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </Layout>
+      </AuthGuard>
     </LanguageProvider>
   )
 }

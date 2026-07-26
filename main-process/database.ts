@@ -79,13 +79,14 @@ export async function initDatabase(): Promise<void> {
       date TEXT NOT NULL,
       note TEXT DEFAULT '',
       type TEXT NOT NULL DEFAULT 'expense',
-      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     )
   `)
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date)')
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_category1 ON bills(category1)')
 
-  // v1.4 之前版本创建的数据库缺少 type 列（支出/收入）。
+  // v1.4 之前版本创建的数据库缺少 type 列（支出/收入��。
   // 此处尝试添加，若列已存在则 SQLite 报 "duplicate column" 错误，可安全忽略；
   // 其他错误（如磁盘满）需记录日志以便排查。
   try {
@@ -93,6 +94,23 @@ export async function initDatabase(): Promise<void> {
   } catch (e) {
     if (!String(e).includes('duplicate column')) {
       console.error('数据库迁移失败（添加 type 列）：', e)
+    }
+  }
+
+  // v1.7 云同步版本新增 updated_at 列，用于冲突解决。
+  // 旧数据库可能缺少此列，同样使用 try/catch 安全迁移。
+  try {
+    db.run("ALTER TABLE bills ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))")
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 bills.updated_at 列）：', e)
+    }
+  }
+  try {
+    db.run("ALTER TABLE categories ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))")
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 categories.updated_at 列）：', e)
     }
   }
 
@@ -106,7 +124,8 @@ export async function initDatabase(): Promise<void> {
       type TEXT NOT NULL DEFAULT 'expense',
       is_preset INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     )
   `)
 
@@ -137,6 +156,7 @@ export interface CategoryRow {
   is_preset: number
   sort_order: number
   created_at: string
+  updated_at: string
 }
 
 export interface AddCategoryParams {
@@ -262,7 +282,7 @@ export function updateCategory(id: number, params: UpdateCategoryParams): Catego
 
   if (fields.length > 0) {
     values.push(id)
-    db.run(`UPDATE categories SET ${fields.join(', ')} WHERE id = ?`, values)
+    db.run(`UPDATE categories SET ${fields.join(', ')}, updated_at = datetime('now','localtime') WHERE id = ?`, values)
     saveDb()
   }
 
@@ -284,7 +304,7 @@ export function deleteCategory(id: number): void {
  * 预设分类和自定义分类均可参与排序。
  */
 export function reorderCategories(orderedIds: number[]): void {
-  const stmt = db.prepare('UPDATE categories SET sort_order = ? WHERE id = ?')
+  const stmt = db.prepare('UPDATE categories SET sort_order = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
   for (let i = 0; i < orderedIds.length; i++) {
     stmt.run([i, orderedIds[i]])
   }
@@ -303,6 +323,7 @@ export interface BillRow {
   note: string
   type: string
   created_at: string
+  updated_at: string
 }
 
 export interface AddBillParams {
@@ -412,7 +433,7 @@ export function updateBill(id: number, params: Partial<AddBillParams>): BillRow 
   if (params.type !== undefined) { fields.push('type = @type'); values.type = params.type }
 
   if (fields.length > 0) {
-    runStmt(`UPDATE bills SET ${fields.join(', ')} WHERE id = @id`, values)
+    runStmt(`UPDATE bills SET ${fields.join(', ')}, updated_at = datetime('now','localtime') WHERE id = @id`, values)
   }
   return queryOne('SELECT * FROM bills WHERE id = @id', { id: String(id) })!
 }
