@@ -3,10 +3,12 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "1.7.19"
+#define AppVersion "1.7.21"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"
+; 项目根目录（默认安装到此位置，方便开发期热更新）
+#define ProjectRoot "E:\Code\BlackHorse\VibeCoding\记账app"
 
 [Setup]
 AppId={{ThunderBooks-78A1-4F3C-B2D9-E5F6C7A8B9D0}
@@ -14,7 +16,8 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
-DefaultDirName={localappdata}\{#AppName}
+; 默认安装到项目目录下的"雷霆记账"子目录（便于覆盖旧版本）
+DefaultDirName={#ProjectRoot}\{#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\release
 OutputBaseFilename=雷霆记账_Inno_v{#AppVersion}
