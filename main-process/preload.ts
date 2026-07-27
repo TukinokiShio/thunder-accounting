@@ -122,8 +122,8 @@ const electronAPI = {
   changePassword: (newPassword: string) =>
     ipcRenderer.invoke('auth:changePassword', newPassword),
 
-  resetPassword: (email: string, newPassword: string) =>
-    ipcRenderer.invoke('auth:resetPassword', email, newPassword),
+  resetPassword: (email: string, newPassword: string, verificationCode: string) =>
+    ipcRenderer.invoke('auth:resetPassword', email, newPassword, verificationCode),
 
   // Sync
   getSyncStatus: () =>

@@ -123,7 +123,7 @@ export function LoginPage() {
     if (password !== confirmPwd) { setError(T('两次密码不一致', 'Passwords do not match')); return }
     setError(''); setLoading(true)
     try {
-      await window.electronAPI.resetPassword(emailTrim, password)
+      await window.electronAPI.resetPassword(emailTrim, password, verifyCode.trim())
       addToast('success', T('密码已重置，请登录', 'Password reset! Please login'))
       toLogin()
     } catch (e) { setError(friendlyError(e, lang)) }

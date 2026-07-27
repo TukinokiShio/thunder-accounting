@@ -304,8 +304,8 @@ function registerIpcHandlers(): void {
     return changePassword(newPassword)
   })
 
-  ipcMain.handle('auth:resetPassword', async (_event, email: string, newPassword: string) => {
-    return resetPassword(email, newPassword)
+  ipcMain.handle('auth:resetPassword', async (_event, email: string, newPassword: string, verificationCode: string) => {
+    return resetPassword(email, newPassword, verificationCode)
   })
 
   // ─── Desktop Shortcut ──────────────────────────

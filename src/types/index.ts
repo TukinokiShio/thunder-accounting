@@ -81,7 +81,7 @@ export interface ElectronAPI {
   loadCredentials: () => Promise<{ email: string; password: string }>
   sendReauthCode: (currentPassword: string) => Promise<void>
   changePassword: (newPassword: string) => Promise<void>
-  resetPassword: (email: string, newPassword: string) => Promise<void>
+  resetPassword: (email: string, newPassword: string, verificationCode: string) => Promise<void>
   createShortcut: () => Promise<{ success: boolean; message: string }>
 }
 

@@ -269,20 +269,16 @@ export async function changePassword(newPassword: string): Promise<void> {
   }
 }
 
-/** 重置密码（未登录用户，通过 Admin API） */
-export async function resetPassword(email: string, newPassword: string): Promise<void> {
-  // 先发送验证码给用户
-  const { ok } = await authFetch('/auth/v1/verification', { email, target: 'ANY' })
-  if (!ok) throw new Error('verification_code_send_failed')
+/** 重置密码（未登录用户，通过加固后的云函数完成邮箱→UID 查找与密码修改） */
+export async function resetPassword(email: string, newPassword: string, verificationCode: string): Promise<void> {
+  const cfUrl = `https://${ENV_ID}.service.tcloudbase.com/resetUserPassword`
 
-  // 通过云函数调用 Admin API 修改密码
-  const uid = '2081387154023161858' // d850216088@163.com 的 UID
-  const cfUrl = 'https://shio-d0gsoo414401468d6.service.tcloudbase.com/resetUserPassword'
   const res = await fetch(cfUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uid, newPassword })
+    body: JSON.stringify({ email, newPassword, verificationCode })
   })
+
   const data = await res.json() as { code?: number; message?: string }
   if (data.code !== 0) {
     throw new Error(data.message || 'password_change_failed')
