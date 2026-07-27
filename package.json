@@ -13,6 +13,8 @@
     "dist:win": "electron-vite build && electron-builder --win",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "deploy": "node scripts/deploy.cjs",
+    "migrate:accounts": "node scripts/migrate-account-ids.cjs",
+    "migrate:accounts:dry": "node scripts/migrate-account-ids.cjs --dry-run",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

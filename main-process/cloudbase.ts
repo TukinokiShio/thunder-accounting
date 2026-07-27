@@ -166,15 +166,71 @@ async function authFetch(
 
 // ─── Auth Functions ───────────────────────────────
 
-/** 生成唯一账号 ID：TB + 6 位随机字母数字（使用 crypto 安全随机数） */
+// ─── Account ID Standard ──────────────────────────
+
+/** 30 字符可用字符集（排除 I/O/0/1 易混淆字符） */
+const ACCOUNT_ID_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+/** admin 账号邮箱（识别为系统管理员） */
+export const ADMIN_EMAIL = '15211073887@163.com'
+
+/** admin 用户专属账号 ID */
+export const ADMIN_ACCOUNT_ID = 'TBAdmin'
+
+/**
+ * 生成唯一账号 ID：TB + 6 位随机字母数字（使用 crypto 安全随机数）。
+ * 这是兜底函数，主流程应使用 generateStandardAccountId(email)。
+ */
 export function generateAccountId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let id = 'TB'
   const bytes = require('crypto').randomBytes(6)
   for (let i = 0; i < 6; i++) {
-    id += chars[bytes[i] % chars.length]
+    id += ACCOUNT_ID_CHARSET[bytes[i] % ACCOUNT_ID_CHARSET.length]
   }
   return id
+}
+
+/**
+ * 按邮箱规范化生成账号 ID（核心规范）。
+ *
+ * 规则（按顺序匹配）：
+ * 1. ADMIN_EMAIL → "TBAdmin"
+ * 2. 邮箱本地部分含 6+ 位数字 → "TB" + 前 6 位数字（如 d850216088@163.com → "TBD85021"）
+ * 3. 邮箱本地部分含 4-5 位数字 → "TB" + 数字部分
+ * 4. 邮箱本地部分含 6+ 位字母 → "TB" + 前 6 位大写字母（如 alice@x.com → "TBAlice"）
+ * 5. 邮箱本地部分含 3-5 位字母 → "TB" + 大写字母部分
+ * 6. 兜底：随机 6 位字符
+ *
+ * 优点：可读、易记、有规律；缺点：可能重复，所以注册路径必须做唯一性检查。
+ */
+export function generateStandardAccountId(email: string): string {
+  // 1. admin 特殊映射
+  if (email === ADMIN_EMAIL) return ADMIN_ACCOUNT_ID
+
+  // 2-5. 邮箱规范化
+  const local = (email || '').split('@')[0]
+
+  // 优先数字
+  const digits = local.match(/\d+/g)?.join('') || ''
+  if (digits.length >= 6) return 'TB' + digits.slice(0, 6)
+  if (digits.length >= 4) return 'TB' + digits
+
+  // 其次字母
+  const letters = (local.match(/[a-zA-Z]+/g)?.join('') || '').toUpperCase()
+  if (letters.length >= 6) return 'TB' + letters.slice(0, 6)
+  if (letters.length >= 3) return 'TB' + letters
+
+  // 6. 兜底
+  return generateAccountId()
+}
+
+/**
+ * 检查账号 ID 格式是否符合规范（TB-XXXXXX 形式）。
+ * 注意：admin 的 TBAdmin 不符合此规则，所以 admin 不通过此校验。
+ */
+export function isValidAccountId(id: string): boolean {
+  if (id === ADMIN_ACCOUNT_ID) return true
+  return /^TB[A-Z0-9]{4,8}$/.test(id)
 }
 
 /**
@@ -331,7 +387,7 @@ export async function registerWithEmail(email: string, password: string, code: s
   const u = data as { uid: string; email_verified?: boolean; sub?: string }
   const uid = u.uid || u.sub || ''
 
-  const accountId = generateAccountId()
+  const accountId = generateStandardAccountId(email)
   await createAccountRecord(email, uid, accountId)
 
   return {
@@ -357,7 +413,7 @@ export async function registerWithPhone(phone: string, password: string, code: s
     const u = data as { uid: string; email_verified?: boolean; sub?: string }
     const uid = u.uid || u.sub || ''
     const internalEmail = `${phone}@phone.tb`
-    const accountId = generateAccountId()
+    const accountId = generateStandardAccountId(internalEmail)
     await createAccountRecord(internalEmail, uid, accountId)
     try {
       await db?.collection('accounts').where({ uid }).update({ phone })
@@ -382,7 +438,7 @@ export async function registerWithPhone(phone: string, password: string, code: s
   }
   const u = data2 as { uid: string; email_verified?: boolean; sub?: string }
   const uid = u.uid || u.sub || ''
-  const accountId = generateAccountId()
+  const accountId = generateStandardAccountId(internalEmail)
   await createAccountRecord(internalEmail, uid, accountId)
   try { await db?.collection('accounts').where({ uid }).update({ phone }) } catch { /* ignore */ }
   return {
@@ -409,16 +465,25 @@ export async function loginWithEmail(email: string, password: string): Promise<L
     if (db) {
       const accResult = await db.collection('accounts').where({ uid }).limit(1).get()
       if (accResult.data?.length) {
-        accountId = (accResult.data[0] as { accountId?: string }).accountId
+        const acc = accResult.data[0] as { accountId?: string; email?: string }
+        accountId = acc.accountId
+        // 如果旧用户没有 accountId，按规范化算法补全并持久化
+        if (!accountId) {
+          const refEmail = acc.email || email
+          accountId = generateStandardAccountId(refEmail)
+          await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
+        }
+      } else {
+        // accounts 集合无记录（极端情况）— 用规范化算法给 session 用
+        accountId = generateStandardAccountId(email)
       }
-      // 如果旧用户没有 accountId，自动补全
-      if (!accountId && accResult.data?.length) {
-        accountId = generateAccountId()
-        await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
-      }
+    } else {
+      // db 不可用（无 CLOUDBASE_API_KEY）— 用规范化算法生成 session-only ID
+      accountId = generateStandardAccountId(email)
     }
   } catch (e) {
-    console.error('获取 accountId 失败:', e)
+    console.error('获取 accountId 失败（用规范化算法兜底）:', e)
+    accountId = generateStandardAccountId(email)
   }
 
   const session: AuthSession = {
@@ -491,16 +556,22 @@ export async function loginWithVerificationCode(identifier: string, code: string
     if (db) {
       const accResult = await db.collection('accounts').where({ uid }).limit(1).get()
       if (accResult.data?.length) {
-        accountId = (accResult.data[0] as { accountId?: string }).accountId
+        const acc = accResult.data[0] as { accountId?: string; email?: string }
+        accountId = acc.accountId
+        if (!accountId) {
+          const refEmail = acc.email || target.target
+          accountId = generateStandardAccountId(refEmail)
+          await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
+        }
+      } else {
+        accountId = generateStandardAccountId(target.target)
       }
-      // 如果旧用户没有 accountId，自动补全
-      if (!accountId && accResult.data?.length) {
-        accountId = generateAccountId()
-        await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
-      }
+    } else {
+      accountId = generateStandardAccountId(target.target)
     }
   } catch (e) {
-    console.error('获取 accountId 失败:', e)
+    console.error('获取 accountId 失败（用规范化算法兜底）:', e)
+    accountId = generateStandardAccountId(target.target)
   }
 
   const session: AuthSession = {
@@ -526,20 +597,37 @@ export async function checkSession(): Promise<LoginResult | null> {
     let accountId = currentSession.user.accountId
     if (!accountId) {
       const uid = currentSession.user.uid
+      const refEmail = currentSession.user.email
       try {
         if (db) {
           const accResult = await db.collection('accounts').where({ uid }).limit(1).get()
           if (accResult.data?.length) {
-            accountId = (accResult.data[0] as { accountId?: string }).accountId
+            const acc = accResult.data[0] as { accountId?: string; email?: string }
+            accountId = acc.accountId
             if (!accountId) {
-              accountId = generateAccountId()
+              accountId = generateStandardAccountId(acc.email || refEmail)
               await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
             }
             currentSession.user.accountId = accountId
             saveSession(currentSession)
+          } else {
+            // accounts 集合无记录 — 兜底
+            accountId = generateStandardAccountId(refEmail)
+            currentSession.user.accountId = accountId
+            saveSession(currentSession)
           }
+        } else {
+          // db 不可用 — 兜底
+          accountId = generateStandardAccountId(refEmail)
+          currentSession.user.accountId = accountId
+          saveSession(currentSession)
         }
-      } catch (e) { console.error('checkSession 获取 accountId 失败:', e) }
+      } catch (e) {
+        console.error('checkSession 获取 accountId 失败:', e)
+        // 即便出错也兜底
+        accountId = generateStandardAccountId(refEmail)
+        currentSession.user.accountId = accountId
+      }
     }
     return { user: currentSession.user, accountId }
   }
