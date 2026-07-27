@@ -872,27 +872,46 @@ export interface AccountInfo {
   accountId: string
   email: string
   phone: string
+  nickname?: string
 }
 
 /**
  * 获取当前用户的账号绑定信息。
+ * 多层 fallback：accounts 集合 → 当前 session → null。
  */
 export async function getAccountBindings(): Promise<AccountInfo | null> {
-  if (!db) return null
   const userId = getUserId()
   if (!userId) return null
 
-  try {
-    const result = await db.collection('accounts').where({ uid: userId }).limit(1).get()
-    if (result.data?.length) {
-      const a = result.data[0] as AccountInfo & { uid: string; createdAt?: string }
-      return { accountId: a.accountId, email: a.email, phone: a.phone }
+  // 1. 从 accounts 集合查（最权威）
+  if (db) {
+    try {
+      const result = await db.collection('accounts').where({ uid: userId }).limit(1).get()
+      if (result.data?.length) {
+        const a = result.data[0] as AccountInfo & { uid: string; createdAt?: string }
+        return {
+          accountId: a.accountId,
+          email: a.email,
+          phone: a.phone,
+          nickname: (a as { nickname?: string }).nickname
+        }
+      }
+    } catch (e) {
+      console.error('获取账号绑定信息失败:', e)
+      // 继续 fallback
     }
-    return null
-  } catch (e) {
-    console.error('获取账号绑定信息失败:', e)
-    return null
   }
+
+  // 2. Fallback：从当前 session 构造（db 不可用时）
+  if (currentSession) {
+    return {
+      accountId: currentSession.user.accountId,
+      email: currentSession.user.email,
+      phone: ''  // session 中没有 phone 字段
+    }
+  }
+
+  return null
 }
 
 // ─── Binding with Verification ─────────────────────

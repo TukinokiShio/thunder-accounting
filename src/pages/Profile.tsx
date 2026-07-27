@@ -17,6 +17,7 @@ interface AccountInfo {
   accountId: string
   email: string
   phone: string
+  nickname?: string
 }
 
 interface UserStats {
@@ -120,7 +121,8 @@ export default function ProfilePage() {
 
   // ── 获取显示值（绑定缺失时回退到 store user） ──
   const accountId = account?.accountId || user?.accountId || ''
-  const boundEmail = account?.email && !isInternalEmail(account.email) ? account.email : ''
+  const nickname = account?.nickname || user?.email || ''
+  const boundEmail = account?.email && !isInternalEmail(account.email) ? account.email : (account?.email || '')
   const boundPhone = account?.phone || ''
 
   // ── 复制账号 ID ──
@@ -457,13 +459,15 @@ export default function ProfilePage() {
             {/* 头像 + 欢迎语 */}
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-2xl font-bold text-blue-600">
-                {user?.email?.charAt(0).toUpperCase() || '?'}
+                {nickname?.charAt(0).toUpperCase() || '?'}
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="text-xl font-semibold text-gray-900 truncate">
-                  {user?.email || '未知用户'}
+                  {nickname || '未知用户'}
                 </h3>
-                <p className="text-sm text-gray-500">雷霆记账用户</p>
+                <p className="text-sm text-gray-500">
+                  {boundEmail && boundEmail !== nickname ? boundEmail : '雷霆记账用户'}
+                </p>
               </div>
             </div>
 
