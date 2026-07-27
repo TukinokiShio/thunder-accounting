@@ -286,11 +286,11 @@ function registerIpcHandlers(): void {
 
   // ─── Remember Credentials ─────────────────────
 
-  ipcMain.handle('auth:saveCredentials', (_event, email: string, password: string) => {
-    saveCredentials(email, password)
+  ipcMain.handle('auth:saveCredentials', async (_event, email: string, password: string) => {
+    await saveCredentials(email, password)
   })
 
-  ipcMain.handle('auth:loadCredentials', () => {
+  ipcMain.handle('auth:loadCredentials', async () => {
     return loadCredentials()
   })
 

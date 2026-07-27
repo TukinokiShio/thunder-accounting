@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import type { BillRow, CategoryRow } from './database'
+import { saveCredentials as safeSave, loadCredentials as safeLoad, clearCredentials } from './credential-store'
 
 // ─── Load .env file (manual, no dependency) ─────
 // 在主进程中手动解析 .env 文件，避免 build-time 注入。
@@ -125,27 +126,23 @@ export function initCloudBase(): void {
 }
 
 // ─── Remember Credentials ─────────────────────────
+// 委托给 credential-store（safeStorage 加密）
 
-interface RememberedCredentials { email: string; password: string }
-
-function rememberPath(): string { return path.join(app.getPath('userData'), 'remembered-auth.json') }
-
-export function saveCredentials(email: string, password: string): void {
+export async function saveCredentials(email: string, password: string): Promise<void> {
   try {
-    if (email && password) {
-      fs.writeFileSync(rememberPath(), JSON.stringify({ email, password } as RememberedCredentials), 'utf-8')
-    } else {
-      try { fs.unlinkSync(rememberPath()) } catch { /* */ }
-    }
-  } catch { /* ignore */ }
+    await safeSave(email, password)
+  } catch (e) {
+    console.error('保存加密凭据失败：', e)
+  }
 }
 
-export function loadCredentials(): { email: string; password: string } {
+export async function loadCredentials(): Promise<{ email: string; password: string }> {
   try {
-    const raw = fs.readFileSync(rememberPath(), 'utf-8')
-    const c: RememberedCredentials = JSON.parse(raw)
-    return { email: c.email || '', password: c.password || '' }
-  } catch { return { email: '', password: '' } }
+    const cred = await safeLoad()
+    return cred || { email: '', password: '' }
+  } catch {
+    return { email: '', password: '' }
+  }
 }
 
 // ─── HTTP helpers ─────────────────────────────────
