@@ -18,6 +18,7 @@ import { LanguageProvider } from '@/i18n/LanguageContext'
 export default function App() {
   const activePage = useStore((s) => s.activePage)
   const openAddDialog = useStore((s) => s.openAddDialog)
+  const user = useStore((s) => s.user)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   // 每次启动都强制要求登录（清除之前 session 残留）
@@ -27,14 +28,13 @@ export default function App() {
     store.setCheckingSession(false)
   }, [])
 
-  // 首次加载时刷新数据（登录后）
+  // 登录后加载账单和分类数据
   useEffect(() => {
-    const store = useStore.getState()
-    if (store.user) {
-      store.refreshBills()
-      store.refreshCategories()
+    if (user) {
+      useStore.getState().refreshBills()
+      useStore.getState().refreshCategories()
     }
-  }, [])
+  }, [user])
 
   // 监听全局快捷键
   useEffect(() => {
