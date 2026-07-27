@@ -47,6 +47,7 @@ export interface CloudBaseUser {
   uid: string
   email: string
   emailVerified: boolean
+  accountId?: string
 }
 
 /** 主进程通过 preload.ts 暴露给渲染进程的 IPC API */
