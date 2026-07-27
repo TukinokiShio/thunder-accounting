@@ -9,7 +9,6 @@ import { useLanguage } from '@/i18n/LanguageContext'
 import { loadSettings, saveSettings, TIMEZONE_OPTIONS } from '@/utils/settings'
 import { formatLocalDate } from '@/utils/date'
 import { BackupRestore } from './SettingsDialog/BackupRestore'
-import { SyncStatus } from './SettingsDialog/SyncStatus'
 import { About } from './SettingsDialog/About'
 
 interface Props {
@@ -22,8 +21,6 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
   const refreshCategories = useStore((s) => s.refreshCategories)
   const addToast = useStore((s) => s.addToast)
   const notifyChange = useStore((s) => s.notifyChange)
-  const user = useStore((s) => s.user)
-  const appLogout = useStore((s) => s.appLogout)
   const { t, language, setLanguage } = useLanguage()
 
   const [exporting, setExporting] = useState(false)
@@ -31,11 +28,6 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
   const [clearing, setClearing] = useState(false)
   const [clearStep, setClearStep] = useState(0)
   const [timezone, setTimezone] = useState(() => loadSettings().timezone)
-
-  const handleLogout = async () => {
-    await appLogout()
-    addToast('info', t('已退出登录'))
-  }
 
   const handleExport = async () => {
     setExporting(true)
@@ -211,15 +203,6 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
             onClear={handleClear}
             onCancelClear={cancelClear}
             t={t}
-          />
-
-          {/* ── Account ── */}
-          <SyncStatus
-            user={user}
-            t={t}
-            language={language}
-            addToast={addToast}
-            onLogout={handleLogout}
           />
 
           {/* ── About ── */}
