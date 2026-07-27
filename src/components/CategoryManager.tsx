@@ -4,11 +4,12 @@
  * 预设分类的名称不可修改，但图标和子分类可调整。
  */
 import { useState, useRef, useCallback } from 'react'
-import { X, Plus, Settings, GripVertical } from 'lucide-react'
+import { X, Settings } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
-import { EmojiPicker } from './EmojiPicker'
 import { ConfirmDialog } from './ConfirmDialog'
+import { CategoryList } from './CategoryManager/CategoryList'
+import { CategoryForm } from './CategoryManager/CategoryForm'
 
 interface Props {
   isOpen: boolean
@@ -217,189 +218,27 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     }
   }
 
+  const handleTabChange = (newTab: 'expense' | 'income') => {
+    setTab(newTab)
+    setSelectedId(null)
+    setIsCreating(false)
+    resetForm()
+    loadMeta()
+  }
+
+  const handleNew = () => {
+    setSelectedId(null)
+    resetForm()
+    setIsCreating(true)
+  }
+
   if (!isOpen && mode === 'dialog') return null
 
   const isPage = mode === 'page'
 
-  const bodyContent = (
-    <div className="flex-1 flex min-h-0 overflow-hidden">
-      {/* Left: category list */}
-      <div className="w-56 border-r border-gray-100 flex flex-col shrink-0">
-        {/* Tab toggle */}
-        <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-100">
-          <button
-            onClick={() => { setTab('expense'); setSelectedId(null); setIsCreating(false); resetForm(); loadMeta() }}
-            className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors
-              ${tab === 'expense'
-                ? 'bg-white text-red-500 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-              }`}
-          >
-            {t('支出分类')}
-          </button>
-          <button
-            onClick={() => { setTab('income'); setSelectedId(null); setIsCreating(false); resetForm(); loadMeta() }}
-            className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors
-              ${tab === 'income'
-                ? 'bg-white text-green-500 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-              }`}
-          >
-            {t('收入分类')}
-          </button>
-        </div>
-
-        {/* Category list（每项右侧有 × 删除按钮，悬停显示） */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {categories.map((cat, idx) => (
-            <div
-              key={`${cat.name}-${idx}`}
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragOver={(e) => handleDragOver(e, idx)}
-              onDragEnd={handleDragEnd}
-              onClick={() => selectCategory(idx)}
-              className={`w-full flex items-center gap-1 px-3 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer select-none group
-                ${selectedId === idx
-                  ? 'bg-primary-50 text-primary-700 font-medium'
-                  : 'text-gray-700 hover:bg-gray-50'
-                }
-              `}
-            >
-              <span
-                className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <GripVertical size={14} />
-              </span>
-              <span className="text-lg shrink-0">{cat.icon}</span>
-              <span className="truncate flex-1">{cat.name}</span>
-              <span className="text-xs text-gray-400 shrink-0 mr-0.5">{cat.children.length}</span>
-              {/* × 删除按钮（仅悬停时显示） */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleListItemDelete(idx) }}
-                className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                title={t('删除此分类')}
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-
-          {/* Add new button */}
-          <button
-            onClick={() => {
-              setSelectedId(null)
-              resetForm()
-              setIsCreating(true)
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-primary-500 hover:bg-primary-50 transition-colors mt-1"
-          >
-            <Plus size={14} />
-            {t('新增分类')}
-          </button>
-        </div>
-      </div>
-
-      {/* Right: editor */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
-        {selectedId === null && !isCreating ? (
-          <div className="flex items-center justify-center h-full text-sm text-gray-400">
-            {categories.length === 0
-              ? t('暂无分类，点击"新增分类"开始')
-              : t('从左侧选择一个分类进行编辑，或点击"新增分类"')}
-          </div>
-        ) : (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('分类名称')}
-                {isPreset && <span className="text-xs text-amber-500 ml-2">{t('（预设分类）')}</span>}
-              </label>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                maxLength={20}
-                placeholder={t('输入一级分类名称')}
-                className="input-field"
-                disabled={isPreset}
-              />
-              {isPreset && (
-                <p className="text-xs text-gray-400 mt-1">{t('预设分类名称不可修改，但可调整图标和子分类')}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('分类图标')}</label>
-              <EmojiPicker value={editIcon} onChange={setEditIcon} />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('二级分类')} <span className="text-gray-400 font-normal">{t('({n} 个)').replace('{n}', String(editChildren.length))}</span>
-              </label>
-
-              <div className="flex flex-wrap gap-1.5 mb-2 min-h-[32px]">
-                {editChildren.length === 0 ? (
-                  <span className="text-xs text-gray-400 py-1">{t('暂无二级分类')}</span>
-                ) : (
-                  editChildren.map((child) => (
-                    <span
-                      key={child}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 text-sm text-gray-700 group"
-                    >
-                      {child}
-                      {/* 二级分类右侧 × 删除按钮 */}
-                      <button
-                        type="button"
-                        onClick={() => removeChild(child)}
-                        className="text-gray-400 hover:text-red-500 transition-colors"
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newChild}
-                  onChange={(e) => setNewChild(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addChild() } }}
-                  maxLength={20}
-                  placeholder={t('输入二级分类名称')}
-                  className="input-field flex-1 text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={addChild}
-                  disabled={!newChild.trim()}
-                  className="btn-secondary text-sm flex items-center gap-1 disabled:opacity-40"
-                >
-                  <Plus size={14} />
-                  {t('添加')}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-              <div />
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="btn-primary text-sm min-w-[80px]"
-              >
-                {saving ? t('保存中...') : isCreating ? t('创建分类') : t('保存修改')}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
+  const emptyMessage = categories.length === 0
+    ? t('暂无分类，点击"新增分类"开始')
+    : t('从左侧选择一个分类进行编辑，或点击"新增分类"')
 
   const headerContent = (
     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
@@ -415,6 +254,57 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
           <X size={18} />
         </button>
       )}
+    </div>
+  )
+
+  const bodyContent = (
+    <div className="flex-1 flex min-h-0 overflow-hidden">
+      <CategoryList
+        categories={categories}
+        selectedId={selectedId}
+        tab={tab}
+        onTabChange={handleTabChange}
+        onSelect={selectCategory}
+        onNew={handleNew}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDelete={handleListItemDelete}
+        tabLabelExpense={t('支出分类')}
+        tabLabelIncome={t('收入分类')}
+        deleteTitle={t('删除此分类')}
+        newLabel={t('新增分类')}
+      />
+      <CategoryForm
+        editName={editName}
+        editIcon={editIcon}
+        editChildren={editChildren}
+        newChild={newChild}
+        isPreset={isPreset}
+        isCreating={isCreating}
+        saving={saving}
+        hasSelection={selectedId !== null || isCreating}
+        emptyMessage={emptyMessage}
+        onEditNameChange={setEditName}
+        onEditIconChange={setEditIcon}
+        onNewChildChange={setNewChild}
+        onAddChild={addChild}
+        onRemoveChild={removeChild}
+        onSave={handleSave}
+        nameLabel={t('分类名称')}
+        presetLabel={t('（预设分类）')}
+        presetHint={t('预设分类名称不可修改，但可调整图标和子分类')}
+        iconLabel={t('分类图标')}
+        childrenLabel={t('二级分类')}
+        childrenCountLabel={t('({n} 个)').replace('{n}', String(editChildren.length))}
+        noChildrenLabel={t('暂无二级分类')}
+        childPlaceholder={t('输入二级分类名称')}
+        addLabel={t('添加')}
+        saveLabel={t('保存修改')}
+        createLabel={t('创建分类')}
+        savingLabel={t('保存中...')}
+        namePlaceholder={t('输入一级分类名称')}
+      />
     </div>
   )
 
