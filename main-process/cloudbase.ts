@@ -1,17 +1,46 @@
+import { execFileSync } from 'child_process'
 import cloudbase from '@cloudbase/node-sdk'
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import type { BillRow, CategoryRow } from './database'
 
+// ─── Load .env file (manual, no dependency) ─────
+// 在主进程中手动解析 .env 文件，避免 build-time 注入。
+// process.env 在 electron-vite 中通过 define 替换为静态值，
+// 因此用动态属性名访问来绕过这个限制。
+function loadEnvFile(envPath: string): void {
+  if (!fs.existsSync(envPath)) return
+  try {
+    const lines = fs.readFileSync(envPath, 'utf-8').split(/\r?\n/)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const eqIdx = trimmed.indexOf('=')
+      if (eqIdx === -1) continue
+      const key = trimmed.slice(0, eqIdx).trim()
+      const val = trimmed.slice(eqIdx + 1).trim()
+      if (!process.env[key]) process.env[key] = val
+    }
+  } catch (e) {
+    console.error('Failed to load .env file:', e)
+  }
+}
+
 // ─── Constants ────────────────────────────────────
 
 const ENV_ID = 'shio-d0gsoo414401468d6'
 const AUTH_BASE = `https://${ENV_ID}.api.tcloudbasegateway.com`
-// API Key 用于 Node SDK 数据库操作（管理员权限）。
-// 可通过 CloudBase 控制台 → 身份认证 → API Key 轮换。
-// 注意：此 Key 会随 EXE 分发，仅用于个人应用场景。
-const API_KEY = 'eyJhbGciOiJSUzI1NiIsImtpZCI6IjlkMWRjMzFlLWI0ZDAtNDQ4Yi1hNzZmLWIwY2M2M2Q4MTQ5OCJ9.eyJhdWQiOiJzaGlvLWQwZ3NvbzQxNDQwMTQ2OGQ2IiwiZXhwIjoyNTM0MDIzMDA3OTksImlhdCI6MTc4NTA3NjYyMCwiYXRfaGFzaCI6IjBLaU1tTFlqU1FHdHB5UlNJZmtYYkEiLCJwcm9qZWN0X2lkIjoic2hpby1kMGdzb280MTQwMDE0NjhkNiIsIm1ldGEiOnsicGxhdGZvcm0iOiJBcGlLZXkifSwiYWRtaW5pc3RyYXRvcl9pZCI6IjIwODEzNzc2MTgxNzI3NDc3NzgiLCJ1c2VyX3R5cGUiOiIiLCJjbGllbnRfdHlwZSI6ImNsaWVudF9zZXJ2ZXIiLCJpc19zeXN0ZW1fYWRtaW4iOnRydWV9.MQW6L0XICiX3ptPGR4qiBWZHmjD4cJ6j9BAhN1qC4JsaifLdsGfUyjucC_Xo3Ic6aJFcMJ_j5w_F0Shnw_HpxPCCPYZK8_6RM_Rto8o8ji2fKqpDoAm_JyrSQSfYbVSIpayBAWqnHMRoCqoKkEV1apx18nkuRwd7C_McNfCtzisnYPfb87Bqd_jRJA4Fjf5ZFvl8IRkj_2D0dVFbzXBUovmTDlBt6bH24HCF9gVv2lH_bCxOs_pZF-V6un8-13PJipkTtbLH84cWRHYBo0YzPZDGYxdvERTzhotve07ERUpoEbP60wZA_gjeXci1mZaIlFBtf1ZeSXDec8adQ28-Jw'
+
+/**
+ * Admin API Key — 从环境变量 CLOUDBASE_API_KEY 加载。
+ * 在 initCloudBase() 中通过 loadEnvFile() 注入 process.env 后读取。
+ * 生产环境无 .env 文件时 API_KEY 为空字符串，Admin 功能（密码重置等）将不可用。
+ * 通过动态属性名访问 process.env，避免 electron-vite 构建时静态替换。
+ */
+function getApiKey(): string {
+  return (process.env as Record<string, string>)['CLOUDBASE_API_KEY'] || ''
+}
 
 // ─── Types ────────────────────────────────────────
 
@@ -75,8 +104,19 @@ function clearSession(): void {
 // ─── Initialization ───────────────────────────────
 
 export function initCloudBase(): void {
+  // 加载 .env 文件（顶层相对路径，electron-vite 下指向项目根）
+  // app.getAppPath() 在 whenReady 前不可用，用 __dirname 推导
+  const envPath1 = path.join(__dirname, '..', '..', '.env')
+  const envPath2 = path.join(process.resourcesPath || '', '.env')
+  loadEnvFile(envPath1)
+  loadEnvFile(envPath2)
+
+  const apiKey = getApiKey()
+  if (!apiKey) {
+    console.warn('⚠ CLOUDBASE_API_KEY not set. Admin features (password reset, etc.) will be unavailable.')
+  }
   try {
-    db = cloudbase.init({ env: ENV_ID, accessKey: API_KEY }).database()
+    db = cloudbase.init({ env: ENV_ID, accessKey: apiKey }).database()
   } catch (e) {
     console.error('CloudBase SDK 初始化失败，云同步功能不可用:', e)
   }
@@ -277,7 +317,11 @@ export async function upsertRemoteBill(bill: BillRow): Promise<void> {
     } else {
       await db!.collection('bills').add(remote)
     }
-  } catch (e) { console.error('同步账单失败:', e) }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`同步账单失败 (localId=${bill.id}):`, msg)
+    throw new Error(`cloud_sync_bill_failed: ${msg}`)
+  }
 }
 
 export async function deleteRemoteBill(localId: number): Promise<void> {
@@ -285,7 +329,11 @@ export async function deleteRemoteBill(localId: number): Promise<void> {
     const { userId } = ensureDbAndUser()
     const existing = await db!.collection('bills').where({ localId, userId }).get()
     if (existing.data?.length) await db!.collection('bills').doc(existing.data[0]._id).remove()
-  } catch (e) { console.error('删除云端账单失败:', e) }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`删除云端账单失败 (localId=${localId}):`, msg)
+    throw new Error(`cloud_delete_bill_failed: ${msg}`)
+  }
 }
 
 export async function upsertRemoteCategory(cat: CategoryRow): Promise<void> {
@@ -304,7 +352,11 @@ export async function upsertRemoteCategory(cat: CategoryRow): Promise<void> {
     } else {
       await db!.collection('categories').add(remote)
     }
-  } catch (e) { console.error('同步分类失败:', e) }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`同步分类失败 (localId=${cat.id}):`, msg)
+    throw new Error(`cloud_sync_category_failed: ${msg}`)
+  }
 }
 
 export async function deleteRemoteCategory(localId: number): Promise<void> {
@@ -312,5 +364,9 @@ export async function deleteRemoteCategory(localId: number): Promise<void> {
     const { userId } = ensureDbAndUser()
     const existing = await db!.collection('categories').where({ localId, userId }).get()
     if (existing.data?.length) await db!.collection('categories').doc(existing.data[0]._id).remove()
-  } catch (e) { console.error('删除云端分类失败:', e) }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`删除云端分类失败 (localId=${localId}):`, msg)
+    throw new Error(`cloud_delete_category_failed: ${msg}`)
+  }
 }
