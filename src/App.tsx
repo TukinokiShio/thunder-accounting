@@ -1,3 +1,8 @@
+/**
+ * 应用根组件。
+ * 初始化时加载分类和账单数据，注册全局快捷键（Ctrl+N 快速记账）。
+ * 布局：左侧 Sidebar + 右侧内容区（根据 activePage 切换页面）。
+ */
 import { useEffect, useState } from 'react'
 import { Layout } from '@/components/Layout'
 import { Home } from '@/pages/Home'
@@ -7,11 +12,6 @@ import { AddBillDialog } from '@/components/AddBillDialog'
 import { CategoryManager } from '@/components/CategoryManager'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { AuthGuard } from '@/components/AuthGuard'
-/**
- * 应用根组件。
- * 初始化时加载分类和账单数据，注册全局快捷键（Ctrl+N 快速记账）。
- * 布局：左侧 Sidebar + 右侧内容区（根据 activePage 切换页面）。
- */
 import { useStore } from '@/store'
 import { LanguageProvider } from '@/i18n/LanguageContext'
 

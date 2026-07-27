@@ -137,12 +137,17 @@ export async function initDatabase(): Promise<void> {
 
 /** 将内存数据库完整序列化并写入磁盘文件，确保数据持久化 */
 function saveDb(): void {
-  const data = db.export()
-  const dir = path.dirname(dbPath)
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
+  try {
+    const data = db.export()
+    const dir = path.dirname(dbPath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(dbPath, Buffer.from(data))
+  } catch (e) {
+    console.error('数据库写入磁盘失败：', e)
+    throw new Error('数据库保存失败，磁盘空间可能不足')
   }
-  fs.writeFileSync(dbPath, Buffer.from(data))
 }
 
 // ─── Category types ──────────────────────────────
@@ -287,6 +292,9 @@ export function updateCategory(id: number, params: UpdateCategoryParams): Catego
   }
 
   const rows = db.exec('SELECT * FROM categories WHERE id = ?', [id])
+  if (!rows.length || !rows[0].values.length) {
+    throw new Error(`分类不存在 (id=${id})`)
+  }
   const cols = rows[0].columns
   const obj: Record<string, unknown> = {}
   cols.forEach((col: string, i: number) => { obj[col] = rows[0].values[0][i] })

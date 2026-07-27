@@ -1,3 +1,9 @@
+/**
+ * 预加载脚本（Preload Script）。
+ * 通过 contextBridge 将受限的 Node.js / Electron API 暴露给渲染进程，
+ * 实现进程间通信（IPC），保证渲染进程的沙盒安全性。
+ * 暴露的所有方法最终通过 ipcRenderer.invoke 调用主进程的 IPC handler。
+ */
 import { contextBridge, ipcRenderer } from 'electron'
 
 const electronAPI = {

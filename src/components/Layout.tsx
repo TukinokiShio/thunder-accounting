@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react'
-import { Sidebar } from './Sidebar'
-import { ToastContainer } from './Toast'
-import { Plus, Cloud, CloudOff, CloudCog } from 'lucide-react'
 /**
  * 主布局组件。
  * 组合 Sidebar + 内容区，管理分类管理弹窗、设置弹窗、记账弹窗、Toast 容器的显示。
  */
+import type { ReactNode } from 'react'
+import { Sidebar } from './Sidebar'
+import { ToastContainer } from './Toast'
+import { Plus, Cloud, CloudOff, CloudCog } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 

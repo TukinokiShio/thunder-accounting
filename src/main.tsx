@@ -7,14 +7,24 @@ import './index.css'
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('No #root element')
 
-// 全局错误捕获
-window.addEventListener('error', (e) => {
+// 全局错误捕获（使用 textContent 避免 XSS 注入）
+function showError(title: string, detail: string): void {
   document.body.classList.add('ready')
-  rootEl.innerHTML = `<div style="padding:20px;color:red;font-family:monospace;font-size:14px"><b>JS Error:</b><br>${e.message}<br>at ${e.filename}:${e.lineno}</div>`
+  rootEl.textContent = ''
+  const div = document.createElement('div')
+  div.style.cssText = 'padding:20px;color:red;font-family:monospace;font-size:14px'
+  const b = document.createElement('b')
+  b.textContent = title
+  div.appendChild(b)
+  div.appendChild(document.createElement('br'))
+  div.appendChild(document.createTextNode(detail))
+  rootEl.appendChild(div)
+}
+window.addEventListener('error', (e) => {
+  showError('JS Error:', `${e.message}\nat ${e.filename}:${e.lineno}`)
 })
 window.addEventListener('unhandledrejection', (e) => {
-  document.body.classList.add('ready')
-  rootEl.innerHTML = `<div style="padding:20px;color:red;font-family:monospace;font-size:14px"><b>Promise Rejection:</b><br>${String(e.reason)}</div>`
+  showError('Promise Rejection:', String(e.reason))
 })
 
 // 渲染 React

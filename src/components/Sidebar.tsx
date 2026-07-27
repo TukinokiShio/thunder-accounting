@@ -72,7 +72,7 @@ export function Sidebar({ onOpenSettings }: Props) {
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
-                {user.email[0].toUpperCase()}
+                {user.email?.charAt(0)?.toUpperCase() ?? '?'}
               </span>
             </div>
             <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{user.email}</span>

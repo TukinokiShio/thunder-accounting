@@ -11,7 +11,9 @@ function parseCategoryRow(row: { name: string; icon: string; children: string; i
   try {
     children = JSON.parse(row.children)
   } catch (e) {
-    console.error(`分类 "${row.name}" 的 children 字段解析失败：`, e)
+    const raw = String(row.children).substring(0, 100)
+    console.error(`分类 "${row.name}" 的 children 字段解析失败（原始值: ${raw}）:`, e)
+    // 保留原始字符串片段以便排查，同时返回空数组避免整个列表崩溃
     children = []
   }
   return { name: row.name, icon: row.icon, children }
