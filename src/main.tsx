@@ -27,12 +27,15 @@ window.addEventListener('unhandledrejection', (e) => {
   showError('Promise Rejection:', String(e.reason))
 })
 
-// 渲染 React
+// 渲染 React。开发模式启用 StrictMode 检测副作用；生产构建关闭，避免 Effect 双重调用。
 const r = ReactDOM.createRoot(rootEl)
+const isDev = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development'
 r.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+  isDev ? (
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  ) : <App />
 )
 
 // React 挂载完成后，标记 body 为 ready，CSS 会隐藏 splash 并显示 #root
