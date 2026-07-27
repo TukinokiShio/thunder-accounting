@@ -121,7 +121,13 @@ export default function ProfilePage() {
 
   // ── 获取显示值（绑定缺失时回退到 store user） ──
   const accountId = account?.accountId || user?.accountId || ''
-  const nickname = account?.nickname || user?.email || ''
+  // nickName 优先级：accounts.nickname → user.nickname → email 本地部分 → email
+  const nickname =
+    account?.nickname ||
+    user?.nickname ||
+    (user?.email?.split('@')[0] ?? '') ||
+    user?.email ||
+    '未知用户'
   const boundEmail = account?.email && !isInternalEmail(account.email) ? account.email : (account?.email || '')
   const boundPhone = account?.phone || ''
 
@@ -463,10 +469,10 @@ export default function ProfilePage() {
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="text-xl font-semibold text-gray-900 truncate">
-                  {nickname || '未知用户'}
+                  {nickname}
                 </h3>
-                <p className="text-sm text-gray-500">
-                  {boundEmail && boundEmail !== nickname ? boundEmail : '雷霆记账用户'}
+                <p className="text-sm text-gray-500 truncate">
+                  {boundEmail || '雷霆记账用户'}
                 </p>
               </div>
             </div>

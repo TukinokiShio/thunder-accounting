@@ -234,6 +234,18 @@ export function isValidAccountId(id: string): boolean {
 }
 
 /**
+ * 默认昵称生成（用于新用户注册或老用户兜底）。
+ * 从 email 本地部分提取，截断到 20 字符。
+ */
+export function generateDefaultNickname(email: string): string {
+  if (!email) return '新用户'
+  const local = email.split('@')[0]
+  if (!local) return '新用户'
+  if (local.length > 20) return local.slice(0, 20)
+  return local
+}
+
+/**
  * 根据输入标识符解析出用于 CloudBase 登录的邮箱。
  * 支持：账号 ID → 查 accounts 集合；邮箱 → 直接返回；手机号 → 查 accounts 集合。
  */
@@ -294,7 +306,7 @@ export async function resolveVerificationTarget(identifier: string): Promise<{ t
 /**
  * 注册后创建账号绑定记录。
  */
-async function createAccountRecord(email: string, uid: string, accountId: string): Promise<void> {
+async function createAccountRecord(email: string, uid: string, accountId: string, nickname?: string): Promise<void> {
   if (!db) return
   try {
     await db.collection('accounts').add({
@@ -302,6 +314,7 @@ async function createAccountRecord(email: string, uid: string, accountId: string
       uid,
       email,
       phone: '',
+      nickname: nickname || generateDefaultNickname(email),
       createdAt: new Date().toISOString()
     })
   } catch (e) {
@@ -388,10 +401,11 @@ export async function registerWithEmail(email: string, password: string, code: s
   const uid = u.uid || u.sub || ''
 
   const accountId = generateStandardAccountId(email)
-  await createAccountRecord(email, uid, accountId)
+  const nickname = generateDefaultNickname(email)
+  await createAccountRecord(email, uid, accountId, nickname)
 
   return {
-    user: { uid, email, emailVerified: !!u.email_verified, accountId },
+    user: { uid, email, emailVerified: !!u.email_verified, accountId, nickname },
     accountId
   }
 }
@@ -414,12 +428,13 @@ export async function registerWithPhone(phone: string, password: string, code: s
     const uid = u.uid || u.sub || ''
     const internalEmail = `${phone}@phone.tb`
     const accountId = generateStandardAccountId(internalEmail)
-    await createAccountRecord(internalEmail, uid, accountId)
+    const nickname = generateDefaultNickname(phone)
+    await createAccountRecord(internalEmail, uid, accountId, nickname)
     try {
       await db?.collection('accounts').where({ uid }).update({ phone })
     } catch { /* ignore */ }
     return {
-      user: { uid, email: internalEmail, emailVerified: false, accountId },
+      user: { uid, email: internalEmail, emailVerified: false, accountId, nickname },
       accountId
     }
   }
@@ -439,10 +454,11 @@ export async function registerWithPhone(phone: string, password: string, code: s
   const u = data2 as { uid: string; email_verified?: boolean; sub?: string }
   const uid = u.uid || u.sub || ''
   const accountId = generateStandardAccountId(internalEmail)
-  await createAccountRecord(internalEmail, uid, accountId)
+  const nickname = generateDefaultNickname(phone)
+  await createAccountRecord(internalEmail, uid, accountId, nickname)
   try { await db?.collection('accounts').where({ uid }).update({ phone }) } catch { /* ignore */ }
   return {
-    user: { uid, email: internalEmail, emailVerified: false, accountId },
+    user: { uid, email: internalEmail, emailVerified: false, accountId, nickname },
     accountId
   }
 }
@@ -465,20 +481,17 @@ export async function loginWithEmail(email: string, password: string): Promise<L
     if (db) {
       const accResult = await db.collection('accounts').where({ uid }).limit(1).get()
       if (accResult.data?.length) {
-        const acc = accResult.data[0] as { accountId?: string; email?: string }
+        const acc = accResult.data[0] as { accountId?: string; email?: string; nickname?: string }
         accountId = acc.accountId
-        // 如果旧用户没有 accountId，按规范化算法补全并持久化
         if (!accountId) {
           const refEmail = acc.email || email
           accountId = generateStandardAccountId(refEmail)
           await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
         }
       } else {
-        // accounts 集合无记录（极端情况）— 用规范化算法给 session 用
         accountId = generateStandardAccountId(email)
       }
     } else {
-      // db 不可用（无 CLOUDBASE_API_KEY）— 用规范化算法生成 session-only ID
       accountId = generateStandardAccountId(email)
     }
   } catch (e) {
@@ -486,8 +499,21 @@ export async function loginWithEmail(email: string, password: string): Promise<L
     accountId = generateStandardAccountId(email)
   }
 
+  // 尝试获取 nickname（accounts 集合优先，否则从 email 推断）
+  let nickname: string | undefined
+  try {
+    if (db) {
+      const accResult2 = await db.collection('accounts').where({ uid }).limit(1).get()
+      if (accResult2.data?.length) {
+        const acc = accResult2.data[0] as { nickname?: string }
+        nickname = acc.nickname
+      }
+    }
+  } catch { /* ignore */ }
+  if (!nickname) nickname = generateDefaultNickname(email)
+
   const session: AuthSession = {
-    user: { uid, email, emailVerified: !!result.email_verified, accountId },
+    user: { uid, email, emailVerified: !!result.email_verified, accountId, nickname },
     accessToken: result.access_token || '',
     refreshToken: result.refresh_token || '',
     expiresAt: Date.now() + (result.expires_in || 7200) * 1000
@@ -552,12 +578,14 @@ export async function loginWithVerificationCode(identifier: string, code: string
 
   // 从 accounts 集合获取 accountId
   let accountId: string | undefined
+  let nickname: string | undefined
   try {
     if (db) {
       const accResult = await db.collection('accounts').where({ uid }).limit(1).get()
       if (accResult.data?.length) {
-        const acc = accResult.data[0] as { accountId?: string; email?: string }
+        const acc = accResult.data[0] as { accountId?: string; email?: string; nickname?: string }
         accountId = acc.accountId
+        nickname = acc.nickname
         if (!accountId) {
           const refEmail = acc.email || target.target
           accountId = generateStandardAccountId(refEmail)
@@ -573,9 +601,10 @@ export async function loginWithVerificationCode(identifier: string, code: string
     console.error('获取 accountId 失败（用规范化算法兜底）:', e)
     accountId = generateStandardAccountId(target.target)
   }
+  if (!nickname) nickname = generateDefaultNickname(target.target)
 
   const session: AuthSession = {
-    user: { uid, email: target.target, emailVerified: !!result.email_verified, accountId },
+    user: { uid, email: target.target, emailVerified: !!result.email_verified, accountId, nickname },
     accessToken: result.access_token || '',
     refreshToken: result.refresh_token || '',
     expiresAt: Date.now() + (result.expires_in || 7200) * 1000
@@ -907,7 +936,8 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
     return {
       accountId: currentSession.user.accountId,
       email: currentSession.user.email,
-      phone: ''  // session 中没有 phone 字段
+      phone: '',  // session 中没有 phone 字段
+      nickname: currentSession.user.nickname
     }
   }
 

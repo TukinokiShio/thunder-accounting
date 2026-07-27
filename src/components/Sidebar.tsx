@@ -80,7 +80,7 @@ export function Sidebar({ onOpenSettings }: Props) {
               </span>
             </div>
             <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1 text-left">
-              {user.email?.split('@')[0] || user.email}
+              {user.nickname || user.email?.split('@')[0] || user.email}
             </span>
           </button>
           {/* 邮箱验证状态：已通过 OAuth/密码重置验证则不显示提示 */}
