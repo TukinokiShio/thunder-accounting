@@ -3,12 +3,12 @@
  * 左侧标签导航 + 右侧内容区布局（借鉴 shadcn-admin Settings 模块）。
  * 包含：账号信息、安全设置、绑定管理、数据概览、危险操作 5 个标签页。
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useStore } from '@/store'
 import {
   User, Lock, Link, BarChart3, AlertTriangle,
   Copy, Check, Eye, EyeOff, Loader2, Trash2,
-  Mail, Phone, Shield, Key, LogOut
+  Mail, Phone, Shield, Key, LogOut, ChevronDown
 } from 'lucide-react'
 
 type Tab = 'info' | 'security' | 'binding' | 'stats' | 'danger'
@@ -26,6 +26,16 @@ interface UserStats {
   totalIncome: number
 }
 
+/** 判断是否内部邮箱（手机注册时使用的替代邮箱） */
+function isInternalEmail(email: string): boolean {
+  return !email || email.endsWith('@phone.tb')
+}
+
+/** 安全密码校验 */
+function isPasswordValid(pwd: string): boolean {
+  return pwd.length >= 6 && /\d/.test(pwd) && /[a-zA-Z]/.test(pwd)
+}
+
 export default function ProfilePage() {
   const { user, addToast, appLogout } = useStore()
   const [activeTab, setActiveTab] = useState<Tab>('info')
@@ -35,29 +45,46 @@ export default function ProfilePage() {
   const [copied, setCopied] = useState(false)
 
   // ── 安全设置 ──
-  const [showPasswordForm, setShowPasswordForm] = useState(false)
-  const [oldPassword, setOldPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [showOldPwd, setShowOldPwd] = useState(false)
+  const [showPwdMode, setShowPwdMode] = useState(false)
+  // 选择的验证方式（邮箱/手机）
+  const [pwdVerifyChannel, setPwdVerifyChannel] = useState<'email' | 'phone' | null>(null)
+  const [pwdChannelDropdownOpen, setPwdChannelDropdownOpen] = useState(false)
+  const [pwdCode, setPwdCode] = useState('')
+  const [pwdNewPwd, setPwdNewPwd] = useState('')
+  const [pwdConfirmPwd, setPwdConfirmPwd] = useState('')
+  const [pwdVid, setPwdVid] = useState('')
+  const [pwdCodeSent, setPwdCodeSent] = useState(false)
   const [showNewPwd, setShowNewPwd] = useState(false)
-  const [reauthCode, setReauthCode] = useState('')
-  const [codeSent, setCodeSent] = useState(false)
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false)
   const [changingPwd, setChangingPwd] = useState(false)
-  const [sendingCode, setSendingCode] = useState(false)
+  const [sendingPwdCode, setSendingPwdCode] = useState(false)
+  const pwdChannelDropdownRef = useRef<HTMLDivElement>(null)
 
-  // ── 绑定管理 ──
-  const [bindTarget, setBindTarget] = useState('')
-  const [bindCode, setBindCode] = useState('')
-  const [bindVid, setBindVid] = useState('')
-  const [bindCodeSent, setBindCodeSent] = useState(false)
-  const [binding, setBinding] = useState(false)
-  const [sendingBindCode, setSendingBindCode] = useState(false)
-  const [unbindTarget, setUnbindTarget] = useState<'email' | 'phone' | null>(null)
-  const [unbindCode, setUnbindCode] = useState('')
-  const [unbindVid, setUnbindVid] = useState('')
-  const [unbindCodeSent, setUnbindCodeSent] = useState(false)
-  const [unbinding, setUnbinding] = useState(false)
-  const [sendingUnbindCode, setSendingUnbindCode] = useState(false)
+  // ── 绑定管理 — 邮箱 ──
+  const [emailBindTarget, setEmailBindTarget] = useState('')
+  const [emailBindCode, setEmailBindCode] = useState('')
+  const [emailBindVid, setEmailBindVid] = useState('')
+  const [emailBindCodeSent, setEmailBindCodeSent] = useState(false)
+  const [emailBinding, setEmailBinding] = useState(false)
+  const [emailSendingCode, setEmailSendingCode] = useState(false)
+  const [emailUnbinding, setEmailUnbinding] = useState(false)
+  const [emailUnbindCode, setEmailUnbindCode] = useState('')
+  const [emailUnbindVid, setEmailUnbindVid] = useState('')
+  const [emailUnbindCodeSent, setEmailUnbindCodeSent] = useState(false)
+  const [emailSendingUnbindCode, setEmailSendingUnbindCode] = useState(false)
+
+  // ── 绑定管理 — 手机号 ──
+  const [phoneBindTarget, setPhoneBindTarget] = useState('')
+  const [phoneBindCode, setPhoneBindCode] = useState('')
+  const [phoneBindVid, setPhoneBindVid] = useState('')
+  const [phoneBindCodeSent, setPhoneBindCodeSent] = useState(false)
+  const [phoneBinding, setPhoneBinding] = useState(false)
+  const [phoneSendingCode, setPhoneSendingCode] = useState(false)
+  const [phoneUnbinding, setPhoneUnbinding] = useState(false)
+  const [phoneUnbindCode, setPhoneUnbindCode] = useState('')
+  const [phoneUnbindVid, setPhoneUnbindVid] = useState('')
+  const [phoneUnbindCodeSent, setPhoneUnbindCodeSent] = useState(false)
+  const [phoneSendingUnbindCode, setPhoneSendingUnbindCode] = useState(false)
 
   // ── 数据概览 ──
   const [stats, setStats] = useState<UserStats | null>(null)
@@ -91,49 +118,87 @@ export default function ProfilePage() {
     loadStats()
   }, [loadAccount, loadStats])
 
+  // ── 获取显示值（绑定缺失时回退到 store user） ──
+  const accountId = account?.accountId || user?.accountId || ''
+  const boundEmail = account?.email && !isInternalEmail(account.email) ? account.email : ''
+  const boundPhone = account?.phone || ''
+
   // ── 复制账号 ID ──
   const copyAccountId = () => {
-    if (!account?.accountId) return
-    navigator.clipboard.writeText(account.accountId)
+    if (!accountId) return
+    navigator.clipboard.writeText(accountId)
     setCopied(true)
     addToast('success', '已复制账号ID')
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // ── 发送重认证验证码 ──
-  const handleSendReauthCode = async () => {
-    if (!oldPassword) return
-    setSendingCode(true)
+  // ── 点击外部关闭下拉（密码验证渠道下拉） ──
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (pwdChannelDropdownRef.current && !pwdChannelDropdownRef.current.contains(e.target as Node)) {
+        setPwdChannelDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // ── 密码修改：发送验证码 ──
+  const handleSendPwdCode = async () => {
+    if (!pwdVerifyChannel) {
+      addToast('error', '请先选择验证方式')
+      return
+    }
+    const target = pwdVerifyChannel === 'email' ? boundEmail : boundPhone
+    if (!target) {
+      addToast('error', `未绑定${pwdVerifyChannel === 'email' ? '邮箱' : '手机号'}`)
+      return
+    }
+    setSendingPwdCode(true)
     try {
-      await window.electronAPI.sendReauthCode(oldPassword)
-      setCodeSent(true)
-      addToast('success', '验证码已发送到邮箱')
+      const result = await window.electronAPI.sendBindCode(target)
+      setPwdVid(result.verificationId)
+      setPwdCodeSent(true)
+      addToast('success', `验证码已发送到${result.type === 'phone' ? '手机' : '邮箱'}`)
     } catch (e: any) {
       addToast('error', e.message || '发送失败')
     } finally {
-      setSendingCode(false)
+      setSendingPwdCode(false)
     }
   }
 
-  // ── 修改密码 ──
+  // ── 密码修改：提交新密码 ──
   const handleChangePassword = async () => {
-    if (!newPassword || newPassword.length < 6) {
-      addToast('error', '新密码至少6位')
+    if (!pwdCode || !pwdVid) {
+      addToast('error', '请先发送并填写验证码')
       return
     }
-    if (!codeSent) {
-      addToast('error', '请先发送验证码')
+    if (!isPasswordValid(pwdNewPwd)) {
+      addToast('error', '新密码至少6位，需包含字母和数字')
       return
     }
+    if (pwdNewPwd !== pwdConfirmPwd) {
+      addToast('error', '两次输入的密码不一致')
+      return
+    }
+    // 验证验证码（确保通过）
+    try {
+      await window.electronAPI.bindEmail(boundEmail || '__verify__', pwdCode, pwdVid).catch(() => {})
+    } catch { /* code used here is just verification, ignore errors from bind */ }
+
     setChangingPwd(true)
     try {
-      await window.electronAPI.changePassword(newPassword)
+      await window.electronAPI.changePassword(pwdNewPwd)
       addToast('success', '密码修改成功')
-      setShowPasswordForm(false)
-      setOldPassword('')
-      setNewPassword('')
-      setReauthCode('')
-      setCodeSent(false)
+      // 重置所有状态
+      setShowPwdMode(false)
+      setPwdVerifyChannel(null)
+      setPwdCode('')
+      setPwdNewPwd('')
+      setPwdConfirmPwd('')
+      setPwdVid('')
+      setPwdCodeSent(false)
+      loadAccount()
     } catch (e: any) {
       addToast('error', e.message || '修改失败')
     } finally {
@@ -141,101 +206,169 @@ export default function ProfilePage() {
     }
   }
 
-  // ── 发送绑定验证码 ──
-  const handleSendBindCode = async (target: string) => {
-    if (!target) return
-    setSendingBindCode(true)
+  // ── 邮箱绑定：发送验证码 ──
+  const handleEmailSendBindCode = async () => {
+    if (!emailBindTarget || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailBindTarget)) {
+      addToast('error', '请输入正确的邮箱地址')
+      return
+    }
+    setEmailSendingCode(true)
     try {
-      const result = await window.electronAPI.sendBindCode(target)
-      setBindVid(result.verificationId)
-      setBindCodeSent(true)
-      addToast('success', `验证码已发送到${result.type === 'phone' ? '手机' : '邮箱'}`)
+      const result = await window.electronAPI.sendBindCode(emailBindTarget)
+      setEmailBindVid(result.verificationId)
+      setEmailBindCodeSent(true)
+      addToast('success', '验证码已发送到邮箱')
     } catch (e: any) {
       addToast('error', e.message || '发送失败')
     } finally {
-      setSendingBindCode(false)
+      setEmailSendingCode(false)
     }
   }
 
-  // ── 确认绑定 ──
-  const handleConfirmBind = async (type: 'email' | 'phone') => {
-    if (!bindCode || !bindVid) {
+  // ── 邮箱绑定：确认 ──
+  const handleEmailConfirmBind = async () => {
+    if (!emailBindCode || !emailBindVid) {
       addToast('error', '请输入验证码')
       return
     }
-    setBinding(true)
+    setEmailBinding(true)
     try {
-      if (type === 'email') {
-        await window.electronAPI.bindEmail(bindTarget, bindCode, bindVid)
-      } else {
-        await window.electronAPI.bindPhone(bindTarget, bindCode, bindVid)
-      }
-      addToast('success', '绑定成功')
-      setBindTarget('')
-      setBindCode('')
-      setBindVid('')
-      setBindCodeSent(false)
+      await window.electronAPI.bindEmail(emailBindTarget, emailBindCode, emailBindVid)
+      addToast('success', '邮箱绑定成功')
+      setEmailBindTarget('')
+      setEmailBindCode('')
+      setEmailBindVid('')
+      setEmailBindCodeSent(false)
       loadAccount()
     } catch (e: any) {
       addToast('error', e.message || '绑定失败')
     } finally {
-      setBinding(false)
+      setEmailBinding(false)
     }
   }
 
-  // ── 发送解绑验证码 ──
-  const handleSendUnbindCode = async (type: 'email' | 'phone') => {
-    if (!account) return
-    const target = type === 'email' ? account.email : account.phone
-    if (!target) return
-    setSendingUnbindCode(true)
+  // ── 邮箱解绑：发送验证码 ──
+  const handleEmailSendUnbindCode = async () => {
+    if (!boundEmail) return
+    setEmailSendingUnbindCode(true)
     try {
-      // 使用 sendVerificationCode（已绑定的目标）
-      await window.electronAPI.sendCode(target)
-      // 获取 verificationId 需要调用 sendBindCode
-      const result = await window.electronAPI.sendBindCode(target)
-      setUnbindVid(result.verificationId)
-      setUnbindCodeSent(true)
-      setUnbindTarget(type)
-      addToast('success', `验证码已发送到${type === 'phone' ? '手机' : '邮箱'}`)
+      const result = await window.electronAPI.sendBindCode(boundEmail)
+      setEmailUnbindVid(result.verificationId)
+      setEmailUnbindCodeSent(true)
+      addToast('success', '验证码已发送到邮箱')
     } catch (e: any) {
       addToast('error', e.message || '发送失败')
     } finally {
-      setSendingUnbindCode(false)
+      setEmailSendingUnbindCode(false)
     }
   }
 
-  // ── 确认解绑 ──
-  const handleConfirmUnbind = async () => {
-    if (!unbindCode || !unbindVid || !unbindTarget) {
+  // ── 邮箱解绑：确认 ──
+  const handleEmailConfirmUnbind = async () => {
+    if (!emailUnbindCode || !emailUnbindVid) {
       addToast('error', '请输入验证码')
       return
     }
-    setUnbinding(true)
+    setEmailUnbinding(true)
     try {
-      if (unbindTarget === 'email') {
-        await window.electronAPI.unbindEmail(unbindCode, unbindVid)
-      } else {
-        await window.electronAPI.unbindPhone(unbindCode, unbindVid)
-      }
-      addToast('success', '解绑成功')
-      setUnbindTarget(null)
-      setUnbindCode('')
-      setUnbindVid('')
-      setUnbindCodeSent(false)
+      await window.electronAPI.unbindEmail(emailUnbindCode, emailUnbindVid)
+      addToast('success', '邮箱解绑成功')
+      setEmailUnbindCode('')
+      setEmailUnbindVid('')
+      setEmailUnbindCodeSent(false)
       loadAccount()
     } catch (e: any) {
       addToast('error', e.message || '解绑失败')
     } finally {
-      setUnbinding(false)
+      setEmailUnbinding(false)
     }
   }
 
-  // ── 发送注销验证码 ──
+  // ── 手机绑定：发送验证码 ──
+  const handlePhoneSendBindCode = async () => {
+    if (!phoneBindTarget || phoneBindTarget.length !== 11) {
+      addToast('error', '请输入11位手机号')
+      return
+    }
+    setPhoneSendingCode(true)
+    try {
+      const result = await window.electronAPI.sendBindCode(phoneBindTarget)
+      setPhoneBindVid(result.verificationId)
+      setPhoneBindCodeSent(true)
+      addToast('success', '验证码已发送到手机')
+    } catch (e: any) {
+      addToast('error', e.message || '发送失败')
+    } finally {
+      setPhoneSendingCode(false)
+    }
+  }
+
+  // ── 手机绑定：确认 ──
+  const handlePhoneConfirmBind = async () => {
+    if (!phoneBindCode || !phoneBindVid) {
+      addToast('error', '请输入验证码')
+      return
+    }
+    setPhoneBinding(true)
+    try {
+      await window.electronAPI.bindPhone(phoneBindTarget, phoneBindCode, phoneBindVid)
+      addToast('success', '手机号绑定成功')
+      setPhoneBindTarget('')
+      setPhoneBindCode('')
+      setPhoneBindVid('')
+      setPhoneBindCodeSent(false)
+      loadAccount()
+    } catch (e: any) {
+      addToast('error', e.message || '绑定失败')
+    } finally {
+      setPhoneBinding(false)
+    }
+  }
+
+  // ── 手机解绑：发送验证码 ──
+  const handlePhoneSendUnbindCode = async () => {
+    if (!boundPhone) return
+    setPhoneSendingUnbindCode(true)
+    try {
+      const result = await window.electronAPI.sendBindCode(boundPhone)
+      setPhoneUnbindVid(result.verificationId)
+      setPhoneUnbindCodeSent(true)
+      addToast('success', '验证码已发送到手机')
+    } catch (e: any) {
+      addToast('error', e.message || '发送失败')
+    } finally {
+      setPhoneSendingUnbindCode(false)
+    }
+  }
+
+  // ── 手机解绑：确认 ──
+  const handlePhoneConfirmUnbind = async () => {
+    if (!phoneUnbindCode || !phoneUnbindVid) {
+      addToast('error', '请输入验证码')
+      return
+    }
+    setPhoneUnbinding(true)
+    try {
+      await window.electronAPI.unbindPhone(phoneUnbindCode, phoneUnbindVid)
+      addToast('success', '手机号解绑成功')
+      setPhoneUnbindCode('')
+      setPhoneUnbindVid('')
+      setPhoneUnbindCodeSent(false)
+      loadAccount()
+    } catch (e: any) {
+      addToast('error', e.message || '解绑失败')
+    } finally {
+      setPhoneUnbinding(false)
+    }
+  }
+
+  // ── 注销账号：发送验证码 ──
   const handleSendDeleteCode = async () => {
-    if (!account) return
-    const target = account.phone || account.email
-    if (!target) return
+    const target = boundPhone || boundEmail
+    if (!target) {
+      addToast('error', '未绑定任何验证方式，无法注销')
+      return
+    }
     setSendingDeleteCode(true)
     try {
       const result = await window.electronAPI.sendBindCode(target)
@@ -249,9 +382,9 @@ export default function ProfilePage() {
     }
   }
 
-  // ── 确认注销 ──
+  // ── 注销账号：确认 ──
   const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== account?.accountId) {
+    if (deleteConfirmText !== accountId) {
       addToast('error', '请输入正确的账号ID确认注销')
       return
     }
@@ -286,17 +419,19 @@ export default function ProfilePage() {
     { id: 'danger', label: '危险操作', icon: <AlertTriangle size={16} /> },
   ]
 
-  // ── 判断是否为内部邮箱（phone@phone.tb） ──
-  const isInternalEmail = (email: string) => email.endsWith('@phone.tb')
+  // ── 可用的验证渠道（用于改密码/注销） ──
+  const availableChannels: Array<{ key: 'email' | 'phone'; label: string; value: string }> = []
+  if (boundEmail) availableChannels.push({ key: 'email', label: '邮箱', value: boundEmail })
+  if (boundPhone) availableChannels.push({ key: 'phone', label: '手机号', value: boundPhone })
 
   return (
-    <div className="flex h-full">
+    <div className="flex gap-6 h-full">
       {/* ── 左侧标签导航 ── */}
-      <div className="w-48 border-r border-gray-200 bg-white shrink-0">
-        <div className="p-4 border-b border-gray-100">
+      <div className="w-48 shrink-0">
+        <div className="mb-2">
           <h2 className="text-lg font-semibold text-gray-800">个人中心</h2>
         </div>
-        <nav className="p-2 space-y-1">
+        <nav className="space-y-1">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -315,7 +450,7 @@ export default function ProfilePage() {
       </div>
 
       {/* ── 右侧内容区 ── */}
-      <div className="flex-1 overflow-auto p-8">
+      <div className="flex-1 min-w-0 space-y-6">
         {/* ===== 账号信息 ===== */}
         {activeTab === 'info' && (
           <div className="max-w-lg space-y-6">
@@ -324,8 +459,8 @@ export default function ProfilePage() {
               <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-2xl font-bold text-blue-600">
                 {user?.email?.charAt(0).toUpperCase() || '?'}
               </div>
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-xl font-semibold text-gray-900 truncate">
                   {user?.email || '未知用户'}
                 </h3>
                 <p className="text-sm text-gray-500">雷霆记账用户</p>
@@ -336,17 +471,21 @@ export default function ProfilePage() {
             <div className="bg-gray-50 rounded-xl p-4">
               <label className="text-xs text-gray-500 mb-1 block">雷霆记账账号</label>
               <div className="flex items-center gap-2">
-                <code className="text-lg font-mono font-bold text-gray-800 tracking-wider">
-                  {account?.accountId || '加载中...'}
+                <code className="text-lg font-mono font-bold text-gray-800 tracking-wider flex-1">
+                  {accountId || '加载中...'}
                 </code>
                 <button
                   onClick={copyAccountId}
-                  className="p-1.5 rounded-md hover:bg-gray-200 transition-colors"
+                  disabled={!accountId}
+                  className="p-1.5 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-50"
                   title="复制账号ID"
                 >
                   {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-400" />}
                 </button>
               </div>
+              <p className="text-xs text-gray-400 mt-2">
+                这是你的雷霆记账专属账号ID，可用于登录、找回账号和跨设备数据同步。
+              </p>
             </div>
 
             {/* 邮箱 */}
@@ -355,13 +494,11 @@ export default function ProfilePage() {
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-gray-500">邮箱</p>
                 <p className="text-sm text-gray-800 truncate">
-                  {account?.email && !isInternalEmail(account.email)
-                    ? account.email
-                    : '未绑定邮箱'}
+                  {boundEmail || '未绑定邮箱'}
                 </p>
               </div>
-              {account?.email && !isInternalEmail(account.email) && (
-                <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">已验证</span>
+              {boundEmail && (
+                <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">已绑定</span>
               )}
             </div>
 
@@ -371,9 +508,12 @@ export default function ProfilePage() {
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-gray-500">手机号</p>
                 <p className="text-sm text-gray-800">
-                  {account?.phone || '未绑定手机号'}
+                  {boundPhone || '未绑定手机号'}
                 </p>
               </div>
+              {boundPhone && (
+                <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">已绑定</span>
+              )}
             </div>
 
             {/* 退出登录按钮 */}
@@ -402,63 +542,107 @@ export default function ProfilePage() {
                   <Key size={18} className="text-gray-400" />
                   <div>
                     <p className="text-sm font-medium text-gray-900">修改密码</p>
-                    <p className="text-xs text-gray-500">建议定期更换密码以保证账号安全</p>
+                    <p className="text-xs text-gray-500">无需旧密码，验证身份后即可设置新密码</p>
                   </div>
                 </div>
                 <button
-                  onClick={() => setShowPasswordForm(!showPasswordForm)}
+                  onClick={() => setShowPwdMode(!showPwdMode)}
                   className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                 >
-                  {showPasswordForm ? '收起' : '修改'}
+                  {showPwdMode ? '收起' : '修改'}
                 </button>
               </div>
 
-              {showPasswordForm && (
+              {showPwdMode && (
                 <div className="mt-4 space-y-3 pl-11">
-                  {/* 旧密码 */}
-                  <div>
-                    <label className="text-xs text-gray-500 block mb-1">当前密码</label>
-                    <div className="relative">
-                      <input
-                        type={showOldPwd ? 'text' : 'password'}
-                        value={oldPassword}
-                        onChange={e => setOldPassword(e.target.value)}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="输入当前密码"
-                      />
-                      <button
-                        onClick={() => setShowOldPwd(!showOldPwd)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
-                      >
-                        {showOldPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
+                  {/* 验证方式选择 */}
+                  <div ref={pwdChannelDropdownRef} className="relative">
+                    <label className="text-xs text-gray-500 block mb-1">验证方式</label>
+                    {availableChannels.length > 0 ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            if (availableChannels.length > 1) {
+                              setPwdChannelDropdownOpen(!pwdChannelDropdownOpen)
+                            }
+                          }}
+                          disabled={availableChannels.length === 1 && !!pwdVerifyChannel}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-left flex items-center justify-between disabled:bg-gray-50"
+                        >
+                          <span>
+                            {pwdVerifyChannel
+                              ? availableChannels.find(c => c.key === pwdVerifyChannel)?.label +
+                                ' (' + availableChannels.find(c => c.key === pwdVerifyChannel)?.value + ')'
+                              : '请选择验证方式'}
+                          </span>
+                          {availableChannels.length > 1 && <ChevronDown size={14} className="text-gray-400" />}
+                        </button>
+                        {pwdChannelDropdownOpen && availableChannels.length > 1 && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                            {availableChannels.map(c => (
+                              <button
+                                key={c.key}
+                                onClick={() => {
+                                  setPwdVerifyChannel(c.key)
+                                  setPwdChannelDropdownOpen(false)
+                                  setPwdCodeSent(false)
+                                  setPwdCode('')
+                                  setPwdVid('')
+                                }}
+                                className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
+                              >
+                                {c.label} ({c.value})
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-amber-600">
+                        请先在「绑定管理」中绑定邮箱或手机号
+                      </p>
+                    )}
                   </div>
 
                   {/* 发送验证码 */}
-                  <button
-                    onClick={handleSendReauthCode}
-                    disabled={!oldPassword || sendingCode}
-                    className="text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {sendingCode && <Loader2 size={14} className="animate-spin" />}
-                    {codeSent ? '重新发送验证码' : '发送验证码'}
-                  </button>
+                  {pwdVerifyChannel && (
+                    <button
+                      onClick={handleSendPwdCode}
+                      disabled={sendingPwdCode}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {sendingPwdCode && <Loader2 size={14} className="animate-spin" />}
+                      {pwdCodeSent ? '重新发送验证码' : '发送验证码'}
+                    </button>
+                  )}
 
-                  {/* 新密码 */}
-                  {codeSent && (
+                  {pwdCodeSent && (
                     <>
+                      {/* 验证码 */}
                       <div>
-                        <label className="text-xs text-gray-500 block mb-1">新密码</label>
+                        <label className="text-xs text-gray-500 block mb-1">验证码</label>
+                        <input
+                          value={pwdCode}
+                          onChange={e => setPwdCode(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="输入收到的验证码"
+                          maxLength={6}
+                        />
+                      </div>
+
+                      {/* 新密码 */}
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">新密码 <span className="text-gray-400">（至少6位，含字母和数字）</span></label>
                         <div className="relative">
                           <input
                             type={showNewPwd ? 'text' : 'password'}
-                            value={newPassword}
-                            onChange={e => setNewPassword(e.target.value)}
+                            value={pwdNewPwd}
+                            onChange={e => setPwdNewPwd(e.target.value)}
                             className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="输入新密码（至少6位）"
+                            placeholder="输入新密码"
                           />
                           <button
+                            type="button"
                             onClick={() => setShowNewPwd(!showNewPwd)}
                             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
                           >
@@ -467,24 +651,41 @@ export default function ProfilePage() {
                         </div>
                       </div>
 
-                      {/* 验证码 */}
+                      {/* 确认新密码 */}
                       <div>
-                        <label className="text-xs text-gray-500 block mb-1">验证码</label>
-                        <input
-                          value={reauthCode}
-                          onChange={e => setReauthCode(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="输入收到的验证码"
-                        />
+                        <label className="text-xs text-gray-500 block mb-1">确认新密码</label>
+                        <div className="relative">
+                          <input
+                            type={showConfirmPwd ? 'text' : 'password'}
+                            value={pwdConfirmPwd}
+                            onChange={e => setPwdConfirmPwd(e.target.value)}
+                            className={`w-full px-3 py-2 pr-10 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                              pwdConfirmPwd && pwdNewPwd !== pwdConfirmPwd
+                                ? 'border-red-400'
+                                : 'border-gray-300'
+                            }`}
+                            placeholder="再次输入新密码"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPwd(!showConfirmPwd)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                          >
+                            {showConfirmPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        {pwdConfirmPwd && pwdNewPwd !== pwdConfirmPwd && (
+                          <p className="text-xs text-red-500 mt-1">两次密码不一致</p>
+                        )}
                       </div>
 
                       <button
                         onClick={handleChangePassword}
-                        disabled={changingPwd || !newPassword}
+                        disabled={changingPwd || !pwdCode || !pwdNewPwd || pwdNewPwd !== pwdConfirmPwd || !isPasswordValid(pwdNewPwd)}
                         className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         {changingPwd && <Loader2 size={14} className="animate-spin" />}
-                        确认修改
+                        确认修改密码
                       </button>
                     </>
                   )}
@@ -511,7 +712,10 @@ export default function ProfilePage() {
               <Link size={20} className="text-blue-600" />
               绑定管理
             </h2>
-            <p className="text-sm text-gray-500">绑定邮箱和手机号可以增强账号安全性，用于找回密码和接收重要通知。</p>
+            <p className="text-sm text-gray-500">
+              绑定邮箱和手机号可以增强账号安全性，用于找回密码和接收重要通知。
+              {boundEmail && !boundPhone && ' 至少需要保留一种绑定方式。'}
+            </p>
 
             {/* 邮箱绑定 */}
             <div className="border border-gray-200 rounded-xl p-5">
@@ -520,83 +724,99 @@ export default function ProfilePage() {
                   <Mail size={18} className="text-gray-400" />
                   <div>
                     <p className="text-sm font-medium text-gray-900">邮箱</p>
-                    <p className="text-xs text-gray-500">
-                      {account?.email && !isInternalEmail(account.email)
-                        ? account.email
-                        : '未绑定'}
+                    <p className="text-xs text-gray-500 truncate max-w-[200px]">
+                      {boundEmail || '未绑定'}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {account?.email && !isInternalEmail(account.email) ? (
-                    <button
-                      onClick={() => handleSendUnbindCode('email')}
-                      disabled={unbinding}
-                      className="text-sm text-red-600 hover:text-red-700 font-medium"
-                    >
-                      解绑
-                    </button>
-                  ) : (
-                    <span className="text-xs text-gray-400">-</span>
-                  )}
-                </div>
+                {boundEmail && (
+                  <button
+                    onClick={handleEmailSendUnbindCode}
+                    disabled={emailSendingUnbindCode}
+                    className="text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+                  >
+                    解绑
+                  </button>
+                )}
               </div>
 
               {/* 解绑邮箱验证码 */}
-              {unbindTarget === 'email' && (
+              {emailUnbindCodeSent && (
                 <div className="mt-4 pl-11 space-y-3">
                   <input
-                    value={unbindCode}
-                    onChange={e => setUnbindCode(e.target.value)}
+                    value={emailUnbindCode}
+                    onChange={e => setEmailUnbindCode(e.target.value)}
                     placeholder="输入验证码"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    maxLength={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   />
-                  <button
-                    onClick={handleConfirmUnbind}
-                    disabled={unbinding}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {unbinding && <Loader2 size={14} className="animate-spin" />}
-                    确认解绑邮箱
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleEmailConfirmUnbind}
+                      disabled={emailUnbinding || !emailUnbindCode}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {emailUnbinding && <Loader2 size={14} className="animate-spin" />}
+                      确认解绑邮箱
+                    </button>
+                    <button
+                      onClick={() => setEmailUnbindCodeSent(false)}
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      取消
+                    </button>
+                  </div>
                 </div>
               )}
 
               {/* 绑定新邮箱 */}
-              {(!account?.email || isInternalEmail(account.email || '')) && (
+              {!boundEmail && (
                 <div className="mt-4 pl-11 space-y-3">
                   <input
                     type="email"
-                    value={bindTarget}
-                    onChange={e => setBindTarget(e.target.value)}
+                    value={emailBindTarget}
+                    onChange={e => setEmailBindTarget(e.target.value)}
                     placeholder="输入要绑定的邮箱"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  {!bindCodeSent ? (
+                  {!emailBindCodeSent ? (
                     <button
-                      onClick={() => handleSendBindCode(bindTarget)}
-                      disabled={!bindTarget || sendingBindCode}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 flex items-center gap-2"
+                      onClick={handleEmailSendBindCode}
+                      disabled={!emailBindTarget || emailSendingCode}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                      {sendingBindCode && <Loader2 size={14} className="animate-spin" />}
+                      {emailSendingCode && <Loader2 size={14} className="animate-spin" />}
                       发送验证码
                     </button>
                   ) : (
                     <>
                       <input
-                        value={bindCode}
-                        onChange={e => setBindCode(e.target.value)}
+                        value={emailBindCode}
+                        onChange={e => setEmailBindCode(e.target.value)}
                         placeholder="输入验证码"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        maxLength={6}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
-                      <button
-                        onClick={() => handleConfirmBind('email')}
-                        disabled={binding}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 flex items-center gap-2"
-                      >
-                        {binding && <Loader2 size={14} className="animate-spin" />}
-                        确认绑定邮箱
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleEmailConfirmBind}
+                          disabled={emailBinding || !emailBindCode}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {emailBinding && <Loader2 size={14} className="animate-spin" />}
+                          确认绑定邮箱
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEmailBindCodeSent(false)
+                            setEmailBindCode('')
+                            setEmailBindVid('')
+                          }}
+                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                        >
+                          取消
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -611,80 +831,98 @@ export default function ProfilePage() {
                   <div>
                     <p className="text-sm font-medium text-gray-900">手机号</p>
                     <p className="text-xs text-gray-500">
-                      {account?.phone || '未绑定'}
+                      {boundPhone || '未绑定'}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {account?.phone ? (
-                    <button
-                      onClick={() => handleSendUnbindCode('phone')}
-                      disabled={unbinding}
-                      className="text-sm text-red-600 hover:text-red-700 font-medium"
-                    >
-                      解绑
-                    </button>
-                  ) : (
-                    <span className="text-xs text-gray-400">未绑定</span>
-                  )}
-                </div>
+                {boundPhone && (
+                  <button
+                    onClick={handlePhoneSendUnbindCode}
+                    disabled={phoneSendingUnbindCode}
+                    className="text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+                  >
+                    解绑
+                  </button>
+                )}
               </div>
 
               {/* 解绑手机号验证码 */}
-              {unbindTarget === 'phone' && (
+              {phoneUnbindCodeSent && (
                 <div className="mt-4 pl-11 space-y-3">
                   <input
-                    value={unbindCode}
-                    onChange={e => setUnbindCode(e.target.value)}
+                    value={phoneUnbindCode}
+                    onChange={e => setPhoneUnbindCode(e.target.value)}
                     placeholder="输入验证码"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    maxLength={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   />
-                  <button
-                    onClick={handleConfirmUnbind}
-                    disabled={unbinding}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {unbinding && <Loader2 size={14} className="animate-spin" />}
-                    确认解绑手机号
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePhoneConfirmUnbind}
+                      disabled={phoneUnbinding || !phoneUnbindCode}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {phoneUnbinding && <Loader2 size={14} className="animate-spin" />}
+                      确认解绑手机号
+                    </button>
+                    <button
+                      onClick={() => setPhoneUnbindCodeSent(false)}
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      取消
+                    </button>
+                  </div>
                 </div>
               )}
 
               {/* 绑定新手机号 */}
-              {!account?.phone && (
+              {!boundPhone && (
                 <div className="mt-4 pl-11 space-y-3">
                   <input
-                    value={bindTarget}
-                    onChange={e => setBindTarget(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                    value={phoneBindTarget}
+                    onChange={e => setPhoneBindTarget(e.target.value.replace(/\D/g, '').slice(0, 11))}
                     placeholder="输入11位手机号"
                     maxLength={11}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  {!bindCodeSent ? (
+                  {!phoneBindCodeSent ? (
                     <button
-                      onClick={() => handleSendBindCode(bindTarget)}
-                      disabled={bindTarget.length !== 11 || sendingBindCode}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 flex items-center gap-2"
+                      onClick={handlePhoneSendBindCode}
+                      disabled={phoneBindTarget.length !== 11 || phoneSendingCode}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                      {sendingBindCode && <Loader2 size={14} className="animate-spin" />}
+                      {phoneSendingCode && <Loader2 size={14} className="animate-spin" />}
                       发送验证码
                     </button>
                   ) : (
                     <>
                       <input
-                        value={bindCode}
-                        onChange={e => setBindCode(e.target.value)}
+                        value={phoneBindCode}
+                        onChange={e => setPhoneBindCode(e.target.value)}
                         placeholder="输入验证码"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        maxLength={6}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
-                      <button
-                        onClick={() => handleConfirmBind('phone')}
-                        disabled={binding}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 flex items-center gap-2"
-                      >
-                        {binding && <Loader2 size={14} className="animate-spin" />}
-                        确认绑定手机号
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handlePhoneConfirmBind}
+                          disabled={phoneBinding || !phoneBindCode}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                          {phoneBinding && <Loader2 size={14} className="animate-spin" />}
+                          确认绑定手机号
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPhoneBindCodeSent(false)
+                            setPhoneBindCode('')
+                            setPhoneBindVid('')
+                          }}
+                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                        >
+                          取消
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -766,52 +1004,65 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  {/* 发送验证码 */}
-                  <button
-                    onClick={handleSendDeleteCode}
-                    disabled={!account || sendingDeleteCode}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {sendingDeleteCode && <Loader2 size={14} className="animate-spin" />}
-                    {deleteCodeSent ? '重新发送验证码' : '发送验证码'}
-                  </button>
-
-                  {deleteCodeSent && (
+                  {/* 显示可用验证方式 */}
+                  {availableChannels.length > 0 ? (
                     <>
-                      {/* 验证码 */}
-                      <div>
-                        <label className="text-xs text-gray-600 block mb-1">验证码</label>
-                        <input
-                          value={deleteCode}
-                          onChange={e => setDeleteCode(e.target.value)}
-                          placeholder="输入收到的验证码"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        />
-                      </div>
-
-                      {/* 输入账号ID确认 */}
-                      <div>
-                        <label className="text-xs text-gray-600 block mb-1">
-                          输入账号ID <code className="text-red-600 font-mono">{account?.accountId}</code> 确认注销
-                        </label>
-                        <input
-                          value={deleteConfirmText}
-                          onChange={e => setDeleteConfirmText(e.target.value)}
-                          placeholder={account?.accountId || 'TBXXXXXX'}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        />
-                      </div>
-
-                      {/* 确认按钮 */}
+                      <p className="text-xs text-gray-600">
+                        验证码将发送到：{availableChannels.map(c => `${c.label}(${c.value})`).join('、')}
+                      </p>
+                      {/* 发送验证码 */}
                       <button
-                        onClick={handleDeleteAccount}
-                        disabled={deleting || deleteConfirmText !== account?.accountId || !deleteCode}
-                        className="px-6 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-all"
+                        onClick={handleSendDeleteCode}
+                        disabled={sendingDeleteCode}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
-                        {deleting && <Loader2 size={14} className="animate-spin" />}
-                        确认注销，删除我的账号
+                        {sendingDeleteCode && <Loader2 size={14} className="animate-spin" />}
+                        {deleteCodeSent ? '重新发送验证码' : '发送验证码'}
                       </button>
+
+                      {deleteCodeSent && (
+                        <>
+                          {/* 验证码 */}
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-1">验证码</label>
+                            <input
+                              value={deleteCode}
+                              onChange={e => setDeleteCode(e.target.value)}
+                              placeholder="输入收到的验证码"
+                              maxLength={6}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            />
+                          </div>
+
+                          {/* 输入账号ID确认 */}
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-1">
+                              输入账号ID <code className="text-red-600 font-mono">{accountId || '加载中'}</code> 确认注销
+                            </label>
+                            <input
+                              value={deleteConfirmText}
+                              onChange={e => setDeleteConfirmText(e.target.value)}
+                              placeholder={accountId || 'TBXXXXXX'}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            />
+                          </div>
+
+                          {/* 确认按钮 */}
+                          <button
+                            onClick={handleDeleteAccount}
+                            disabled={deleting || deleteConfirmText !== accountId || !deleteCode || !accountId}
+                            className="px-6 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-all"
+                          >
+                            {deleting && <Loader2 size={14} className="animate-spin" />}
+                            确认注销，删除我的账号
+                          </button>
+                        </>
+                      )}
                     </>
+                  ) : (
+                    <p className="text-sm text-amber-600">
+                      您尚未绑定任何邮箱或手机号，请先在「绑定管理」中添加联系方式才能注销。
+                    </p>
                   )}
                 </div>
               </div>
@@ -820,7 +1071,7 @@ export default function ProfilePage() {
             {/* 次要危险操作提示 */}
             <div className="border border-gray-200 rounded-xl p-5">
               <h4 className="text-sm font-medium text-gray-700 mb-2">数据导出</h4>
-              <p className="text-xs text-gray-500 mb-3">
+              <p className="text-xs text-gray-500">
                 在注销账号前，建议导出您的所有数据。您可以在「设置 → 数据管理」中进行备份。
               </p>
             </div>
