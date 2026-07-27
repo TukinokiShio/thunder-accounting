@@ -6,10 +6,21 @@ import { escapeCSV, exportCSV, exportAllJSON, importAllJSON } from './export'
 
 let db: SqlJsDatabase
 let dbPath: string
+let currentUserId: string | null = null
 
 /** 供 export 模块获取数据库实例（避免循环依赖直接导入 db 变量） */
 export function getDb(): SqlJsDatabase {
   return db
+}
+
+/** 获取当前登录用户的 ID */
+export function getCurrentUserId(): string | null {
+  return currentUserId
+}
+
+/** 获取当前数据库文件路径 */
+export function getDbPath(): string {
+  return dbPath
 }
 
 // ─── Helpers ───────────────────────────────────────
@@ -125,6 +136,130 @@ export async function initDatabase(): Promise<void> {
   initPresetCategories()
 
   saveDb()
+}
+
+/**
+ * 切换到用户专有数据库。
+ * 首次启动时调用 initDatabase() 加载共享数据库（兼容旧版），
+ * 用户登录后调用此函数切换到其专有数据库文件。
+ *
+ * @param userId - CloudBase 用户 UID
+ * @param migrateSharedData - 是否将旧共享 DB 的数据迁移到当前用户（仅首次）
+ */
+export async function switchToUserDatabase(userId: string, migrateSharedData = false): Promise<void> {
+  // 1. 保存当前数据库
+  if (db) {
+    try {
+      saveDb()
+    } catch (e) {
+      console.error('切换用户数据库前保存失败:', e)
+    }
+  }
+
+  // 0. 校验 userId 格式（防止路径遍历）
+  if (!/^[a-zA-Z0-9_-]+$/.test(userId)) {
+    throw new Error(`Invalid userId format: ${userId}`)
+  }
+
+  const SQL = await initSqlJs()
+  const userDbPath = path.join(app.getPath('userData'), `thunder-accounting-${userId}.db`)
+  const sharedDbPath = path.join(app.getPath('userData'), 'thunder-accounting.db')
+
+  // 2. 尝试加载用户专有数据库
+  if (fs.existsSync(userDbPath)) {
+    const buffer = fs.readFileSync(userDbPath)
+    db = new SQL.Database(buffer)
+  } else {
+    // 首次登录：创建新数据库
+    db = new SQL.Database()
+
+    // 如果需要迁移旧共享数据（仅 163 用户首次登录）
+    if (migrateSharedData && fs.existsSync(sharedDbPath)) {
+      try {
+        const sharedBuffer = fs.readFileSync(sharedDbPath)
+        db = new SQL.Database(sharedBuffer)
+        console.log(`[DB] 已从共享数据库迁移数据到用户 ${userId}`)
+
+        // 备份旧共享数据库，防止重复迁移
+        const backupPath = path.join(app.getPath('userData'), 'thunder-accounting.db.migrated')
+        fs.copyFileSync(sharedDbPath, backupPath)
+        // 清空共享 DB 内容（保留文件以兼容旧版本检测）
+        fs.writeFileSync(sharedDbPath, Buffer.from(new SQL.Database().export()))
+      } catch (e) {
+        console.error('[DB] 共享数据迁移失败，使用空数据库:', e)
+        db = new SQL.Database()
+      }
+    }
+  }
+
+  // 3. 更新状态
+  dbPath = userDbPath
+  currentUserId = userId
+
+  // 4. 确保表结构完整
+  db.run('PRAGMA journal_mode = WAL')
+  db.run('PRAGMA foreign_keys = ON')
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS bills (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      amount REAL NOT NULL,
+      category1 TEXT NOT NULL,
+      category2 TEXT NOT NULL,
+      date TEXT NOT NULL,
+      note TEXT DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'expense',
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+  db.run('CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_bills_category1 ON bills(category1)')
+
+  // 兼容性迁移
+  try {
+    db.run("ALTER TABLE bills ADD COLUMN type TEXT NOT NULL DEFAULT 'expense'")
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 type 列）：', e)
+    }
+  }
+  try {
+    db.run("ALTER TABLE bills ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))")
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 bills.updated_at 列）：', e)
+    }
+  }
+  try {
+    db.run("ALTER TABLE categories ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))")
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 categories.updated_at 列）：', e)
+    }
+  }
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT '📦',
+      children TEXT NOT NULL DEFAULT '[]',
+      type TEXT NOT NULL DEFAULT 'expense',
+      is_preset INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+
+  // 5. 初始化预设分类
+  initPresetCategories()
+
+  // 6. 持久化
+  saveDb()
+
+  console.log(`[DB] 已切换到用户数据库: ${userDbPath}`)
 }
 
 /** 将内存数据库完整序列化并写入磁盘文件，确保数据持久化 */
@@ -503,6 +638,63 @@ export function getStats(startDate: string, endDate: string, type?: 'expense' | 
 export function clearAllData(): void {
   db.run('DELETE FROM bills')
   db.run('DELETE FROM categories WHERE is_preset = 0')
+  saveDb()
+}
+
+// ─── Cloud Sync Helpers ─────────────────────────
+
+export interface CloudBillRow {
+  amount: number
+  category1: string
+  category2: string
+  date: string
+  note: string
+  type: string
+  created_at: string
+  updated_at: string
+  localId: number
+}
+
+export interface CloudCategoryRow {
+  name: string
+  icon: string
+  children: string
+  type: string
+  is_preset: number
+  sort_order: number
+  created_at: string
+  updated_at: string
+  localId: number
+}
+
+/**
+ * 将云端拉取的账单批量写入本地数据库。
+ * 只在本地数据库为空时调用（登录后首次同步）。
+ */
+export function insertCloudBills(bills: CloudBillRow[]): void {
+  const stmt = db.prepare(
+    'INSERT INTO bills (amount, category1, category2, date, note, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  )
+  for (const b of bills) {
+    stmt.run([b.amount, b.category1, b.category2, b.date, b.note || '', b.type || 'expense', b.created_at || '', b.updated_at || ''])
+  }
+  stmt.free()
+  saveDb()
+}
+
+/**
+ * 将云端拉取的分类批量写入本地数据库（仅限非预设分类，预设分类由本地初始化）。
+ */
+export function insertCloudCategories(cats: CloudCategoryRow[]): void {
+  const stmt = db.prepare(
+    'INSERT OR IGNORE INTO categories (name, icon, children, type, is_preset, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  )
+  for (const c of cats) {
+    // 跳过预设分类（本地 initPresetCategories 已创建）
+    if (c.is_preset === 1) continue
+    stmt.run([c.name, c.icon || '📦', c.children || '[]', c.type || 'expense', c.is_preset || 0, c.sort_order || 0, c.created_at || '', c.updated_at || ''])
+  }
+  stmt.free()
   saveDb()
 }
 

@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import type { BillRow, CategoryRow } from './database'
+import { clearAllData, getDbPath, getBills, getCategories } from './database'
 import { saveCredentials as safeSave, loadCredentials as safeLoad, clearCredentials } from './credential-store'
 
 // ─── Load .env file (manual, no dependency) ─────
@@ -796,7 +797,7 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
   try {
     const result = await db.collection('accounts').where({ uid: userId }).limit(1).get()
     if (result.data?.length) {
-      const a = result.data[0] as AccountInfo & { uid: string }
+      const a = result.data[0] as AccountInfo & { uid: string; createdAt?: string }
       return { accountId: a.accountId, email: a.email, phone: a.phone }
     }
     return null
@@ -806,17 +807,103 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
   }
 }
 
+// ─── Binding with Verification ─────────────────────
+
 /**
- * 绑定手机号到当前用户账号。
+ * 发送绑定用验证码。对指定邮箱/手机号发送验证码，返回 verificationId。
+ * 与 sendVerificationCode 的区别：此函数不检查 isUser 状态，始终发送。
  */
-export async function bindPhone(phone: string): Promise<void> {
+export async function sendBindVerificationCode(target: string): Promise<{ verificationId: string; type: 'email' | 'phone' }> {
+  const isPhone = /^\d{11}$/.test(target)
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)
+  if (!isPhone && !isEmail) throw new Error('invalid_target')
+
+  const body: Record<string, string> = { target: 'ANY' }
+  if (isPhone) {
+    body.phone_number = '+86 ' + target
+  } else {
+    body.email = target
+  }
+  body.target = 'ANY'
+
+  const { ok, data } = await authFetch('/auth/v1/verification', body)
+  if (!ok) {
+    const e = data as { error_description?: string; error?: string }
+    throw new Error(e.error_description || e.error || 'verification_code_send_failed')
+  }
+
+  const d = data as { verification_id?: string }
+  return { verificationId: d.verification_id || '', type: isPhone ? 'phone' : 'email' }
+}
+
+/**
+ * 绑定邮箱（验证码确认）。
+ * 发送验证码到新邮箱 → 用户输入验证码 → 调用此函数验证并绑定。
+ */
+export async function bindEmail(newEmail: string, code: string, verificationId: string): Promise<void> {
   if (!db) throw new Error('未连接数据库')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
+  // 验证验证码
+  await verifyCode(verificationId, code)
+
+  // 检查邮箱是否已被其他账号绑定
+  const existing = await db.collection('accounts').where({ email: newEmail }).get()
+  if (existing.data?.length) {
+    const acc = existing.data[0] as { uid: string }
+    if (acc.uid !== userId) throw new Error('email_already_bound')
+  }
+
+  // 更新当前用户的邮箱
+  const result = await db.collection('accounts').where({ uid: userId }).get()
+  if (!result.data?.length) throw new Error('account_not_found')
+
+  await db.collection('accounts').doc(result.data[0]._id).update({ email: newEmail })
+}
+
+/**
+ * 解绑邮箱（验证码确认）。
+ * 发送验证码到当前邮箱 → 用户输入验证码 → 调用此函数验证并解绑。
+ * 至少保留手机号绑定，否则拒绝解绑。
+ */
+export async function unbindEmail(code: string, verificationId: string): Promise<void> {
+  if (!db) throw new Error('未连接数据库')
+  const userId = getUserId()
+  if (!userId) throw new Error('未登录')
+
+  // 获取当前账号信息
+  const result = await db.collection('accounts').where({ uid: userId }).get()
+  if (!result.data?.length) throw new Error('account_not_found')
+
+  const account = result.data[0] as AccountInfo
+
+  // 验证验证码（发送到当前邮箱）
+  await verifyCode(verificationId, code)
+
+  // 至少保留手机号绑定
+  if (!account.phone) throw new Error('cannot_remove_last_binding')
+
+  await db.collection('accounts').doc(result.data[0]._id).update({ email: '' })
+}
+
+/**
+ * 绑定手机号到当前用户账号（验证码确认）。
+ */
+export async function bindPhone(phone: string, code: string, verificationId: string): Promise<void> {
+  if (!db) throw new Error('未连接数据库')
+  const userId = getUserId()
+  if (!userId) throw new Error('未登录')
+
+  // 验证验证码
+  await verifyCode(verificationId, code)
+
   // 检查手机号是否已被其他账号绑定
   const existing = await db.collection('accounts').where({ phone }).get()
-  if (existing.data?.length) throw new Error('phone_already_bound')
+  if (existing.data?.length) {
+    const acc = existing.data[0] as { uid: string }
+    if (acc.uid !== userId) throw new Error('phone_already_bound')
+  }
 
   // 更新当前用户的手机号
   const result = await db.collection('accounts').where({ uid: userId }).get()
@@ -826,9 +913,10 @@ export async function bindPhone(phone: string): Promise<void> {
 }
 
 /**
- * 解绑当前用户的手机号。
+ * 解绑当前用户的手机号（验证码确认）。
+ * 至少保留邮箱绑定，否则拒绝解绑。
  */
-export async function unbindPhone(): Promise<void> {
+export async function unbindPhone(code: string, verificationId: string): Promise<void> {
   if (!db) throw new Error('未连接数据库')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
@@ -836,9 +924,128 @@ export async function unbindPhone(): Promise<void> {
   const result = await db.collection('accounts').where({ uid: userId }).get()
   if (!result.data?.length) throw new Error('account_not_found')
 
-  // 至少保留邮箱绑定
   const account = result.data[0] as AccountInfo
+
+  // 验证验证码（发送到当前手机号）
+  await verifyCode(verificationId, code)
+
+  // 至少保留邮箱绑定
   if (!account.email) throw new Error('cannot_remove_last_binding')
 
   await db.collection('accounts').doc(result.data[0]._id).update({ phone: '' })
+}
+
+// ─── Account Deletion ──────────────────────────────
+
+/**
+ * 注销账号（验证码确认后删除所有数据）。
+ * 流程：
+ * 1. 验证验证码
+ * 2. 删除 CloudBase 集合中的用户数据（accounts, bills, categories）
+ * 3. 清理本地数据库文件
+ * 4. 尝试删除 CloudBase Auth 用户（通过云函数或直接 API）
+ */
+export async function deleteAccount(code: string, verificationId: string): Promise<void> {
+  if (!db) throw new Error('未连接数据库')
+  const userId = getUserId()
+  if (!userId) throw new Error('未登录')
+
+  // Step 1: 验证验证码
+  await verifyCode(verificationId, code)
+
+  // Step 2: 删除云端数据
+  const collections = ['bills', 'categories', 'accounts']
+  const errors: string[] = []
+  for (const col of collections) {
+    try {
+      const { data: items } = await db!.collection(col).where({ userId }).get()
+      if (items?.length) {
+        for (const item of items as Array<{ _id: string }>) {
+          await db!.collection(col).doc(item._id).remove()
+        }
+      }
+      // accounts 集合用 uid 查询
+      if (col === 'accounts') {
+        const { data: accItems } = await db!.collection(col).where({ uid: userId }).get()
+        if (accItems?.length) {
+          for (const item of accItems as Array<{ _id: string }>) {
+            await db!.collection(col).doc(item._id).remove()
+          }
+        }
+      }
+    } catch (e) {
+      errors.push(`${col}: ${(e as Error).message}`)
+    }
+  }
+
+  // Step 3: 清理本地数据库
+  try {
+    clearAllData()
+    const dbPath = getDbPath()
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath)
+    }
+  } catch (e) {
+    errors.push(`local_db: ${(e as Error).message}`)
+  }
+
+  // Step 4: 尝试删除 CloudBase Auth 用户（best-effort）
+  try {
+    // 通过云函数删除用户（需要部署 delUser 云函数）
+    const cfUrl = `https://${ENV_ID}.service.tcloudbase.com/delUser`
+    const res = await fetch(cfUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: userId })
+    })
+    const resData = await res.json() as { code?: number }
+    if (resData.code !== 0) {
+      console.warn('云函数删除用户返回非零码:', resData)
+    }
+  } catch (e) {
+    // 云函数可能不存在，静默处理
+    console.warn('删除 Auth 用户失败（云函数可能未部署）:', (e as Error).message)
+  }
+
+  // 清除 session
+  currentSession = null
+  clearSession()
+
+  if (errors.length > 0) {
+    throw new Error(`部分数据清理失败: ${errors.join('; ')}`)
+  }
+}
+
+// ─── User Stats ────────────────────────────────────
+
+export interface UserStats {
+  billCount: number
+  categoryCount: number
+  totalExpense: number
+  totalIncome: number
+}
+
+/**
+ * 获取当前用户的统计数据（从本地数据库）。
+ */
+export async function getUserStats(): Promise<UserStats> {
+  try {
+    const bills = getBills()
+    const cats = getCategories()
+    const totalExpense = bills
+      .filter(b => b.type === 'expense')
+      .reduce((sum, b) => sum + b.amount, 0)
+    const totalIncome = bills
+      .filter(b => b.type === 'income')
+      .reduce((sum, b) => sum + b.amount, 0)
+    return {
+      billCount: bills.length,
+      categoryCount: cats.length,
+      totalExpense: Math.round(totalExpense * 100) / 100,
+      totalIncome: Math.round(totalIncome * 100) / 100
+    }
+  } catch (e) {
+    console.error('获取用户统计失败:', e)
+    return { billCount: 0, categoryCount: 0, totalExpense: 0, totalIncome: 0 }
+  }
 }
