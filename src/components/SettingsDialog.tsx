@@ -1,6 +1,6 @@
 /**
  * 设置弹窗组件。
- * 包含：偏好设置（语言、时区）、数据管理（导出/导入备份、清除数据）、账户管理、关于信息。
+ * 包含：偏好设置（语言、时区）、数据管理（导出/导入备份、清除数据）、关于信息。
  */
 import { useState } from 'react'
 import { X, Globe, Clock } from 'lucide-react'
