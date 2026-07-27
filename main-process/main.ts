@@ -1,9 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage, shell } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData } from './database'
-import { initCloudBase, registerWithEmail, loginWithEmail, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode } from './cloudbase'
+import { initCloudBase, registerWithEmail, loginWithEmail, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword } from './cloudbase'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -296,11 +296,38 @@ function registerIpcHandlers(): void {
 
   // ─── Change Password ───────────────────────────
 
-  ipcMain.handle('auth:sendReauthCode', async () => {
-    return sendReauthCode()
+  ipcMain.handle('auth:sendReauthCode', async (_event, currentPassword: string) => {
+    return sendReauthCode(currentPassword)
   })
 
-  ipcMain.handle('auth:changePassword', async (_event, oldPassword: string, newPassword: string, verifyCode: string) => {
-    return changePassword(oldPassword, newPassword, verifyCode)
+  ipcMain.handle('auth:changePassword', async (_event, newPassword: string) => {
+    return changePassword(newPassword)
+  })
+
+  ipcMain.handle('auth:resetPassword', async (_event, email: string, newPassword: string) => {
+    return resetPassword(email, newPassword)
+  })
+
+  // ─── Desktop Shortcut ──────────────────────────
+
+  ipcMain.handle('app:createShortcut', () => {
+    const desktopPath = path.join(app.getPath('home'), 'Desktop', '雷霆记账.lnk')
+    const exePath = path.join(__dirname, '..', '..', 'release', 'win-unpacked', '雷霆记账.exe')
+    // For dev mode, use the actual project path
+    const fallbackExe = path.join(app.getAppPath(), '..', 'release', 'win-unpacked', '雷霆记账.exe')
+
+    const target = existsSync(exePath) ? exePath : fallbackExe
+    if (!existsSync(target)) {
+      return { success: false, message: `EXE not found at ${target}` }
+    }
+
+    const result = shell.writeShortcutLink(desktopPath, {
+      target: target,
+      description: '雷霆记账 - 个人记账工具',
+      icon: target,
+      iconIndex: 0,
+      workingDirectory: path.dirname(target)
+    })
+    return { success: result, message: result ? 'Created' : 'Failed to create shortcut' }
   })
 }

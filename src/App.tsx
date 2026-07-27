@@ -20,14 +20,11 @@ export default function App() {
   const openAddDialog = useStore((s) => s.openAddDialog)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // 启动时检查登录状态
+  // 每次启动都强制要求登录（清除之前 session 残留）
   useEffect(() => {
     const store = useStore.getState()
-    store.setCheckingSession(true)
-    window.electronAPI.checkSession()
-      .then(result => store.setUser(result?.user || null))
-      .catch(e => console.error('检查登录状态失败:', e))
-      .finally(() => store.setCheckingSession(false))
+    store.setUser(null)
+    store.setCheckingSession(false)
   }, [])
 
   // 首次加载时刷新数据（登录后）

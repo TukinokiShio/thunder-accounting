@@ -9,21 +9,21 @@ if (!rootEl) throw new Error('No #root element')
 
 // 全局错误捕获
 window.addEventListener('error', (e) => {
+  document.body.classList.add('ready')
   rootEl.innerHTML = `<div style="padding:20px;color:red;font-family:monospace;font-size:14px"><b>JS Error:</b><br>${e.message}<br>at ${e.filename}:${e.lineno}</div>`
 })
 window.addEventListener('unhandledrejection', (e) => {
+  document.body.classList.add('ready')
   rootEl.innerHTML = `<div style="padding:20px;color:red;font-family:monospace;font-size:14px"><b>Promise Rejection:</b><br>${String(e.reason)}</div>`
 })
 
-// 在 React 渲染前打标记
-rootEl.innerHTML = '<div style="padding:20px;font-family:monospace;font-size:14px">Loading React...</div>'
+// 渲染 React
+const r = ReactDOM.createRoot(rootEl)
+r.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)
 
-// 延迟一帧确保标记可见
-setTimeout(() => {
-  const r = ReactDOM.createRoot(rootEl)
-  r.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  )
-}, 100)
+// React 挂载完成后，标记 body 为 ready，CSS 会隐藏 splash 并显示 #root
+document.body.classList.add('ready')

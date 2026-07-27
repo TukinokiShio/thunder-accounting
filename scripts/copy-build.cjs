@@ -1,53 +1,23 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs')
+const path = require('path')
+const ROOT = 'E:/Code/BlackHorse/VibeCoding/记账app'
+const RELEASE = path.join(ROOT, 'release', 'win-unpacked')
+const OUT = 'E:/Code/BlackHorse/VibeCoding/记账app/雷霆记账app_exe'
+const DEST = path.join(OUT, 'win-unpacked')
 
-const SRC = 'E:/Code/BlackHorse/VibeCoding/记账app/release/win-unpacked';
-const DEST = 'E:/Code/BlackHorse/VibeCoding/记账app/雷霆记账app_exe/win-unpacked';
-
-// Remove old dest
+console.log('📋 复制到输出目录...')
 if (fs.existsSync(DEST)) {
-  fs.rmSync(DEST, { recursive: true, force: true });
+  fs.rmSync(DEST, { recursive: true, force: true })
 }
+fs.mkdirSync(DEST, { recursive: true })
 
-// Copy recursively
-function copyDir(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
+function cpR(s, d) {
+  for (const e of fs.readdirSync(s, { withFileTypes: true })) {
+    const sp = path.join(s, e.name)
+    const dp = path.join(d, e.name)
+    if (e.isDirectory()) cpR(sp, dp)
+    else fs.copyFileSync(sp, dp)
   }
 }
-
-copyDir(SRC, DEST);
-console.log('Copied to output directory');
-
-// Create desktop shortcut
-const os = require('os');
-const { execSync } = require('child_process');
-const exePath = path.join(DEST, '雷霆记账.exe');
-const desktopDir = path.join(os.homedir(), 'Desktop');
-const shortcutPath = path.join(desktopDir, '雷霆记账.lnk');
-
-// Delete old shortcuts
-try { fs.unlinkSync(shortcutPath); } catch (e) {}
-try { fs.unlinkSync(path.join(desktopDir, 'Thunder Accounting.lnk')); } catch (e) {}
-
-const psScript = `
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut('${shortcutPath.replace(/'/g, "''")}')
-$Shortcut.TargetPath = '${exePath.replace(/'/g, "''")}'
-$Shortcut.WorkingDirectory = '${DEST.replace(/'/g, "''")}'
-$Shortcut.IconLocation = '${exePath.replace(/'/g, "''")},0'
-$Shortcut.Save()
-Write-Host 'OK'
-`;
-
-const tmpFile = path.join(os.tmpdir(), 'thunder-desk-shortcut.ps1');
-fs.writeFileSync(tmpFile, '﻿' + psScript, 'utf-8');
-execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpFile}"`, { stdio: 'inherit' });
-console.log('Desktop shortcut created: ' + shortcutPath);
+cpR(RELEASE, DEST)
+console.log('✅ 复制完成')

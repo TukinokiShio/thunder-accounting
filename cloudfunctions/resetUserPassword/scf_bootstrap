@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+exec /var/lang/node18/bin/node -e "
+const http = require('http');
+const main = require('./index.js').main;
+const server = http.createServer(async (req, res) => {
+  const buf = [];
+  req.on('data', c => buf.push(c));
+  req.on('end', async () => {
+    try {
+      const body = buf.join('');
+      const event = body ? JSON.parse(body) : {};
+      const result = await main(event);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify(result));
+    } catch(e) {
+      res.writeHead(500);
+      res.end(JSON.stringify({code:500,message:e.message}));
+    }
+  });
+});
+server.listen(9000, () => console.log('Listening on 9000'));
+"

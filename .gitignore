@@ -6,6 +6,11 @@ dist/
 app-out/
 release/
 雷霆记账app_exe/
+雷霆记账/
+
+# Backup config files
+electron.vite.config.*.mjs
+!electron.vite.config.mjs
 
 # User-specific
 *.suo

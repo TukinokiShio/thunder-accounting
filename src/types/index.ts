@@ -79,8 +79,10 @@ export interface ElectronAPI {
   getSyncStatus: () => Promise<{ isLoggedIn: boolean }>
   saveCredentials: (email: string, password: string) => Promise<void>
   loadCredentials: () => Promise<{ email: string; password: string }>
-  changePassword: (oldPassword: string, newPassword: string, verifyCode: string) => Promise<void>
-  sendReauthCode: () => Promise<void>
+  sendReauthCode: (currentPassword: string) => Promise<void>
+  changePassword: (newPassword: string) => Promise<void>
+  resetPassword: (email: string, newPassword: string) => Promise<void>
+  createShortcut: () => Promise<{ success: boolean; message: string }>
 }
 
 /** 数据库分类行（children 为 JSON 字符串，需调用处手动解析） */

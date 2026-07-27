@@ -3,7 +3,7 @@
 > 轻量级个人日常记账工具 — 3 秒完成一笔记账，分类清晰，统计直观
 
 [![License](https://img.shields.io/github/license/TukinokiShio/thunder-accounting)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-1.7.1-blue)](./package.json)
+[![Version](https://img.shields.io/badge/version-1.7.11-blue)](./package.json)
 
 ---
 

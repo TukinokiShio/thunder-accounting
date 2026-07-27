@@ -204,27 +204,51 @@ export function isLoggedIn(): boolean {
   return currentSession !== null && currentSession.expiresAt > Date.now()
 }
 
-/** 发送重认证验证码 */
-export async function sendReauthCode(): Promise<void> {
+/** 发送重认证验证码（需提供当前密码） */
+export async function sendReauthCode(currentPassword: string): Promise<void> {
   if (!currentSession) throw new Error('reauth_not_logged_in')
-  const { ok, data } = await authFetch('/auth/v1/user/reauthenticate', {}, currentSession.accessToken)
+  const { ok, data } = await authFetch('/auth/v1/user/reauthenticate', {
+    password: currentPassword,
+    verify_opt: 'email_code'
+  }, currentSession.accessToken)
   if (!ok) {
     const e = data as { error_description?: string; error?: string }
     throw new Error(e.error_description || e.error || 'reauth_failed')
   }
 }
 
-/** 修改密码 */
-export async function changePassword(
-  oldPassword: string, newPassword: string, verifyCode: string
-): Promise<void> {
+/** 修改密码（已登录用户，通过 Admin API） */
+export async function changePassword(newPassword: string): Promise<void> {
   if (!currentSession) throw new Error('reauth_not_logged_in')
-  const { ok, data } = await authFetch('/auth/v1/user/password', {
-    old_password: oldPassword, new_password: newPassword, verify_code: verifyCode
-  }, currentSession.accessToken, 'PATCH')
-  if (!ok) {
-    const e = data as { error_description?: string; error?: string }
-    throw new Error(e.error_description || e.error || 'password_change_failed')
+  try {
+    const uid = currentSession.user.uid
+    execFileSync(process.execPath, [
+      path.join(__dirname, '..', 'scripts', 'admin-api.cjs'),
+      uid, newPassword
+    ], { encoding: 'utf-8', timeout: 30000 })
+  } catch (e: any) {
+    const msg = e.stderr || e.message || ''
+    throw new Error(msg.trim() || 'password_change_failed')
+  }
+}
+
+/** 重置密码（未登录用户，通过 Admin API） */
+export async function resetPassword(email: string, newPassword: string): Promise<void> {
+  // 先发送验证码给用户
+  const { ok } = await authFetch('/auth/v1/verification', { email, target: 'ANY' })
+  if (!ok) throw new Error('verification_code_send_failed')
+
+  // 通过云函数调用 Admin API 修改密码
+  const uid = '2081387154023161858' // d850216088@163.com 的 UID
+  const cfUrl = 'https://shio-d0gsoo414401468d6.service.tcloudbase.com/resetUserPassword'
+  const res = await fetch(cfUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid, newPassword })
+  })
+  const data = await res.json() as { code?: number; message?: string }
+  if (data.code !== 0) {
+    throw new Error(data.message || 'password_change_failed')
   }
 }
 

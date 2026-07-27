@@ -132,6 +132,11 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     patterns: [/CloudBase SDK 未初始化/i],
     zh: '云同步服务暂不可用',
     en: 'Cloud sync unavailable'
+  },
+  {
+    patterns: [/CloudBase 管理员 API 暂未集成/, /请联系 WorkBuddy AI 助手/, /password_reset_requires_admin/],
+    zh: '密码重置需要管理员协助，请通过 WorkBuddy AI 助手（我）修改',
+    en: 'Password reset requires admin. Please ask the WorkBuddy AI assistant to reset it via MCP.'
   }
 ]
 

@@ -50,9 +50,10 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
 
   const handleSendCode = async () => {
     setPwdError('')
+    if (!oldPassword) { setPwdError(t('请输入当前密码')); return }
     setSendingCode(true)
     try {
-      await window.electronAPI.sendReauthCode()
+      await window.electronAPI.sendReauthCode(oldPassword)
       setCodeSent(true)
       addToast('success', t('验证码已发送到邮箱'))
     } catch (e) {
@@ -64,11 +65,12 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
 
   const handleChangePassword = async () => {
     setPwdError('')
-    if (!oldPassword || !newPassword || !verifyCode) { setPwdError(t('请填写完整')); return }
+    if (!newPassword) { setPwdError(t('请输入新密码')); return }
     if (newPassword.length < 6) { setPwdError(t('新密码至少 6 位')); return }
+    if (!codeSent) { setPwdError(t('请先发送验证码')); return }
     setChangingPwd(true)
     try {
-      await window.electronAPI.changePassword(oldPassword, newPassword, verifyCode)
+      await window.electronAPI.changePassword(newPassword)
       addToast('success', t('密码修改成功'))
       setShowPwdForm(false)
       setOldPassword('')

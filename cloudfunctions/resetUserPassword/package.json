@@ -1,0 +1,7 @@
+{
+  "name": "resetUserPassword",
+  "version": "1.0.0",
+  "description": "云函数 — 管理员重置用户密码。由 雷霆记账 APP 调用。",
+  "main": "index.js",
+  "license": "ISC"
+}

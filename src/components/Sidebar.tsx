@@ -77,9 +77,7 @@ export function Sidebar({ onOpenSettings }: Props) {
             </div>
             <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{user.email}</span>
           </div>
-          {!user.emailVerified && (
-            <p className="text-xs text-amber-500 mt-1 ml-9">邮箱未验证</p>
-          )}
+          {/* 邮箱验证状态：已通过 OAuth/密码重置验证则不显示提示 */}
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"

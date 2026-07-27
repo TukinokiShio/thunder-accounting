@@ -1,6 +1,6 @@
 {
   "name": "thunder-accounting",
-  "version": "1.7.3",
+  "version": "1.7.12",
   "description": "雷霆记账 - 轻量级个人日常记账工具",
   "main": "./app-out/main/main.js",
   "author": "TukinokiShio",
@@ -18,6 +18,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@cloudbase/cloudbase-mcp": "^2.24.1",
+    "@cloudbase/manager-node": "^5.6.4",
     "@cloudbase/node-sdk": "^3.18.3",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.468.0",
@@ -77,7 +79,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "unicode": true
+      "unicode": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

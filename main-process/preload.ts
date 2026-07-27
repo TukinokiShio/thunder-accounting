@@ -110,15 +110,22 @@ const electronAPI = {
   loadCredentials: () =>
     ipcRenderer.invoke('auth:loadCredentials'),
 
-  changePassword: (oldPassword: string, newPassword: string, verifyCode: string) =>
-    ipcRenderer.invoke('auth:changePassword', oldPassword, newPassword, verifyCode),
+  sendReauthCode: (currentPassword: string) =>
+    ipcRenderer.invoke('auth:sendReauthCode', currentPassword),
 
-  sendReauthCode: () =>
-    ipcRenderer.invoke('auth:sendReauthCode'),
+  changePassword: (newPassword: string) =>
+    ipcRenderer.invoke('auth:changePassword', newPassword),
+
+  resetPassword: (email: string, newPassword: string) =>
+    ipcRenderer.invoke('auth:resetPassword', email, newPassword),
 
   // Sync
   getSyncStatus: () =>
-    ipcRenderer.invoke('sync:getStatus')
+    ipcRenderer.invoke('sync:getStatus'),
+
+  // Shortcut
+  createShortcut: () =>
+    ipcRenderer.invoke('app:createShortcut')
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

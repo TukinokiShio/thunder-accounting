@@ -126,7 +126,7 @@ export function Home() {
   const topCategories = stats?.byCategory2.slice(0, 5) ?? []
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((card) => {
