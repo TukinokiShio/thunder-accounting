@@ -2,8 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage,
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData } from './database/index'
-import { initCloudBase, registerWithEmail, loginWithEmail, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword } from './cloudbase'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories } from './database/index'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, deleteAccount, getUserStats } from './cloudbase'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -162,6 +162,28 @@ function trySync(fn: () => Promise<void>): void {
   fn().catch(e => console.error('后台同步失败:', e))
 }
 
+/** 登录后同步云端数据到本地（本地为空时） */
+async function syncCloudData(uid: string): Promise<void> {
+  try {
+    const localBills = getBills()
+    if (localBills.length === 0 && isLoggedIn()) {
+      console.log(`[Sync] 本地无数据，从云端拉取 ${uid} 的数据...`)
+      const cloudBills = await pullBillsFromCloud()
+      if (cloudBills.length > 0) {
+        insertCloudBills(cloudBills)
+        console.log(`[Sync] 已写入 ${cloudBills.length} 条云端账单到本地`)
+      }
+      const cloudCategories = await pullCategoriesFromCloud()
+      if (cloudCategories.length > 0) {
+        insertCloudCategories(cloudCategories)
+        console.log(`[Sync] 已写入 ${cloudCategories.length} 条云端分类到本地`)
+      }
+    }
+  } catch (e) {
+    console.error('[Sync] 云端数据拉取失败:', e)
+  }
+}
+
 function registerIpcHandlers(): void {
   // Bill CRUD
   ipcMain.handle('bill:add', (_event, params) => {
@@ -258,16 +280,42 @@ function registerIpcHandlers(): void {
 
   // ─── Auth IPC Handlers ──────────────────────────
 
-  ipcMain.handle('auth:sendCode', async (_event, email: string) => {
-    return sendVerificationCode(email)
+  ipcMain.handle('auth:sendCode', async (_event, target: string) => {
+    return sendVerificationCode(target)
   })
 
-  ipcMain.handle('auth:register', async (_event, email: string, password: string, verifyCode: string) => {
-    return registerWithEmail(email, password, verifyCode)
+  ipcMain.handle('auth:register', async (_event, identifier: string, password: string, verifyCode: string, verificationId: string) => {
+    const isPhone = /^\d{11}$/.test(identifier)
+    const result = isPhone
+      ? await registerWithPhone(identifier, password, verifyCode, verificationId)
+      : await registerWithEmail(identifier, password, verifyCode, verificationId)
+    const uid = result.user.uid
+    await switchToUserDatabase(uid, false)
+    return result
   })
 
-  ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
-    return loginWithEmail(email, password)
+  ipcMain.handle('auth:login', async (_event, identifier: string, password: string) => {
+    // 解析标识符（账号 ID / 邮箱 / 手机号 → 邮箱）
+    const email = await resolveLoginIdentifier(identifier)
+    const result = await loginWithEmail(email, password)
+    const uid = result.user.uid
+    const shouldMigrate = email === 'd850216088@163.com'
+    await switchToUserDatabase(uid, shouldMigrate)
+    await syncCloudData(uid)
+    return result
+  })
+
+  ipcMain.handle('auth:loginWithCode', async (_event, identifier: string, code: string, verificationId: string) => {
+    // 验证码登录走 identifier → resolveVerificationTarget（手机号优先）
+    const result = await loginWithVerificationCode(identifier, code, verificationId)
+    const uid = result.user.uid
+    let dbEmail: string | undefined
+    if (identifier === 'admin') dbEmail = '15211073887@163.com'
+    else if (identifier.includes('@')) dbEmail = identifier
+    const shouldMigrate = dbEmail === 'd850216088@163.com'
+    await switchToUserDatabase(uid, shouldMigrate)
+    await syncCloudData(uid)
+    return result
   })
 
   ipcMain.handle('auth:logout', async () => {
@@ -304,8 +352,42 @@ function registerIpcHandlers(): void {
     return changePassword(newPassword)
   })
 
-  ipcMain.handle('auth:resetPassword', async (_event, email: string, newPassword: string, verificationCode: string) => {
-    return resetPassword(email, newPassword, verificationCode)
+  ipcMain.handle('auth:resetPassword', async (_event, identifier: string, newPassword: string, verificationCode: string, verificationId: string) => {
+    return resetPassword(identifier, newPassword, verificationCode, verificationId)
+  })
+
+  // ─── Account Binding ───────────────────────────
+
+  ipcMain.handle('account:getBindings', async () => {
+    return getAccountBindings()
+  })
+
+  ipcMain.handle('account:sendBindCode', async (_event, target: string) => {
+    return sendBindVerificationCode(target)
+  })
+
+  ipcMain.handle('account:bindPhone', async (_event, phone: string, code: string, verificationId: string) => {
+    return bindPhone(phone, code, verificationId)
+  })
+
+  ipcMain.handle('account:unbindPhone', async (_event, code: string, verificationId: string) => {
+    return unbindPhone(code, verificationId)
+  })
+
+  ipcMain.handle('account:bindEmail', async (_event, email: string, code: string, verificationId: string) => {
+    return bindEmail(email, code, verificationId)
+  })
+
+  ipcMain.handle('account:unbindEmail', async (_event, code: string, verificationId: string) => {
+    return unbindEmail(code, verificationId)
+  })
+
+  ipcMain.handle('account:deleteAccount', async (_event, code: string, verificationId: string) => {
+    return deleteAccount(code, verificationId)
+  })
+
+  ipcMain.handle('account:getUserStats', async () => {
+    return getUserStats()
   })
 
   // ─── Desktop Shortcut ──────────────────────────

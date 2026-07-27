@@ -98,11 +98,14 @@ const electronAPI = {
   sendCode: (email: string) =>
     ipcRenderer.invoke('auth:sendCode', email),
 
-  register: (email: string, password: string, verifyCode: string) =>
-    ipcRenderer.invoke('auth:register', email, password, verifyCode),
+  register: (email: string, password: string, verifyCode: string, verificationId: string) =>
+    ipcRenderer.invoke('auth:register', email, password, verifyCode, verificationId),
 
   login: (email: string, password: string) =>
     ipcRenderer.invoke('auth:login', email, password),
+
+  loginWithCode: (email: string, code: string, verificationId: string) =>
+    ipcRenderer.invoke('auth:loginWithCode', email, code, verificationId),
 
   logout: () =>
     ipcRenderer.invoke('auth:logout'),
@@ -122,12 +125,37 @@ const electronAPI = {
   changePassword: (newPassword: string) =>
     ipcRenderer.invoke('auth:changePassword', newPassword),
 
-  resetPassword: (email: string, newPassword: string, verificationCode: string) =>
-    ipcRenderer.invoke('auth:resetPassword', email, newPassword, verificationCode),
+  resetPassword: (email: string, newPassword: string, verificationCode: string, verificationId: string) =>
+    ipcRenderer.invoke('auth:resetPassword', email, newPassword, verificationCode, verificationId),
 
   // Sync
   getSyncStatus: () =>
     ipcRenderer.invoke('sync:getStatus'),
+
+  // Account Binding
+  getAccountBindings: () =>
+    ipcRenderer.invoke('account:getBindings'),
+
+  sendBindCode: (target: string) =>
+    ipcRenderer.invoke('account:sendBindCode', target),
+
+  bindPhone: (phone: string, code: string, verificationId: string) =>
+    ipcRenderer.invoke('account:bindPhone', phone, code, verificationId),
+
+  unbindPhone: (code: string, verificationId: string) =>
+    ipcRenderer.invoke('account:unbindPhone', code, verificationId),
+
+  bindEmail: (email: string, code: string, verificationId: string) =>
+    ipcRenderer.invoke('account:bindEmail', email, code, verificationId),
+
+  unbindEmail: (code: string, verificationId: string) =>
+    ipcRenderer.invoke('account:unbindEmail', code, verificationId),
+
+  deleteAccount: (code: string, verificationId: string) =>
+    ipcRenderer.invoke('account:deleteAccount', code, verificationId),
+
+  getUserStats: () =>
+    ipcRenderer.invoke('account:getUserStats'),
 
   // Shortcut
   createShortcut: () =>

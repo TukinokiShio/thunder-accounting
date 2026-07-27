@@ -72,18 +72,28 @@ export interface ElectronAPI {
   onShortcut: (callback: (action: string) => void) => () => void
   // Auth
   sendCode: (email: string) => Promise<void>
-  register: (email: string, password: string, verifyCode: string) => Promise<CloudBaseUser>
-  login: (email: string, password: string) => Promise<{ user: CloudBaseUser }>
+  register: (email: string, password: string, verifyCode: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
+  login: (email: string, password: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
+  loginWithCode: (email: string, code: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   logout: () => Promise<void>
-  checkSession: () => Promise<{ user: CloudBaseUser } | null>
+  checkSession: () => Promise<{ user: CloudBaseUser; accountId?: string } | null>
   // Sync
   getSyncStatus: () => Promise<{ isLoggedIn: boolean }>
   saveCredentials: (email: string, password: string) => Promise<void>
   loadCredentials: () => Promise<{ email: string; password: string }>
   sendReauthCode: (currentPassword: string) => Promise<void>
   changePassword: (newPassword: string) => Promise<void>
-  resetPassword: (email: string, newPassword: string, verificationCode: string) => Promise<void>
+  resetPassword: (email: string, newPassword: string, verificationCode: string, verificationId: string) => Promise<void>
   createShortcut: () => Promise<{ success: boolean; message: string }>
+  // Account
+  getAccountBindings: () => Promise<{ accountId: string; email: string; phone: string } | null>
+  sendBindCode: (target: string) => Promise<{ verificationId: string; type: 'email' | 'phone' }>
+  bindPhone: (phone: string, code: string, verificationId: string) => Promise<void>
+  unbindPhone: (code: string, verificationId: string) => Promise<void>
+  bindEmail: (email: string, code: string, verificationId: string) => Promise<void>
+  unbindEmail: (code: string, verificationId: string) => Promise<void>
+  deleteAccount: (code: string, verificationId: string) => Promise<void>
+  getUserStats: () => Promise<{ billCount: number; categoryCount: number; totalExpense: number; totalIncome: number }>
 }
 
 /** 数据库分类行（children 为 JSON 字符串，需调用处手动解析） */
