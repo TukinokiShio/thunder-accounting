@@ -8,10 +8,12 @@ import { Layout } from '@/components/Layout'
 import { Home } from '@/pages/Home'
 import { Bills } from '@/pages/Bills'
 import { Stats } from '@/pages/Stats'
+import ProfilePage from '@/pages/Profile'
 import { AddBillDialog } from '@/components/AddBillDialog'
 import { CategoryManager } from '@/components/CategoryManager'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { AuthGuard } from '@/components/AuthGuard'
+import { ToastContainer } from '@/components/Toast'
 import { useStore } from '@/store'
 import { LanguageProvider } from '@/i18n/LanguageContext'
 
@@ -54,10 +56,13 @@ export default function App() {
           {activePage === 'bills' && <Bills />}
           {activePage === 'stats' && <Stats />}
           {activePage === 'categories' && <CategoryManager isOpen={true} onClose={() => {}} mode="page" />}
+          {activePage === 'profile' && <ProfilePage />}
           <AddBillDialog />
           <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </Layout>
       </AuthGuard>
+      {/* Toast 必须在 AuthGuard 外部，才能在登录页可见 */}
+      <ToastContainer />
     </LanguageProvider>
   )
 }

@@ -3,7 +3,7 @@
  * 显示应用 Logo、四个导航项（总览/账单/统计/分类管理）、底部设置按钮和版本号。
  * 当前激活的导航项高亮显示。
  */
-import { Home, FileText, PieChart, Zap, Settings, Tags, LogOut } from 'lucide-react'
+import { Home, FileText, PieChart, Zap, Settings, Tags, LogOut, User } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import pkg from '../../package.json'
@@ -13,7 +13,8 @@ const navItems = [
   { id: 'home' as const, label: '总览', icon: Home },
   { id: 'bills' as const, label: '账单', icon: FileText },
   { id: 'stats' as const, label: '统计', icon: PieChart },
-  { id: 'categories' as const, label: '分类管理', icon: Tags }
+  { id: 'categories' as const, label: '分类管理', icon: Tags },
+  { id: 'profile' as const, label: '个人中心', icon: User }
 ]
 
 interface Props {
@@ -66,21 +67,24 @@ export function Sidebar({ onOpenSettings }: Props) {
         })}
       </nav>
 
-      {/* 用户信息 */}
+      {/* 用户信息 — 点击进入个人中心 */}
       {user && (
         <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-700">
-          <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActivePage('profile')}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+          >
             <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
                 {user.email?.charAt(0)?.toUpperCase() ?? '?'}
               </span>
             </div>
-            <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1">{user.email}</span>
-          </div>
+            <span className="text-xs text-gray-600 dark:text-gray-400 truncate flex-1 text-left">{user.email}</span>
+          </button>
           {/* 邮箱验证状态：已通过 OAuth/密码重置验证则不显示提示 */}
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-2 py-1.5 mt-1.5 rounded text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 mt-1 rounded text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
             <LogOut size={13} />
             退出登录

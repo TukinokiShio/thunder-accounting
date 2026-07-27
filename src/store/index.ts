@@ -26,8 +26,8 @@ export interface Toast {
 }
 
 interface AppState {
-  activePage: 'home' | 'bills' | 'stats' | 'categories'
-  setActivePage: (page: 'home' | 'bills' | 'stats' | 'categories') => void
+  activePage: 'home' | 'bills' | 'stats' | 'categories' | 'profile'
+  setActivePage: (page: 'home' | 'bills' | 'stats' | 'categories' | 'profile') => void
 
   isAddDialogOpen: boolean
   editBillId: number | null
@@ -136,7 +136,7 @@ export const useStore = create<AppState>((set, get) => ({
   addToast: (type, message) => {
     const id = `toast-${++toastId}`
     set((s) => ({ toasts: [...s.toasts, { id, type, message }] }))
-    setTimeout(() => get().removeToast(id), 3000)
+    setTimeout(() => get().removeToast(id), 5000)
   },
   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
