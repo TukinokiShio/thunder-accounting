@@ -238,6 +238,7 @@ export function isValidAccountId(id: string): boolean {
  * 从 email 本地部分提取，截断到 20 字符。
  */
 export function generateDefaultNickname(email: string): string {
+  if (email === ADMIN_EMAIL) return 'adminer'
   if (!email) return '新用户'
   const local = email.split('@')[0]
   if (!local) return '新用户'
