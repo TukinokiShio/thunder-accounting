@@ -530,12 +530,26 @@ export async function loginWithEmail(email: string, password: string): Promise<L
  * 验证邮箱/手机验证码（Step 2 of signin）
  * 把 verification_id + verification_code 换成真正的 verification_token
  */
+/**
+ * 检查云端服务是否可用
+ * - 必须有 CLOUDBASE_API_KEY（db 已初始化）
+ * - 必须有当前 session（用户已登录）
+ * - session.accessToken 必须存在
+ */
+export function isCloudSyncEnabled(): boolean {
+  return !!(db && currentSession?.accessToken)
+}
+
 export async function verifyCode(verificationId: string, code: string): Promise<string> {
   if (!verificationId) throw new Error('verification_id_required')
 
+  // 云端服务未配置（缺 CLOUDBASE_API_KEY 或 .env 不存在）
+  if (!currentSession?.accessToken) {
+    throw new Error('云端服务未配置：缺少 access_token。请联系管理员在项目根目录 .env 中配置 CLOUDBASE_API_KEY')
+  }
+
   // CloudBase REST API：/auth/v1/verification/verify 需要 access_token
-  // （用于身份校验和签名 — 否则 SIGN_PARAM_INVALID）
-  const accessToken = currentSession?.accessToken || ''
+  const accessToken = currentSession.accessToken
   const { ok, data, status } = await authFetch('/auth/v1/verification/verify', {
     verification_id: verificationId,
     verification_code: code
@@ -967,8 +981,13 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
   }
   body.target = 'ANY'
 
+  // 云端服务未配置（缺 CLOUDBASE_API_KEY 或 .env 不存在）
+  if (!currentSession?.accessToken) {
+    throw new Error('云端服务未配置：缺少 access_token。请联系管理员在项目根目录 .env 中配置 CLOUDBASE_API_KEY')
+  }
+
   // 需要 access_token 才能发送到当前登录用户的目标
-  const accessToken = currentSession?.accessToken || ''
+  const accessToken = currentSession.accessToken
   const { ok, data } = await authFetch('/auth/v1/verification', body, accessToken)
   if (!ok) {
     const e = data as { error_description?: string; error?: string }

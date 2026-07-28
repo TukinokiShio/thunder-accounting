@@ -157,6 +157,10 @@ const electronAPI = {
   getUserStats: () =>
     ipcRenderer.invoke('account:getUserStats'),
 
+  // 检查云端服务是否可用（用于 Profile 等模块显示降级提示）
+  isCloudSyncEnabled: () =>
+    ipcRenderer.invoke('cloud:isEnabled') as Promise<boolean>,
+
   // Shortcut
   createShortcut: () =>
     ipcRenderer.invoke('app:createShortcut')

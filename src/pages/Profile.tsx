@@ -17,7 +17,7 @@ import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { friendlyError } from '@/utils/errorMessages'
 import {
-  User, Lock, Link, BarChart3, AlertTriangle,
+  User, Lock, Link, BarChart3, AlertTriangle, AlertCircle,
   Copy, Check, Eye, EyeOff, Loader2, Trash2,
   Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X
 } from 'lucide-react'
@@ -54,6 +54,8 @@ export default function ProfilePage() {
   // ── 账号信息 ──
   const [account, setAccount] = useState<AccountInfo | null>(null)
   const [copied, setCopied] = useState(false)
+  // 云端服务可用性：null = 检测中, true = 可用, false = 未配置
+  const [cloudAvailable, setCloudAvailable] = useState<boolean | null>(null)
 
   // ── 数据概览 ──
   const [stats, setStats] = useState<UserStats | null>(null)
@@ -73,10 +75,20 @@ export default function ProfilePage() {
     } catch { /* ignore */ }
   }, [])
 
+  const checkCloud = useCallback(async () => {
+    try {
+      const ok = await window.electronAPI.isCloudSyncEnabled()
+      setCloudAvailable(ok)
+    } catch {
+      setCloudAvailable(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadAccount()
     loadStats()
-  }, [loadAccount, loadStats])
+    checkCloud()
+  }, [loadAccount, loadStats, checkCloud])
 
   // ── 派生值 ──
   const accountId = account?.accountId || user?.accountId || ''
@@ -138,7 +150,10 @@ export default function ProfilePage() {
       </aside>
 
       {/* ── 右侧内容区 ── */}
-      <div className="flex-1 min-w-0 space-y-6">
+      <div className="flex-1 min-w-0 space-y-4">
+        {/* 云端服务状态提示（统一在顶部展示） */}
+        {cloudAvailable === false && <CloudUnavailableNotice />}
+
         {activeTab === 'info' && (
           <InfoTab
             nickname={nickname}
@@ -153,12 +168,14 @@ export default function ProfilePage() {
           <SecurityTab
             email={boundEmail}
             phone={boundPhone}
+            cloudAvailable={cloudAvailable === true}
           />
         )}
         {activeTab === 'binding' && (
           <BindingTab
             email={boundEmail}
             phone={boundPhone}
+            cloudAvailable={cloudAvailable === true}
             onChange={loadAccount}
           />
         )}
@@ -171,9 +188,32 @@ export default function ProfilePage() {
             email={boundEmail}
             phone={boundPhone}
             nickname={nickname}
+            cloudAvailable={cloudAvailable === true}
             onDeleted={() => setTimeout(() => appLogout(), 500)}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 云端服务未配置提示
+ * 当 .env 缺失或 CLOUDBASE_API_KEY 无效时，Profile 顶部统一展示
+ */
+function CloudUnavailableNotice() {
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+      <AlertCircle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <h3 className="text-sm font-semibold text-amber-800">云端服务未配置</h3>
+        <p className="text-xs text-amber-700 mt-1">
+          当前应用未配置 CLOUDBASE_API_KEY（位于项目根目录 <code className="px-1 bg-amber-100 rounded">.env</code> 文件），
+          涉及云端的功能（修改密码、邮箱/手机号绑定、注销账号）暂不可用。
+        </p>
+        <p className="text-xs text-amber-700 mt-1">
+          本地功能（账号信息查看、数据概览、退出登录）仍可正常使用。
+        </p>
       </div>
     </div>
   )
@@ -252,7 +292,7 @@ function InfoTab({
 // 子组件：安全设置（修改密码）
 // ═════════════════════════════════════════════════════════════════
 
-function SecurityTab({ email, phone }: { email: string; phone: string }) {
+function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: string; cloudAvailable: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [verifyChannel, setVerifyChannel] = useState<'email' | 'phone' | null>(null)
   const [showChannelDropdown, setShowChannelDropdown] = useState(false)
@@ -364,8 +404,10 @@ function SecurityTab({ email, phone }: { email: string; phone: string }) {
             </div>
           </div>
           <button
-            onClick={() => setExpanded(!expanded)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+            onClick={() => cloudAvailable && setExpanded(!expanded)}
+            disabled={!cloudAvailable}
+            title={!cloudAvailable ? '云端服务未配置，暂不可用' : ''}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-50"
           >
             {expanded ? '收起' : '修改'}
             <ChevronRight size={14} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />

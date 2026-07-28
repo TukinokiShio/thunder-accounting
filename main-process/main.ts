@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories } from './database/index'
-import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, deleteAccount, getUserStats } from './cloudbase'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -341,6 +341,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('sync:getStatus', () => {
     return { isLoggedIn: isLoggedIn() }
+  })
+
+  // 检查云端服务是否可用（Profile 等模块使用）
+  ipcMain.handle('cloud:isEnabled', () => {
+    return isCloudSyncEnabled()
   })
 
   // ─── Remember Credentials ─────────────────────

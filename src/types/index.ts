@@ -95,6 +95,9 @@ export interface ElectronAPI {
   unbindEmail: (code: string, verificationId: string) => Promise<void>
   deleteAccount: (code: string, verificationId: string) => Promise<void>
   getUserStats: () => Promise<{ billCount: number; categoryCount: number; totalExpense: number; totalIncome: number }>
+
+  /** 检查云端服务是否可用（access_token + CLOUDBASE_API_KEY 都存在） */
+  isCloudSyncEnabled: () => Promise<boolean>
 }
 
 /** 数据库分类行（children 为 JSON 字符串，需调用处手动解析） */
