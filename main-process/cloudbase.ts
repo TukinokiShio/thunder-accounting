@@ -542,13 +542,9 @@ export function isCloudSyncEnabled(): boolean {
 export async function verifyCode(verificationId: string, code: string): Promise<string> {
   if (!verificationId) throw new Error('verification_id_required')
 
-  // 云端服务未配置（缺 CLOUDBASE_API_KEY 或 .env 不存在）
-  if (!currentSession?.accessToken) {
-    throw new Error('云端服务未配置：缺少 access_token。请联系管理员在项目根目录 .env 中配置 CLOUDBASE_API_KEY')
-  }
-
-  // CloudBase REST API：/auth/v1/verification/verify 需要 access_token
-  const accessToken = currentSession.accessToken
+  // CloudBase REST API：/auth/v1/verification/verify
+  // access_token 可选——已登录用户的绑定/解绑传 token，登录场景不传
+  const accessToken = currentSession?.accessToken || ''
   const { ok, data, status } = await authFetch('/auth/v1/verification/verify', {
     verification_id: verificationId,
     verification_code: code
