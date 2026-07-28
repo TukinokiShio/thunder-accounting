@@ -20,6 +20,11 @@ function createWindow(): void {
     minHeight: 600,
     title: '雷霆记账',
     icon: nativeImage.createFromPath(iconPath),
+    // 关键：先不显示窗口，等 renderer ready 再显示，避免看到默认 Electron 图标
+    show: false,
+    backgroundColor: '#ffffff',
+    // 禁用默认菜单栏闪烁
+    autoHideMenuBar: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       sandbox: false,
@@ -34,6 +39,12 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+
+  // renderer 加载完成后再显示窗口（避免白屏/图标闪烁）
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null

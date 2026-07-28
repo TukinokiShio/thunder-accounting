@@ -532,11 +532,13 @@ export async function loginWithEmail(email: string, password: string): Promise<L
 export async function verifyCode(verificationId: string, code: string): Promise<string> {
   if (!verificationId) throw new Error('verification_id_required')
 
-  // CloudBase REST API：/auth/v1/verification/verify（带 verification/ 前缀）
+  // CloudBase REST API：/auth/v1/verification/verify 需要 access_token
+  // （用于身份校验和签名 — 否则 SIGN_PARAM_INVALID）
+  const accessToken = currentSession?.accessToken || ''
   const { ok, data, status } = await authFetch('/auth/v1/verification/verify', {
     verification_id: verificationId,
     verification_code: code
-  })
+  }, accessToken)
   if (!ok) {
     const e = data as { error?: string; error_description?: string }
     const errorCode = e.error || `http_${status}` || 'verification_code_invalid'
@@ -979,7 +981,7 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
  * 发送验证码到新邮箱 → 用户输入验证码 → 调用此函数验证并绑定。
  */
 export async function bindEmail(newEmail: string, code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('未连接数据库')
+  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
@@ -1006,7 +1008,7 @@ export async function bindEmail(newEmail: string, code: string, verificationId: 
  * 至少保留手机号绑定，否则拒绝解绑。
  */
 export async function unbindEmail(code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('未连接数据库')
+  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
@@ -1029,7 +1031,7 @@ export async function unbindEmail(code: string, verificationId: string): Promise
  * 绑定手机号到当前用户账号（验证码确认）。
  */
 export async function bindPhone(phone: string, code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('未连接数据库')
+  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
@@ -1055,7 +1057,7 @@ export async function bindPhone(phone: string, code: string, verificationId: str
  * 至少保留邮箱绑定，否则拒绝解绑。
  */
 export async function unbindPhone(code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('未连接数据库')
+  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
@@ -1084,7 +1086,7 @@ export async function unbindPhone(code: string, verificationId: string): Promise
  * 4. 尝试删除 CloudBase Auth 用户（通过云函数或直接 API）
  */
 export async function deleteAccount(code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('未连接数据库')
+  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 

@@ -433,7 +433,7 @@ export default function ProfilePage() {
   if (boundPhone) availableChannels.push({ key: 'phone', label: '手机号', value: boundPhone })
 
   return (
-    <div className="flex gap-6 h-full">
+    <div className="flex gap-4 h-full w-full">
       {/* ── 左侧标签导航 ── */}
       <div className="w-48 shrink-0">
         <div className="mb-2">
@@ -461,7 +461,7 @@ export default function ProfilePage() {
       <div className="flex-1 min-w-0 space-y-6">
         {/* ===== 账号信息 ===== */}
         {activeTab === 'info' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-2xl space-y-6">
             {/* 头像 + 欢迎语 */}
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-2xl font-bold text-blue-600">
@@ -539,7 +539,7 @@ export default function ProfilePage() {
 
         {/* ===== 安全设置 ===== */}
         {activeTab === 'security' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-2xl space-y-6">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Shield size={20} className="text-blue-600" />
               安全设置
@@ -717,7 +717,7 @@ export default function ProfilePage() {
 
         {/* ===== 绑定管理 ===== */}
         {activeTab === 'binding' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-2xl space-y-6">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Link size={20} className="text-blue-600" />
               绑定管理
@@ -943,7 +943,7 @@ export default function ProfilePage() {
 
         {/* ===== 数据概览 ===== */}
         {activeTab === 'stats' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-2xl space-y-6">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <BarChart3 size={20} className="text-blue-600" />
               数据概览
@@ -991,7 +991,7 @@ export default function ProfilePage() {
 
         {/* ===== 危险操作 ===== */}
         {activeTab === 'danger' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-2xl space-y-6">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <AlertTriangle size={20} className="text-red-600" />
               危险操作
