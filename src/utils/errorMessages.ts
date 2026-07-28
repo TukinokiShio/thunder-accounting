@@ -38,14 +38,34 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     en: 'Password not set. Please set up your password first.'
   },
   {
-    patterns: [/invalid email/i, /invalid_argument/i, /missing secretId/i, /missing secretKey/i],
+    patterns: [/invalid email/i, /invalid argument/i, /invalid[_ ]argument/i, /missing secretId/i, /missing secretKey/i, /invalid_argument/],
     zh: '参数错误',
     en: 'Invalid argument'
   },
   {
-    patterns: [/verification[_ ]code (?:is )?invalid/i, /验证码错误/i, /验证码过期/],
+    patterns: [/SIGN_PARAM_INVALID/i, /secret id error/i, /signature.*invalid/i, /InvalidAccessKeyId/i],
+    zh: 'CloudBase 配置异常（签名参数无效）。请检查应用 .env 中 CLOUDBASE_API_KEY 是否正确',
+    en: 'CloudBase config error (signature invalid). Check CLOUDBASE_API_KEY in .env'
+  },
+  {
+    patterns: [/verification[_ ]code (?:is )?invalid/i, /verification[_ ]token invalid/i, /invalid verification token/i, /验证码错误/i, /验证码过期/],
     zh: '验证码错误或已过期，请重新获取',
     en: 'Verification code invalid or expired'
+  },
+  {
+    patterns: [/verification[_ ]code[_ ]?expired/i, /verification[_ ]token[_ ]?expired/i],
+    zh: '验证码已过期，请重新获取',
+    en: 'Verification code expired'
+  },
+  {
+    patterns: [/username or verification[_ ]token can not both be empty/i, /username.*verification.*empty/i],
+    zh: '账号或验证码不能为空',
+    en: 'Username or verification code cannot be empty'
+  },
+  {
+    patterns: [/cannot find user/i, /user not found/i, /account_not_found/i, /user.*does not exist/i],
+    zh: '账号不存在，请检查输入或先注册',
+    en: 'Account not found. Please check your input or register first.'
   },
   {
     patterns: [/Network (?:Error|request failed)/i, /fetch failed/i, /Failed to fetch/i, /ENOTFOUND|ETIMEDOUT|ECONNR/i],
@@ -99,9 +119,34 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
   },
   // ─── cloudbase.ts 内部错误 key ───
   {
-    patterns: [/verification_code_send_failed/i],
-    zh: '验证码发送失败，请稍后再试',
-    en: 'Failed to send verification code'
+    patterns: [/phone[_ ]?number invalid/i, /invalid[_ ]phone/i, /invalid phone number/i, /phone.*format/i, /无效手机号/, /手机号格式/],
+    zh: '手机号格式无效，请输入11位数字',
+    en: 'Invalid phone number format'
+  },
+  {
+    patterns: [/sms[_ ]?rate[_ ]?limit/i, /短信.*频率/, /短信.*超额/, /短信限流/, /quota.*exceeded/i],
+    zh: '短信发送过于频繁，请稍后再试',
+    en: 'SMS rate limit exceeded'
+  },
+  {
+    patterns: [/email[_ ]?rate[_ ]?limit/i, /邮件.*频率/, /邮件.*超额/, /邮件限流/],
+    zh: '邮件发送过于频繁，请稍后再试',
+    en: 'Email rate limit exceeded'
+  },
+  {
+    patterns: [/SMS.*not.*configured/i, /短信服务.*未配置/, /短信功能.*未开启/, /短信登录.*未启用/],
+    zh: '短信登录功能未开启，请联系管理员',
+    en: 'SMS login not configured'
+  },
+  {
+    patterns: [/Email.*not.*configured/i, /邮件服务.*未配置/, /邮件登录.*未启用/],
+    zh: '邮件登录功能未开启，请联系管理员',
+    en: 'Email login not configured'
+  },
+  {
+    patterns: [/verification_code_send_failed/i, /发送验证码.*失败/i, /发送验证码错误/],
+    zh: '验证码发送失败，请检查网络或换邮箱/手机号重试',
+    en: 'Failed to send verification code. Check network or try a different email/phone.'
   },
   {
     patterns: [/signup_failed/i],
@@ -112,6 +157,11 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     patterns: [/signin_failed/i],
     zh: '登录失败，请重试',
     en: 'Login failed, try again'
+  },
+  {
+    patterns: [/verification_signin_failed/i],
+    zh: '验证码登录失败，请检查验证码或账号是否正确',
+    en: 'Verification sign-in failed. Check your code and account.'
   },
   {
     patterns: [/reauth_failed/i],

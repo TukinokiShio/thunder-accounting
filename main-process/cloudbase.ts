@@ -365,7 +365,8 @@ export async function sendVerificationCode(target: string): Promise<SendCodeResu
     }
   }
 
-  const { ok, data } = await authFetch('/auth/v1/verification', body)
+  const accessToken = currentSession?.accessToken || ''
+  const { ok, data } = await authFetch('/auth/v1/verification', body, accessToken)
   if (!ok) {
     const e = data as { error_description?: string; error?: string }
     throw new Error(e.error_description || e.error || 'verification_code_send_failed')
@@ -966,7 +967,9 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
   }
   body.target = 'ANY'
 
-  const { ok, data } = await authFetch('/auth/v1/verification', body)
+  // 需要 access_token 才能发送到当前登录用户的目标
+  const accessToken = currentSession?.accessToken || ''
+  const { ok, data } = await authFetch('/auth/v1/verification', body, accessToken)
   if (!ok) {
     const e = data as { error_description?: string; error?: string }
     throw new Error(e.error_description || e.error || 'verification_code_send_failed')
