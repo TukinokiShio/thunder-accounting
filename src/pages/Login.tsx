@@ -1,28 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Zap, Mail, Lock, ShieldCheck, Eye, EyeOff, Loader2, Check, X, Send, ArrowLeft, Smartphone, User } from 'lucide-react'
+import { Zap, Mail, Lock, ShieldCheck, Eye, EyeOff, Loader2, Check, X, Send, ArrowLeft, Smartphone } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { friendlyError } from '@/utils/errorMessages'
 import pkg from '../../package.json'
 
 type Mode = 'login' | 'register' | 'forgot'
-type LoginMode = 'password' | 'verification'
+type LoginMode = 'password' | 'phoneCode' | 'emailCode'
 type Lang = 'zh' | 'en'
+const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+const validPhone = (v: string) => /^\d{11}$/.test(v)
+const validPassword = (v: string) => v.length >= 6
+const strongPassword = (v: string) => [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter(x => x.test(v)).length >= 3
+const tr = (lang: Lang, zh: string, en: string) => lang === 'zh' ? zh : en
 
-function m(l: Lang, zh: string, en: string): string { return l === 'zh' ? zh : en }
-
-// ─── 表单校验 ─────────────────────────────────────
-function validEmail(v: string): boolean { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) }
-function validPhone(v: string): boolean { return /^\d{11}$/.test(v) }
-function validAccount(v: string): boolean { return /^[a-zA-Z0-9_]+$/.test(v) }
-function validPasswordLen(v: string): boolean { return v.length >= 6 }
-function strongPassword(v: string): boolean {
-  let s = 0; if (/[a-z]/.test(v)) s++; if (/[A-Z]/.test(v)) s++; if (/[0-9]/.test(v)) s++; if (/[^a-zA-Z0-9]/.test(v)) s++; return s >= 3
-}
-
-function ValIcon({ ok }: { ok: boolean | null }) {
-  if (ok === null) return null
-  return ok ? <Check size={14} className="text-green-500" /> : <X size={14} className="text-red-400" />
+function ValidationIcon({ valid }: { valid: boolean | null }) {
+  if (valid === null) return null
+  return valid ? <Check size={15} className="text-green-500" /> : <X size={15} className="text-red-500" />
 }
 
 export function LoginPage() {
@@ -30,8 +24,7 @@ export function LoginPage() {
   const addToast = useStore(s => s.addToast)
   const { language, setLanguage } = useLanguage()
   const lang = (language === 'en' ? 'en' : 'zh') as Lang
-  const T = (zh: string, en: string) => m(lang, zh, en)
-
+  const T = (zh: string, en: string) => tr(lang, zh, en)
   const [mode, setMode] = useState<Mode>('login')
   const [loginMode, setLoginMode] = useState<LoginMode>('password')
   const [identifier, setIdentifier] = useState('')
@@ -47,296 +40,76 @@ export function LoginPage() {
   const [sendingCode, setSendingCode] = useState(false)
   const [codeSent, setCodeSent] = useState(false)
 
-  useEffect(() => {
-    window.electronAPI.loadCredentials().then(c => {
-      setRemember(c.rememberAccount)
-      setAutoLogin(c.autoLogin)
-      if (c.rememberAccount && c.identifier) setIdentifier(c.identifier)
-    })
-  }, [])
+  useEffect(() => { window.electronAPI.loadCredentials().then(c => { setRemember(c.rememberAccount); setAutoLogin(c.autoLogin); if (c.rememberAccount) setIdentifier(c.identifier) }) }, [])
+  const clearCode = useCallback(() => { setVerifyCode(''); setVerificationId(''); setCodeSent(false) }, [])
+  const clear = useCallback(() => { setError(''); setPassword(''); setConfirmPwd(''); clearCode() }, [clearCode])
+  const go = (next: Mode) => { setMode(next); clear() }
+  const changeLoginMode = (next: LoginMode) => { setLoginMode(next); setError(''); clearCode() }
+  const onIdentifier = (value: string) => { setIdentifier(value); clearCode() }
+  const type = validEmail(identifier.trim()) ? 'email' : validPhone(identifier.trim()) ? 'phone' : 'invalid'
+  const channel = loginMode === 'phoneCode' ? 'phone' : loginMode === 'emailCode' ? 'email' : undefined
+  const idOk = identifier.trim() ? (channel ? type === channel : type !== 'invalid') : null
+  const showCode = (mode === 'login' && loginMode !== 'password') || mode !== 'login'
+  const showPassword = (mode === 'login' && loginMode === 'password') || mode !== 'login'
+  const idLabel = channel === 'phone' ? T('手机号', 'Phone number') : channel === 'email' ? T('邮箱', 'Email') : T('账号', 'Account')
+  const idPlaceholder = channel === 'phone' ? T('请输入手机号', 'Enter your phone number') : channel === 'email' ? T('请输入邮箱', 'Enter your email') : T('邮箱或手机号', 'Email or phone number')
+  const idError = () => { setError(channel === 'phone' ? T('请输入有效的手机号', 'Enter a valid phone number') : channel === 'email' ? T('请输入有效的邮箱', 'Enter a valid email') : T('请输入有效的邮箱或手机号', 'Enter a valid email or phone number')); return false }
+  const input = 'h-12 w-full rounded-xl border border-gray-200 bg-white px-11 pr-10 text-sm text-gray-900 outline-none transition-[border-color,box-shadow] placeholder:text-gray-400 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/15 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
 
-  const handleRemember = useCallback((v: boolean) => {
-    setRemember(v)
-    if (!v) {
-      setAutoLogin(false)
-      void window.electronAPI.saveCredentials('', false, false)
-    }
-  }, [])
-
-  function toLogin() { setMode('login'); clear() }
-  function toRegister() { setMode('register'); clear() }
-  function toForgot() { setMode('forgot'); clear() }
-  function clear() { setError(''); setVerifyCode(''); setConfirmPwd(''); setCodeSent(false) }
-
-  // ── 标识符校验 ─────────────────────────────────────
-  const idTrim = identifier.trim()
-  const isAdmin = idTrim === 'admin'
-
-  // 判断标识符类型
-  const idType = (): 'email' | 'phone' | 'account' | 'invalid' => {
-    if (isAdmin) return 'account'
-    if (validEmail(idTrim)) return 'email'
-    if (validPhone(idTrim)) return 'phone'
-    if (validAccount(idTrim) && idTrim.length >= 3) return 'account'
-    return 'invalid'
-  }
-
-  const idOk = idTrim ? (isAdmin ? true : idType() !== 'invalid') : null
-  const noId = () => { setError(T('请输入有效的账号/邮箱/手机号', 'Enter valid account/email/phone')); return false }
-
-  // ── 管理员映射 ──────────────────────────────────────
-  const ADMIN_EMAIL = '15211073887@163.com'
-  const resolveIdentifier = () => isAdmin ? ADMIN_EMAIL : idTrim
-
-  // ── 验证码 ─────────────────────────────────────────
   async function sendCode() {
-    if (idType() === 'invalid') { setError(T('请输入有效的邮箱或手机号', 'Enter valid email or phone')); return }
-    setError('')
-    setSendingCode(true)
-    try {
-      // 找回密码只向已注册的 Auth 用户发送验证码，避免 accounts 映射参与身份解析。
-      const result = await window.electronAPI.sendCode(resolveIdentifier(), mode === 'forgot')
-      setCodeSent(true)
-      setVerificationId(result.verificationId || '')
-      const hint = result.type === 'phone'
-        ? T(`验证码已发送到手机 ${result.target}`, `Code sent to phone ${result.target}`)
-        : T(`验证码已发送到邮箱 ${result.target}`, `Code sent to email ${result.target}`)
-      addToast('success', hint)
-    } catch (e) { setError(friendlyError(e, lang)) }
-    finally { setSendingCode(false) }
+    if (!idOk) return idError()
+    setError(''); setSendingCode(true)
+    // Login and recovery must never issue a code for an unregistered identity; registration is the only ANY flow.
+    try { const r = await window.electronAPI.sendCode(identifier.trim(), mode !== 'register'); setVerificationId(r.verificationId || ''); setCodeSent(true); addToast('success', r.type === 'phone' ? T(`验证码已发送到手机 ${r.target}`, `Code sent to phone ${r.target}`) : T(`验证码已发送到邮箱 ${r.target}`, `Code sent to email ${r.target}`)) }
+    catch (e) { setError(friendlyError(e, lang)) } finally { setSendingCode(false) }
   }
-
-  // ── 登录 ───────────────────────────────────────────
   async function doLogin() {
-    if (!idOk) return noId()
-    const resolved = resolveIdentifier()
-
-    if (loginMode === 'password') {
-      if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
-    } else {
-      if (!verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
-    }
-
+    if (!idOk) return idError()
+    if (loginMode === 'password' && !validPassword(password)) { setError(T('密码至少 6 位', 'Password must be at least 6 characters')); return }
+    if (loginMode !== 'password' && (!codeSent || !verificationId)) { setError(T('请先发送验证码', 'Send a verification code first')); return }
+    if (loginMode !== 'password' && !verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
     setError(''); setLoading(true)
-    try {
-      const result = loginMode === 'password'
-        ? await window.electronAPI.login(resolved, password)
-        : await window.electronAPI.loginWithCode(resolved, verifyCode.trim(), verificationId)
-      // 不保存密码；自动登录使用已持久化的 CloudBase 刷新令牌。
-      await window.electronAPI.saveCredentials(resolved, remember, autoLogin)
-      setUser(result.user)
-      addToast('success', T('欢迎回来！', 'Welcome back!'))
-    } catch (e) { setError(friendlyError(e, lang)) }
-    finally { setLoading(false) }
+    try { const r = loginMode === 'password' ? await window.electronAPI.login(identifier.trim(), password) : await window.electronAPI.loginWithCode(identifier.trim(), verifyCode.trim(), verificationId); await window.electronAPI.saveCredentials(identifier.trim(), remember, autoLogin); setUser(r.user); addToast('success', T('欢迎回来！', 'Welcome back!')) }
+    catch (e) { setError(friendlyError(e, lang)) } finally { setLoading(false) }
   }
-
-  // ── 注册 ───────────────────────────────────────────
   async function doRegister() {
-    if (!idOk) return noId()
-    if (!codeSent) { setError(T('请先发送验证码', 'Please send verification code first')); return }
+    if (!idOk) return idError()
+    if (!codeSent || !verificationId) { setError(T('请先发送验证码', 'Send a verification code first')); return }
     if (!verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
-    if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
-    if (!strongPassword(password)) { setError(T('密码强度不够', 'Password too weak')); return }
+    if (!validPassword(password)) { setError(T('密码至少 6 位', 'Password must be at least 6 characters')); return }
+    if (!strongPassword(password)) { setError(T('密码强度不够', 'Password is too weak')); return }
     if (password !== confirmPwd) { setError(T('两次密码不一致', 'Passwords do not match')); return }
     setError(''); setLoading(true)
-    try {
-      // 注册逻辑：邮箱或手机号，由 main.ts IPC 内部分流到 registerWithEmail / registerWithPhone
-      const result = await window.electronAPI.register(idTrim, password, verifyCode.trim(), verificationId)
-      await window.electronAPI.saveCredentials(idTrim, remember, autoLogin)
-      setUser(result.user || result)
-      addToast('success', T('注册成功！', 'Registered!'))
-    } catch (e) { setError(friendlyError(e, lang)) }
-    finally { setLoading(false) }
+    try { const r = await window.electronAPI.register(identifier.trim(), password, verifyCode.trim(), verificationId); await window.electronAPI.saveCredentials(identifier.trim(), remember, autoLogin); setUser(r.user || r); addToast('success', T('注册成功！', 'Registered!')) }
+    catch (e) { setError(friendlyError(e, lang)) } finally { setLoading(false) }
   }
-
-  // ── 忘记密码 ───────────────────────────────────────
   async function doReset() {
-    if (!idOk) return noId()
-    if (!codeSent) { setError(T('请先发送验证码', 'Please send verification code first')); return }
+    if (!idOk) return idError()
+    if (!codeSent || !verificationId) { setError(T('请先发送验证码', 'Send a verification code first')); return }
     if (!verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
-    if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
-    if (!strongPassword(password)) { setError(T('密码强度不够', 'Password too weak')); return }
+    if (!validPassword(password)) { setError(T('密码至少 6 位', 'Password must be at least 6 characters')); return }
+    if (!strongPassword(password)) { setError(T('密码强度不够', 'Password is too weak')); return }
     if (password !== confirmPwd) { setError(T('两次密码不一致', 'Passwords do not match')); return }
     setError(''); setLoading(true)
-    try {
-      await window.electronAPI.resetPassword(idTrim, password, verifyCode.trim(), verificationId)
-      addToast('success', T('密码已重置，请登录', 'Password reset! Please login'))
-      toLogin()
-    } catch (e) { setError(friendlyError(e, lang)) }
-    finally { setLoading(false) }
+    try { await window.electronAPI.resetPassword(identifier.trim(), password, verifyCode.trim(), verificationId); addToast('success', T('密码已重置，请登录', 'Password reset. Please sign in.')); go('login') }
+    catch (e) { setError(friendlyError(e, lang)) } finally { setLoading(false) }
   }
+  const submit = () => mode === 'login' ? doLogin() : mode === 'register' ? doRegister() : doReset()
+  const rememberChange = (value: boolean) => { setRemember(value); if (!value) { setAutoLogin(false); void window.electronAPI.saveCredentials('', false, false) } }
 
-  async function submit() {
-    if (mode === 'login')      await doLogin()
-    else if (mode === 'register') await doRegister()
-    else if (mode === 'forgot')   await doReset()
-  }
-
-  function onKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !sendingCode) submit()
-  }
-
-  const cls = "w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-  const clsNoIcon = "w-full py-2.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-
-  function btnLabel() {
-    if (mode === 'login')    return T('登录', 'Login')
-    if (mode === 'register') return T('注册', 'Register')
-    return T('重置密码', 'Reset')
-  }
-
-  // ── 标识符图标 ──────────────────────────────────────
-  function IdIcon() {
-    const t = idType()
-    if (t === 'email') return <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-    if (t === 'phone') return <Smartphone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-    return <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-  }
-
-  return (
-    <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="w-full max-w-sm mx-4 bg-white dark:bg-gray-850 rounded-2xl shadow-lg p-8 relative">
-
-        {/* 语言切换 */}
-        <div className="absolute top-3 right-3 flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden text-xs">
-          <button onClick={() => setLanguage('zh')} className={`px-2 py-1 ${language==='zh'?'bg-primary-500 text-white':'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>中</button>
-          <button onClick={() => setLanguage('en')} className={`px-2 py-1 ${language==='en'?'bg-primary-500 text-white':'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>EN</button>
-        </div>
-
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 bg-primary-500 rounded-xl flex items-center justify-center mb-3"><Zap size={24} className="text-white" /></div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">雷霆记账</h1>
-          <p className="text-sm text-gray-400 mt-1">{T('个人记账，轻松管理', 'Simple personal finance')}</p>
-        </div>
-
-        {/* 模式切换（登录/注册） */}
-        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1 mb-4">
-          <button onClick={toLogin}    className={`flex-1 py-2 text-sm rounded-md font-medium transition-colors ${mode==='login'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>{T('登录','Login')}</button>
-          <button onClick={toRegister} className={`flex-1 py-2 text-sm rounded-md font-medium transition-colors ${mode==='register'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>{T('注册','Register')}</button>
-        </div>
-
-        {/* 登录方式切换（仅登录模式） */}
-        {mode === 'login' && (
-          <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1 mb-4">
-            <button onClick={() => { setLoginMode('password'); clear() }}
-              className={`flex-1 py-1.5 text-xs rounded-md font-medium transition-colors ${loginMode==='password'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>
-              {T('密码登录','Password')}
-            </button>
-            <button onClick={() => { setLoginMode('verification'); clear() }}
-              className={`flex-1 py-1.5 text-xs rounded-md font-medium transition-colors ${loginMode==='verification'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>
-              {T('验证码登录','Code')}
-            </button>
-          </div>
-        )}
-
-        {/* 忘记密码返回按钮 */}
-        {mode === 'forgot' && (
-          <button onClick={toLogin} className="flex items-center gap-1 text-xs text-gray-500 hover:text-primary-500 mb-4 transition-colors">
-            <ArrowLeft size={14} />{T('返回登录','Back')}
-          </button>
-        )}
-
-        {/* 错误信息 */}
-        {error && <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">{error}</div>}
-
-        {/* 表单 */}
-        <div className="space-y-4" onKeyDown={onKey}>
-
-          {/* ── 标识符输入 ── */}
-          <div>
-            <div className="relative">
-              <IdIcon />
-              <input type="text" value={identifier} onChange={e => { setIdentifier(e.target.value); setCodeSent(false) }}
-                placeholder={mode === 'forgot'
-                  ? T('邮箱或手机号', 'Email or phone')
-                  : mode === 'register'
-                    ? T('邮箱或手机号', 'Email or phone')
-                    : T('账号 / 邮箱 / 手机号', 'Account / Email / Phone')}
-                className={cls} />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2"><ValIcon ok={idOk} /></span>
-            </div>
-          </div>
-
-          {/* ── 密码输入（密码登录 / 注册 / 忘记密码） ── */}
-          {(loginMode === 'password' || mode !== 'login') && (
-            <div>
-              <div className="relative">
-                <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type={showPwd?'text':'password'} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder={mode === 'register' ? T('设置密码', 'Set password') : mode === 'forgot' ? T('新密码','New Password') : '••••••'} className={cls} />
-                <span className="absolute right-8 top-1/2 -translate-y-1/2">
-                  {mode==='register' || mode==='forgot'
-                    ? <ValIcon ok={password ? strongPassword(password) : null} />
-                    : <ValIcon ok={password ? validPasswordLen(password) : null} />}
-                </span>
-                <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── 验证码输入（验证码登录 / 注册 / 忘记密码） ── */}
-          {(loginMode === 'verification' || mode === 'register' || mode === 'forgot') && (
-            <div className="flex gap-2">
-              <input type="text" value={verifyCode} onChange={e => setVerifyCode(e.target.value)}
-                placeholder={T('验证码', 'Verification code')} className={clsNoIcon + ' flex-1 px-3'} />
-              <button onClick={sendCode} disabled={sendingCode || !idOk}
-                className="px-3 py-2 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap flex items-center gap-1">
-                {sendingCode ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-                {codeSent ? T('已发送','Sent') : T('发送验证码','Send Code')}
-              </button>
-            </div>
-          )}
-
-          {/* ── 确认密码（注册 / 忘记密码） ── */}
-          {(mode === 'register' || mode === 'forgot') && (
-            <div>
-              <div className="relative">
-                <ShieldCheck size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type={showPwd?'text':'password'} value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)}
-                  placeholder={mode === 'register' ? T('确认密码', 'Confirm password') : T('确认新密码', 'Confirm new password')} className={cls} />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2"><ValIcon ok={confirmPwd ? password===confirmPwd : null} /></span>
-              </div>
-            </div>
-          )}
-
-          {/* ── 记住我 ── */}
-          {mode === 'login' && loginMode === 'password' && (
-            <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer select-none">
-              <input type="checkbox" checked={remember} onChange={e => handleRemember(e.target.checked)}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500" />
-              {T('记住账号','Remember me')}
-            </label>
-          )}
-          {mode === 'login' && loginMode === 'password' && (
-            <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer select-none">
-              <input type="checkbox" checked={autoLogin} disabled={!remember}
-                onChange={e => setAutoLogin(e.target.checked)}
-                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500 disabled:opacity-50" />
-              {T('自动登录', 'Auto login')}
-            </label>
-          )}
-
-          {/* ── 提交 ── */}
-          <button onClick={submit} disabled={loading}
-            className="w-full py-2.5 bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-            {loading && <Loader2 size={16} className="animate-spin" />}
-            {btnLabel()}
-          </button>
-
-          {/* ── 忘记密码链接 ── */}
-          {mode === 'login' && loginMode === 'password' && (
-            <button onClick={toForgot} className="w-full text-xs text-gray-400 hover:text-primary-500 text-center transition-colors">
-              {T('忘记密码？','Forgot password?')}
-            </button>
-          )}
-        </div>
-
-        {/* 版本号 */}
-        <p className="text-center text-xs text-gray-300 dark:text-gray-600 mt-6">v{pkg.version}</p>
-      </div>
-    </div>
-  )
+  return <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-8 dark:bg-gray-900"><section aria-labelledby="login-title" className="relative w-full max-w-[450px] rounded-[20px] border border-gray-200 bg-white p-7 shadow-sm dark:border-gray-800 dark:bg-gray-850 sm:p-8">
+    <div className="absolute right-4 top-4 flex overflow-hidden rounded-lg border border-gray-200 text-xs dark:border-gray-700"><button type="button" onClick={() => setLanguage('zh')} className={`min-h-8 px-2.5 ${language === 'zh' ? 'bg-primary-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>中</button><button type="button" onClick={() => setLanguage('en')} className={`min-h-8 px-2.5 ${language === 'en' ? 'bg-primary-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>EN</button></div>
+    <header className="mb-7 pt-2 text-center"><div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-500 text-white"><Zap size={24} /></div><h1 id="login-title" className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">雷霆记账</h1><p className="mt-1 text-sm text-gray-500">{T('个人记账，轻松管理', 'Simple personal finance')}</p></header>
+    {mode === 'forgot' ? <button type="button" onClick={() => go('login')} className="mb-5 inline-flex min-h-10 items-center gap-1 text-sm text-gray-500 hover:text-primary-500"><ArrowLeft size={16}/>{T('返回登录', 'Back to sign in')}</button> : <nav className="mb-5 grid grid-cols-2 rounded-xl bg-gray-100 p-1 dark:bg-gray-800"><button type="button" onClick={() => go('login')} className={`min-h-10 rounded-lg text-sm font-medium ${mode === 'login' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500'}`}>{T('登录', 'Sign in')}</button><button type="button" onClick={() => go('register')} className={`min-h-10 rounded-lg text-sm font-medium ${mode === 'register' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500'}`}>{T('注册', 'Sign up')}</button></nav>}
+    {mode === 'login' && <div className="mb-5 grid grid-cols-3 rounded-xl bg-gray-100 p-1 dark:bg-gray-800">{([['password',T('账号密码','Password')],['phoneCode',T('手机验证码','Phone code')],['emailCode',T('邮箱验证码','Email code')]] as const).map(([value,label]) => <button key={value} type="button" onClick={() => changeLoginMode(value)} className={`min-h-10 rounded-lg px-1 text-xs font-medium ${loginMode === value ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500'}`}>{label}</button>)}</div>}
+    {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-600">{error}</div>}
+    <form className="space-y-4" onSubmit={e => { e.preventDefault(); void submit() }} noValidate>
+      <div><label htmlFor="login-identifier" className="mb-1.5 block text-sm font-semibold text-gray-800 dark:text-gray-200">{idLabel}</label><div className="relative">{type === 'phone' || channel === 'phone' ? <Smartphone size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"/> : <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"/>}<input id="login-identifier" aria-invalid={idOk === false} type="text" autoComplete={channel === 'phone' ? 'tel' : 'username'} value={identifier} onChange={e => onIdentifier(e.target.value)} placeholder={idPlaceholder} className={input}/><span className="absolute right-3.5 top-1/2 -translate-y-1/2"><ValidationIcon valid={idOk}/></span></div></div>
+      {showPassword && <div><label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-gray-800 dark:text-gray-200">{mode === 'register' ? T('设置密码','Set password') : mode === 'forgot' ? T('新密码','New password') : T('密码','Password')}</label><div className="relative"><Lock size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"/><input id="login-password" type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder={mode === 'register' ? T('设置密码','Set password') : mode === 'forgot' ? T('新密码','New password') : T('请输入密码','Enter password')} className={input}/><span className="absolute right-10 top-1/2 -translate-y-1/2"><ValidationIcon valid={password ? (mode === 'login' ? validPassword(password) : strongPassword(password)) : null}/></span><button type="button" aria-label={showPwd ? T('隐藏密码','Hide password') : T('显示密码','Show password')} onClick={() => setShowPwd(v => !v)} className="absolute right-2.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100">{showPwd ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div></div>}
+      {showCode && <div><label htmlFor="verification-code" className="mb-1.5 block text-sm font-semibold text-gray-800 dark:text-gray-200">{T('验证码','Verification code')}</label><div className="flex gap-2"><input id="verification-code" type="text" inputMode="numeric" value={verifyCode} onChange={e => setVerifyCode(e.target.value)} placeholder={T('请输入验证码','Enter code')} className={`${input} min-w-0 px-3`}/><button type="button" onClick={() => void sendCode()} disabled={sendingCode || !idOk} className="inline-flex h-12 shrink-0 items-center gap-1 rounded-xl border border-primary-200 bg-primary-50 px-3 text-xs font-medium text-primary-600 disabled:opacity-50">{sendingCode ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>}{codeSent ? T('已发送','Sent') : T('发送验证码','Send code')}</button></div></div>}
+      {mode !== 'login' && <div><label htmlFor="confirm-password" className="mb-1.5 block text-sm font-semibold text-gray-800 dark:text-gray-200">{mode === 'register' ? T('确认密码','Confirm password') : T('确认新密码','Confirm new password')}</label><div className="relative"><ShieldCheck size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"/><input id="confirm-password" type={showPwd ? 'text' : 'password'} value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder={mode === 'register' ? T('确认密码','Confirm password') : T('确认新密码','Confirm new password')} className={input}/><span className="absolute right-3.5 top-1/2 -translate-y-1/2"><ValidationIcon valid={confirmPwd ? password === confirmPwd : null}/></span></div></div>}
+      {mode === 'login' && loginMode === 'password' && <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex gap-4"><label className="flex min-h-8 items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={remember} onChange={e => rememberChange(e.target.checked)}/>{T('记住账号','Remember account')}</label><label className="flex min-h-8 items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={autoLogin} disabled={!remember} onChange={e => setAutoLogin(e.target.checked)}/>{T('自动登录','Auto sign in')}</label></div><button type="button" onClick={() => go('forgot')} className="min-h-8 text-sm font-medium text-primary-600">{T('忘记密码？','Forgot password?')}</button></div>}
+      <button type="submit" disabled={loading} className="mt-2 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary-500 text-sm font-semibold text-white transition-[background-color,transform] hover:-translate-y-px hover:bg-primary-600 active:scale-[0.98] disabled:opacity-60">{loading && <Loader2 size={17} className="animate-spin"/>}{mode === 'login' ? T('登录','Sign in') : mode === 'register' ? T('注册','Sign up') : T('重置密码','Reset password')}</button>
+    </form><p className="mt-7 text-center text-xs text-gray-400">v{pkg.version}</p>
+  </section></main>
 }
