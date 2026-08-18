@@ -152,6 +152,24 @@ describe('LoginPage', () => {
     await waitFor(() => expect(mockSendCode).toHaveBeenCalledWith('new@example.com', false))
   })
 
+  it('supports phone registration as an explicit channel', async () => {
+    mockSendCode.mockResolvedValue({ type: 'phone', target: '13800138000', verificationId: 'phone-registration-id', isUser: false })
+    await renderPage()
+    fireEvent.click(screen.getByText('注册'))
+    fireEvent.click(screen.getByRole('button', { name: '手机号注册' }))
+    enter(screen.getByLabelText('账号'), '13800138000')
+    fireEvent.click(screen.getByRole('button', { name: '获取验证码' }))
+    await waitFor(() => expect(mockSendCode).toHaveBeenCalledWith('13800138000', false))
+  })
+
+  it('returns from other sign-in methods to password sign in', async () => {
+    await renderPage()
+    fireEvent.click(screen.getByText('手机验证码'))
+    expect(screen.getByRole('button', { name: '返回账号密码登录' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '返回账号密码登录' }))
+    expect(screen.getByLabelText('密码')).toBeInTheDocument()
+  })
+
   it('toggles password visibility', async () => {
     await renderPage()
     expect(password()).toHaveAttribute('type', 'password')
