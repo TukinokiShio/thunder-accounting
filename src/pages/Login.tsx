@@ -4,6 +4,7 @@ import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { friendlyError } from '@/utils/errorMessages'
 import pkg from '../../package.json'
+import logoUrl from '../../resources/icon.ico?url'
 
 type Mode = 'login' | 'register' | 'forgot'
 type LoginMode = 'password' | 'phoneCode' | 'emailCode'
@@ -100,7 +101,7 @@ export function LoginPage() {
   const submit = () => mode === 'login' ? doLogin() : mode === 'register' ? doRegister() : doReset()
   const rememberChange = (value: boolean) => { setRemember(value); if (!value) { setAutoLogin(false); void window.electronAPI.saveCredentials('', false, false) } }
 
-  return <main className="flex min-h-screen items-center justify-center bg-[#f7f8fa] px-4 py-8 dark:bg-gray-900"><section aria-labelledby="login-title" className="relative w-full max-w-[450px] rounded-[20px] border border-[#e4e7ec] bg-white p-[30px] font-sans dark:border-gray-800 dark:bg-gray-850">
+  return <main className="grid min-h-screen bg-[#f7f8fa] dark:bg-gray-900 lg:grid-cols-[minmax(0,1fr)_minmax(500px,600px)]"><aside className="relative hidden min-h-screen overflow-hidden border-r border-[#d1e0ff] bg-[#eff4ff] lg:flex lg:items-center lg:justify-center"><div className="text-center motion-safe:animate-[pulse_4s_ease-in-out_infinite]"><div className="mx-auto mb-7 flex h-44 w-44 items-center justify-center rounded-[36px] border border-[#d1e0ff] bg-white"><img src={logoUrl} alt="雷霆记账标志" className="h-32 w-32 object-contain" /></div><h2 className="text-3xl font-semibold tracking-tight text-[#101828]">雷霆记账</h2><p className="mt-3 text-base text-[#475467]">{T('简单记录每一笔，清晰管理每一天', 'Track every expense, manage every day')}</p></div></aside><section aria-labelledby="login-title" className="relative flex min-h-screen w-full items-center justify-center bg-white px-6 py-10 dark:bg-gray-850"><div className="relative w-full max-w-[450px] rounded-[20px] border border-[#e4e7ec] bg-white p-[30px] font-sans dark:border-gray-800 dark:bg-gray-850">
     <div className="absolute right-5 top-5 flex overflow-hidden rounded-lg border border-[#e4e7ec] text-xs dark:border-gray-700"><button type="button" onClick={() => setLanguage('zh')} className={`min-h-8 px-2.5 ${language === 'zh' ? 'bg-[#2563eb] text-white' : 'text-[#667085] hover:bg-[#eff4ff]'}`}>中</button><button type="button" onClick={() => setLanguage('en')} className={`min-h-8 px-2.5 ${language === 'en' ? 'bg-[#2563eb] text-white' : 'text-[#667085] hover:bg-[#eff4ff]'}`}>EN</button></div>
     <header className="mb-6 pt-1 text-center"><div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#2563eb] text-white"><Zap size={22} /></div><h1 id="login-title" className="text-xl font-semibold tracking-tight text-[#101828] dark:text-gray-100">雷霆记账</h1><p className="mt-1 text-sm text-[#667085]">{T('个人记账，轻松管理', 'Simple personal finance')}</p></header>
     <span className="sr-only">账号密码</span>
@@ -119,5 +120,5 @@ export function LoginPage() {
     <p className="my-5 text-center text-sm text-black dark:text-gray-200">{mode === 'login' ? T('还没有账号？','Don\'t have an account?') : T('已有账号？','Already have an account?')} <button type="button" className="ml-1 text-primary-600" onClick={() => go(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? T('注册','Sign Up') : T('登录','Sign In')}</button></p>
     {mode === 'login' && <><div className="my-3 flex items-center gap-3 text-sm text-gray-500"><span className="h-px flex-1 bg-gray-200"/><span>{T('其他登录方式','Other sign-in methods')}</span><span className="h-px flex-1 bg-gray-200"/></div><div className="flex gap-[10px]"><button type="button" onClick={() => changeLoginMode('phoneCode')} className="mt-2 flex h-[50px] flex-1 items-center justify-center gap-2 rounded-[10px] border border-[#e4e7ec] bg-white text-sm font-medium text-[#101828] hover:border-[#2563eb]"><Smartphone size={18}/>{T('手机验证码','Phone code')}</button><button type="button" onClick={() => changeLoginMode('emailCode')} className="mt-2 flex h-[50px] flex-1 items-center justify-center gap-2 rounded-[10px] border border-[#e4e7ec] bg-white text-sm font-medium text-[#101828] hover:border-[#2563eb]"><Mail size={18}/>{T('邮箱验证码','Email code')}</button></div></>}
     <p className="mt-5 text-center text-xs text-gray-400">v{pkg.version}</p>
-  </section></main>
+  </div></section></main>
 }
