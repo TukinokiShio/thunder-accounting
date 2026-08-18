@@ -100,8 +100,19 @@ describe('Tencent Cloud contracts', () => {
     expect(saga).toContain("state: 'cleanup_pending'")
     expect(saga).not.toContain('event && event.uid')
     expect(client).toContain('reauth_not_logged_in')
-    expect(client).toContain('auth_delete_failed')
+    expect(client).toContain('resolveAccountDeletionResponse')
     expect(client).toContain('shio-d0gsoo414401468d6-1458734732.tcloudbaseapp.com/delUser')
+  })
+
+  it('keeps the deletion job collection in the deployment preflight instead of silently assuming it exists', () => {
+    const manifest = JSON.parse(read('cloudfunctions/deployment.manifest.json'))
+    const preflight = read('scripts/verify-cloud-deletion.cjs')
+    const deploymentGuide = read('cloudfunctions/README.md')
+    expect(manifest.requiredCollections).toContainEqual(expect.objectContaining({
+      name: 'account_deletion_jobs', requiredBeforeDeploy: true
+    }))
+    expect(preflight).toContain("deployment manifest requires account_deletion_jobs")
+    expect(deploymentGuide).toContain('Create the `account_deletion_jobs` collection')
   })
 
   it('does not preserve the old cloud-data-before-Auth-delete sequence', () => {

@@ -5,6 +5,7 @@ import { app } from 'electron'
 import type { BillRow, CategoryRow } from './database'
 import { clearAllData, getDbPath, getBills, getCategories, setBillCloudId, setCategoryCloudId } from './database'
 import { saveCredentials as safeSave, loadCredentials as safeLoad, clearCredentials } from './credential-store'
+import { resolveAccountDeletionResponse } from './account-deletion'
 
 // ─── Load .env file (manual, no dependency) ─────
 // 在主进程中手动解析 .env 文件，避免 build-time 注入。
@@ -1299,9 +1300,7 @@ export async function deleteAccount(code: string): Promise<{ cleanupPending: boo
   })
   const raw = await res.json().catch(() => ({})) as Record<string, unknown>
   const data = (raw.data && typeof raw.data === 'object' ? raw.data : raw) as { code?: number; message?: string; cleanup_pending?: boolean }
-  if (!res.ok || (data.code !== 0 && data.code !== 202)) {
-    throw new Error(`auth_delete_failed: ${data.message || `HTTP ${res.status}`}`)
-  }
+  const result = resolveAccountDeletionResponse(res.status, data)
 
   // Auth 删除成功后才清理本地状态。cleanup_pending 表示远端清理由 saga 重试，不是假报已清理。
   let localCleanupError: string | null = null
@@ -1320,7 +1319,7 @@ export async function deleteAccount(code: string): Promise<{ cleanupPending: boo
   clearSession()
 
   if (localCleanupError) throw new Error(`local_cleanup_failed: ${localCleanupError}`)
-  return { cleanupPending: data.cleanup_pending === true }
+  return result
 }
 
 // ─── User Stats ────────────────────────────────────

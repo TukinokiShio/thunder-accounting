@@ -189,19 +189,29 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     en: 'Cloud sync unavailable'
   },
   {
-    patterns: [/auth_delete_failed/i, /Failed to delete user data/i, /Delete user failed/i],
-    zh: '注销失败：云端数据未完成清理，请稍后重试或联系管理员',
-    en: 'Account deletion failed. Cloud data was not fully cleaned up; please retry or contact an administrator.'
+    patterns: [/account_delete_job_unavailable/i, /deletion_job_unavailable/i],
+    zh: '注销服务尚未就绪：云端缺少注销清理任务。请管理员部署 delUser、cleanupDeletedUsers，并创建 account_deletion_jobs 集合后重试。',
+    en: 'Account deletion is not ready: the cloud cleanup job is unavailable. Ask an administrator to deploy the deletion functions and create account_deletion_jobs.'
   },
   {
-    patterns: [/local_cleanup_failed/i],
-    zh: '账号已注销，但本地数据清理失败，请重新启动应用后重试清理',
-    en: 'Account deleted, but local cleanup failed. Restart the app and retry cleanup.'
+    patterns: [/account_delete_session_expired/i, /invalid_session/i],
+    zh: '登录状态已失效，请重新登录后再注销。',
+    en: 'Your session has expired. Please sign in again before deleting your account.'
   },
   {
-    patterns: [/auth_delete_failed/i, /Failed to delete user data/i, /Delete user failed/i],
-    zh: '注销失败：云端数据未完成清理，请稍后重试或联系管理员',
-    en: 'Account deletion failed. Cloud data was not fully cleaned up; please retry or contact an administrator.'
+    patterns: [/account_delete_verification_failed/i, /auth_delete_failed/i],
+    zh: '注销验证码错误或已过期，请重新获取验证码后再试。',
+    en: 'The deletion verification code is invalid or expired. Request a new code and try again.'
+  },
+  {
+    patterns: [/account_delete_service_unavailable/i],
+    zh: '注销服务暂时不可用，请稍后重试；若持续出现，请联系管理员检查云函数。',
+    en: 'The account-deletion service is temporarily unavailable. Try again later or ask an administrator to check the cloud function.'
+  },
+  {
+    patterns: [/account_delete_failed/i, /Failed to delete user data/i, /Delete user failed/i],
+    zh: '注销失败，请重新获取验证码后重试。',
+    en: 'Account deletion failed. Request a new verification code and try again.'
   },
   {
     patterns: [/local_cleanup_failed/i],

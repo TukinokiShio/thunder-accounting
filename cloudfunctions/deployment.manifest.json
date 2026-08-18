@@ -15,5 +15,12 @@
       "environmentVariables": ["CLOUDBASE_APIKEY"],
       "notes": "Internal retry worker only; do not configure an HTTP route."
     }
+  ],
+  "requiredCollections": [
+    {
+      "name": "account_deletion_jobs",
+      "purpose": "Durable deletion saga state; delUser must be able to insert and cleanupDeletedUsers must be able to query/update it.",
+      "requiredBeforeDeploy": true
+    }
   ]
 }
