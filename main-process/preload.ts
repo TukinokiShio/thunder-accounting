@@ -110,11 +110,11 @@ const electronAPI = {
   logout: () =>
     ipcRenderer.invoke('auth:logout'),
 
-  checkSession: () =>
-    ipcRenderer.invoke('auth:checkSession'),
+  checkSession: (allowAutoLogin: boolean) =>
+    ipcRenderer.invoke('auth:checkSession', allowAutoLogin),
 
-  saveCredentials: (email: string, password: string) =>
-    ipcRenderer.invoke('auth:saveCredentials', email, password),
+  saveCredentials: (identifier: string, rememberAccount: boolean, autoLogin: boolean) =>
+    ipcRenderer.invoke('auth:saveCredentials', identifier, rememberAccount, autoLogin),
 
   loadCredentials: () =>
     ipcRenderer.invoke('auth:loadCredentials'),

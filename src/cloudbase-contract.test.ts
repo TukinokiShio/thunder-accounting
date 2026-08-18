@@ -152,4 +152,11 @@ describe('Tencent Cloud contracts', () => {
     expect(phoneSignup).not.toContain('verification_code: code')
     expect((phoneSignup.match(/authFetch\('\/auth\/v1\/signup'/g) || [])).toHaveLength(1)
   })
+
+  it('establishes a real phone session after signup so the profile can read the Auth phone binding', () => {
+    const client = read('main-process/cloudbase.ts')
+    const phoneSignup = client.slice(client.indexOf('export async function registerWithPhone'), client.indexOf('/** 登录 */'))
+    expect(phoneSignup).toContain('phone_number: \'+86 \' + phone')
+    expect(phoneSignup).toContain('return loginWithEmail(phone, password)')
+  })
 })

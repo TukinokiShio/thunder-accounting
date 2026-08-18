@@ -4,6 +4,7 @@ import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories } from './database/index'
 import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { logoutAndDisableAutoLogin } from './auth-preferences'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -332,10 +333,12 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('auth:logout', async () => {
-    await logout()
+    // 主动退出应撤销“自动恢复会话”的许可，但保留用户明确选择的记住账号标识符。
+    await logoutAndDisableAutoLogin(logout, loadCredentials, saveCredentials)
   })
 
-  ipcMain.handle('auth:checkSession', async () => {
+  ipcMain.handle('auth:checkSession', async (_event, allowAutoLogin = false) => {
+    if (!allowAutoLogin) return null
     const session = await checkSession()
     if (session?.user.uid) {
       await switchToUserDatabase(session.user.uid, false)
@@ -357,8 +360,8 @@ function registerIpcHandlers(): void {
 
   // ─── Remember Credentials ─────────────────────
 
-  ipcMain.handle('auth:saveCredentials', async (_event, email: string, password: string) => {
-    await saveCredentials(email, password)
+  ipcMain.handle('auth:saveCredentials', async (_event, identifier: string, rememberAccount: boolean, autoLogin: boolean) => {
+    await saveCredentials(identifier, rememberAccount, autoLogin)
   })
 
   ipcMain.handle('auth:loadCredentials', async () => {

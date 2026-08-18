@@ -77,11 +77,11 @@ export interface ElectronAPI {
   login: (email: string, password: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   loginWithCode: (email: string, code: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   logout: () => Promise<void>
-  checkSession: () => Promise<{ user: CloudBaseUser; accountId?: string } | null>
+  checkSession: (allowAutoLogin: boolean) => Promise<{ user: CloudBaseUser; accountId?: string } | null>
   // Sync
   getSyncStatus: () => Promise<{ isLoggedIn: boolean }>
-  saveCredentials: (email: string, password: string) => Promise<void>
-  loadCredentials: () => Promise<{ email: string; password: string }>
+  saveCredentials: (identifier: string, rememberAccount: boolean, autoLogin: boolean) => Promise<void>
+  loadCredentials: () => Promise<{ identifier: string; rememberAccount: boolean; autoLogin: boolean }>
   sendReauthCode: (verifyOpt?: 'phone_code' | 'email_code') => Promise<void>
   changePassword: (newPassword: string, verificationCode: string, oldPassword?: string) => Promise<void>
   resetPassword: (identifier: string, newPassword: string, verificationCode: string, verificationId: string) => Promise<void>

@@ -43,7 +43,7 @@ vi.mock('@/utils/errorMessages', () => ({
 }));
 
 // ─── Mock electronAPI helpers ─────────────────────
-const mockLoadCredentials = vi.fn().mockResolvedValue({ email: '', password: '' });
+const mockLoadCredentials = vi.fn().mockResolvedValue({ identifier: '', rememberAccount: false, autoLogin: false });
 const mockLogin = vi.fn();
 const mockRegister = vi.fn();
 const mockSendCode = vi.fn();
@@ -73,10 +73,11 @@ function fillEmailReg(value: string) {
   fireEvent.change(input, { target: { value } });
 }
 
-// ─── Helper: 填写密码（第一个 "••••••" 输入框）─────
+// ─── Helper: 填写登录密码或注册的设置密码 ──────────
 function fillPassword(value: string) {
-  const inputs = screen.getAllByPlaceholderText('••••••');
-  fireEvent.change(inputs[0], { target: { value } });
+  const input = screen.queryByPlaceholderText('••••••') || screen.queryByPlaceholderText('设置密码');
+  if (!input) throw new Error('password input missing');
+  fireEvent.change(input, { target: { value } });
 }
 
 // ─── Helper: 找到密码显示/隐藏切换按钮 ─────────────
@@ -88,7 +89,7 @@ describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     langSettings.language = 'zh';
-    mockLoadCredentials.mockResolvedValue({ email: '', password: '' });
+    mockLoadCredentials.mockResolvedValue({ identifier: '', rememberAccount: false, autoLogin: false });
     mockElectronAPI();
   });
 
@@ -130,7 +131,8 @@ describe('LoginPage', () => {
     // 验证码输入框
     expect(screen.getByPlaceholderText('验证码')).toBeInTheDocument();
     // 两个密码输入框（密码 + 确认密码）
-    expect(screen.getAllByPlaceholderText('••••••').length).toBe(2);
+    expect(screen.getByPlaceholderText('设置密码')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('确认密码')).toBeInTheDocument();
     // 发送验证码按钮
     expect(screen.getByText('发送验证码')).toBeInTheDocument();
     // 提交按钮文本变为"注册"（tab + button）
@@ -155,7 +157,7 @@ describe('LoginPage', () => {
     // 新密码输入框
     expect(screen.getByPlaceholderText('新密码')).toBeInTheDocument();
     // 确认密码输入框
-    expect(screen.getByPlaceholderText('••••••')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('确认新密码')).toBeInTheDocument();
     // 提交按钮
     expect(screen.getByText('重置密码')).toBeInTheDocument();
     // 不应显示记住我
@@ -249,14 +251,14 @@ describe('LoginPage', () => {
   it('should handle remember me checkbox', () => {
     render(<LoginPage />);
 
-    const checkbox = screen.getByRole('checkbox');
+    const checkbox = screen.getAllByRole('checkbox')[0];
     // 默认选中
     expect(checkbox).toBeChecked();
 
-    // 取消选中 → 应调用 saveCredentials('', '')
+    // 取消记住账号会同时清理自动登录偏好，且绝不传入密码。
     fireEvent.click(checkbox);
     expect(checkbox).not.toBeChecked();
-    expect(mockSaveCredentials).toHaveBeenCalledWith('', '');
+    expect(mockSaveCredentials).toHaveBeenCalledWith('', false, false);
   });
 
   // ── 11. 成功登录流程 ──────────────────────────
@@ -273,9 +275,9 @@ describe('LoginPage', () => {
       expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123');
     });
 
-    // 保持 remember 为 true → 保存凭据
+    // 保持 remember 为 true → 仅保存标识符和偏好，绝不保存密码
     await waitFor(() => {
-      expect(mockSaveCredentials).toHaveBeenCalledWith('test@example.com', 'password123');
+      expect(mockSaveCredentials).toHaveBeenCalledWith('test@example.com', true, false);
     });
 
     // 设置用户状态

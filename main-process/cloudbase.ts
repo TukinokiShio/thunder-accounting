@@ -147,20 +147,20 @@ export function initCloudBase(): void {
 // ─── Remember Credentials ─────────────────────────
 // 委托给 credential-store（safeStorage 加密）
 
-export async function saveCredentials(email: string, password: string): Promise<void> {
+export async function saveCredentials(identifier: string, rememberAccount: boolean, autoLogin: boolean): Promise<void> {
   try {
-    await safeSave(email, password)
+    await safeSave(identifier, rememberAccount, autoLogin)
   } catch (e) {
     console.error('保存加密凭据失败：', e)
   }
 }
 
-export async function loadCredentials(): Promise<{ email: string; password: string }> {
+export async function loadCredentials(): Promise<{ identifier: string; rememberAccount: boolean; autoLogin: boolean }> {
   try {
     const cred = await safeLoad()
-    return cred || { email: '', password: '' }
+    return cred
   } catch {
-    return { email: '', password: '' }
+    return { identifier: '', rememberAccount: false, autoLogin: false }
   }
 }
 
@@ -450,11 +450,9 @@ export async function registerWithEmail(email: string, password: string, code: s
   const accountId = generateStandardAccountId(email)
   const nickname = generateDefaultNickname(email)
   await createAccountRecord(email, uid, accountId, nickname)
-
-  return {
-    user: { uid, email, emailVerified: !!u.email_verified, accountId, nickname },
-    accountId
-  }
+  // signup 响应不是可用会话；原生 signin 后才会写入 refresh token，确保注册后
+  // 资料页可读取真实 Auth 绑定信息并支持自动登录。
+  return loginWithEmail(email, password)
 }
 
 /** 注册（手机号 + 验证码） */
@@ -479,10 +477,8 @@ export async function registerWithPhone(phone: string, password: string, code: s
     try {
       await db?.collection('accounts').where({ uid }).update({ phone })
     } catch { /* ignore */ }
-    return {
-      user: { uid, email: internalEmail, emailVerified: false, accountId, nickname },
-      accountId
-    }
+    // 同上：手机号必须通过原生手机号 signin 建立会话，不能只返回 signup 的 uid。
+    return loginWithEmail(phone, password)
   }
 
   const e = data as { error?: string; error_description?: string }

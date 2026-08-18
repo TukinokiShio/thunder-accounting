@@ -40,6 +40,7 @@ export function LoginPage() {
   const [verifyCode, setVerifyCode] = useState('')
   const [verificationId, setVerificationId] = useState('')
   const [remember, setRemember] = useState(true)
+  const [autoLogin, setAutoLogin] = useState(false)
   const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -48,13 +49,18 @@ export function LoginPage() {
 
   useEffect(() => {
     window.electronAPI.loadCredentials().then(c => {
-      if (c.email) { setIdentifier(c.email); setPassword(c.password) }
+      setRemember(c.rememberAccount)
+      setAutoLogin(c.autoLogin)
+      if (c.rememberAccount && c.identifier) setIdentifier(c.identifier)
     })
   }, [])
 
   const handleRemember = useCallback((v: boolean) => {
     setRemember(v)
-    if (!v) window.electronAPI.saveCredentials('', '')
+    if (!v) {
+      setAutoLogin(false)
+      void window.electronAPI.saveCredentials('', false, false)
+    }
   }, [])
 
   function toLogin() { setMode('login'); clear() }
@@ -116,7 +122,8 @@ export function LoginPage() {
       const result = loginMode === 'password'
         ? await window.electronAPI.login(resolved, password)
         : await window.electronAPI.loginWithCode(resolved, verifyCode.trim(), verificationId)
-      if (remember) window.electronAPI.saveCredentials(resolved, password)
+      // 不保存密码；自动登录使用已持久化的 CloudBase 刷新令牌。
+      await window.electronAPI.saveCredentials(resolved, remember, autoLogin)
       setUser(result.user)
       addToast('success', T('欢迎回来！', 'Welcome back!'))
     } catch (e) { setError(friendlyError(e, lang)) }
@@ -135,7 +142,7 @@ export function LoginPage() {
     try {
       // 注册逻辑：邮箱或手机号，由 main.ts IPC 内部分流到 registerWithEmail / registerWithPhone
       const result = await window.electronAPI.register(idTrim, password, verifyCode.trim(), verificationId)
-      if (remember) window.electronAPI.saveCredentials(idTrim, password)
+      await window.electronAPI.saveCredentials(idTrim, remember, autoLogin)
       setUser(result.user || result)
       addToast('success', T('注册成功！', 'Registered!'))
     } catch (e) { setError(friendlyError(e, lang)) }
@@ -257,7 +264,7 @@ export function LoginPage() {
               <div className="relative">
                 <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input type={showPwd?'text':'password'} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder={mode === 'forgot' ? T('新密码','New Password') : '••••••'} className={cls} />
+                  placeholder={mode === 'register' ? T('设置密码', 'Set password') : mode === 'forgot' ? T('新密码','New Password') : '••••••'} className={cls} />
                 <span className="absolute right-8 top-1/2 -translate-y-1/2">
                   {mode==='register' || mode==='forgot'
                     ? <ValIcon ok={password ? strongPassword(password) : null} />
@@ -289,7 +296,7 @@ export function LoginPage() {
               <div className="relative">
                 <ShieldCheck size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input type={showPwd?'text':'password'} value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)}
-                  placeholder="••••••" className={cls} />
+                  placeholder={mode === 'register' ? T('确认密码', 'Confirm password') : T('确认新密码', 'Confirm new password')} className={cls} />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2"><ValIcon ok={confirmPwd ? password===confirmPwd : null} /></span>
               </div>
             </div>
@@ -301,6 +308,14 @@ export function LoginPage() {
               <input type="checkbox" checked={remember} onChange={e => handleRemember(e.target.checked)}
                 className="rounded border-gray-300 text-primary-500 focus:ring-primary-500" />
               {T('记住账号','Remember me')}
+            </label>
+          )}
+          {mode === 'login' && loginMode === 'password' && (
+            <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+              <input type="checkbox" checked={autoLogin} disabled={!remember}
+                onChange={e => setAutoLogin(e.target.checked)}
+                className="rounded border-gray-300 text-primary-500 focus:ring-primary-500 disabled:opacity-50" />
+              {T('自动登录', 'Auto login')}
             </label>
           )}
 

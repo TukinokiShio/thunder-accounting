@@ -30,7 +30,8 @@ export default function App() {
       const store = useStore.getState()
       store.setCheckingSession(true)
       try {
-        const session = await window.electronAPI.checkSession()
+        const preferences = await window.electronAPI.loadCredentials()
+        const session = await window.electronAPI.checkSession(preferences.autoLogin)
         if (!cancelled) store.setUser(session?.user ?? null)
       } catch (error) {
         console.error('恢复登录会话失败:', error)
