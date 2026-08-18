@@ -24,13 +24,15 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
 
   const handleSendCode = async () => {
     setPwdError('')
-    if (!oldPassword) {
-      setPwdError(t('请输入当前密码'))
-      return
-    }
     setSendingCode(true)
     try {
-      await window.electronAPI.sendReauthCode(oldPassword)
+      const bindings = await window.electronAPI.getAccountBindings()
+      const verifyOpt = bindings?.phone ? 'phone_code' : bindings?.email || user?.email ? 'email_code' : null
+      if (!verifyOpt) {
+        setPwdError(t('发送失败'))
+        return
+      }
+      await window.electronAPI.sendReauthCode(verifyOpt)
       setCodeSent(true)
       addToast('success', t('验证码已发送到邮箱'))
     } catch (e) {
@@ -46,17 +48,18 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
       setPwdError(t('请输入新密码'))
       return
     }
-    if (newPassword.length < 6) {
-      setPwdError(t('新密码至少 6 位'))
+    const passwordClasses = [/[a-z]/, /[A-Z]/, /\d/, /[()!@#$%^&*|?><_\-]/]
+    if (newPassword.length < 8 || newPassword.length > 32 || passwordClasses.filter(pattern => pattern.test(newPassword)).length < 3) {
+      setPwdError('新密码需为 8-32 位，并包含小写字母、大写字母、数字、特殊字符中的至少三类')
       return
     }
-    if (!codeSent) {
+    if (!codeSent || !verifyCode) {
       setPwdError(t('请先发送验证码'))
       return
     }
     setChangingPwd(true)
     try {
-      await window.electronAPI.changePassword(newPassword)
+      await window.electronAPI.changePassword(newPassword, verifyCode, oldPassword || undefined)
       addToast('success', t('密码修改成功'))
       setShowPwdForm(false)
       setOldPassword('')

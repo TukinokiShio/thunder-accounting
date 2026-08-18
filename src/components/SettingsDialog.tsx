@@ -123,9 +123,9 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
 
       {/* Dialog */}
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up max-h-[85vh] overflow-y-auto">
+      <div className="relative rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up max-h-[85vh] overflow-y-auto aurora-dialog">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+        <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 z-10 aurora-dialog aurora-border">
           <h2 className="text-lg font-bold text-gray-900">{t('设置')}</h2>
           <button
             onClick={onClose}
@@ -190,6 +190,18 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
                 </select>
               </div>
             </div>
+          </section>
+
+          {/* Account entry kept in settings for discoverability; details live in Profile. */}
+          <section>
+            <h3 className="text-sm font-semibold mb-2">账户</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full text-left px-3 py-2 rounded-lg border aurora-border aurora-muted hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-colors"
+            >
+              在个人中心管理账号绑定与安全设置
+            </button>
           </section>
 
           {/* ── Data Management ── */}

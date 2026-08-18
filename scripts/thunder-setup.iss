@@ -3,12 +3,14 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "1.10.2"
+#define AppVersion "1.10.13"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"
-; 项目根目录（默认安装到此位置，方便开发期热更新）
-#define ProjectRoot "E:\Code\BlackHorse\VibeCoding\记账app"
+; 可通过 ISCC.exe /DBuildOutputDir="..." 覆盖，便于隔离验证安装包来源
+#ifndef BuildOutputDir
+#define BuildOutputDir "..\release"
+#endif
 
 [Setup]
 AppId={{ThunderBooks-78A1-4F3C-B2D9-E5F6C7A8B9D0}
@@ -16,8 +18,8 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
-; 默认安装到项目目录下的"雷霆记账"子目录（便于覆盖旧版本）
-DefaultDirName={#ProjectRoot}\{#AppName}
+; 默认安装到当前用户程序目录，避免写入开发机工作树
+DefaultDirName={localappdata}\Programs\{#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\release
 OutputBaseFilename=雷霆记账_Inno_v{#AppVersion}
@@ -36,7 +38,7 @@ Name: "chinese"; MessagesFile: "compiler:Default.isl"
 ; Copy icon.ico FIRST so shortcuts can reference it
 Source: "..\resources\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; Then copy the entire app
-Source: "..\release\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildOutputDir}\win-unpacked\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; 桌面快捷方式: 显式指定图标文件，不依赖 EXE 嵌入图标

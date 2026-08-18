@@ -39,11 +39,28 @@ interface UserStats {
 }
 
 function isInternalEmail(email: string): boolean {
-  return !email || email.endsWith('@phone.tb')
+  const normalized = email.trim().toLowerCase()
+  return !normalized || normalized.endsWith('@phone.tb') || normalized.endsWith('@thunder.invalid') || normalized.endsWith('@lgs.invalid')
+}
+
+function isInternalPhone(phone: string): boolean {
+  const normalized = phone.replace(/\s/g, '')
+  return !normalized || normalized.startsWith('+86140') || normalized.startsWith('86140') || normalized.startsWith('140')
 }
 
 function isPasswordValid(pwd: string): boolean {
-  return pwd.length >= 6 && /\d/.test(pwd) && /[a-zA-Z]/.test(pwd)
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[()!@#$%^&*|?><_\-]/]
+  return pwd.length >= 8 && pwd.length <= 32 && classes.filter(pattern => pattern.test(pwd)).length >= 3
+}
+
+function bindingError(e: unknown, lang: Parameters<typeof friendlyError>[1]): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  if (raw.includes('binding_mapping_pending')) {
+    return lang === 'zh'
+      ? 'CloudBase Auth 已完成绑定，但账号映射尚未同步。请配置 CLOUDBASE_API_KEY 后刷新重试。'
+      : 'CloudBase Auth binding completed, but the account mapping is pending. Configure CLOUDBASE_API_KEY and retry.'
+  }
+  return friendlyError(e, lang)
 }
 
 export default function ProfilePage() {
@@ -92,16 +109,14 @@ export default function ProfilePage() {
 
   // ── 派生值 ──
   const accountId = account?.accountId || user?.accountId || ''
+  const visibleEmail = account?.email && !isInternalEmail(account.email) ? account.email : ''
   const nickname =
     account?.nickname ||
     user?.nickname ||
-    (user?.email?.split('@')[0] ?? '') ||
-    user?.email ||
+    (visibleEmail.split('@')[0] ?? '') ||
     '未知用户'
-  const boundEmail = account?.email && !isInternalEmail(account.email)
-    ? account.email
-    : (account?.email || '')
-  const boundPhone = account?.phone || ''
+  const boundEmail = visibleEmail
+  const boundPhone = account?.phone && !isInternalPhone(account.phone) ? account.phone : ''
 
   // ── 复制账号 ID ──
   const copyAccountId = () => {
@@ -127,9 +142,9 @@ export default function ProfilePage() {
   ]
 
   return (
-    <div className="flex gap-4 h-full w-full">
+    <div className="profile-layout page-view w-full min-w-0 flex min-h-full flex-col gap-4 md:flex-row">
       {/* ── 左侧标签导航 ── */}
-      <aside className="w-48 shrink-0">
+      <aside className="profile-nav w-full min-w-0 shrink-0 md:w-48">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">个人中心</h2>
         <nav className="space-y-1">
           {tabs.map(tab => (
@@ -150,7 +165,7 @@ export default function ProfilePage() {
       </aside>
 
       {/* ── 右侧内容区 ── */}
-      <div className="flex-1 min-w-0 space-y-4">
+      <div className="profile-content flex-1 min-w-0 space-y-4">
         {/* 云端服务状态提示（统一在顶部展示） */}
         {cloudAvailable === false && <CloudUnavailableNotice />}
 
@@ -208,8 +223,8 @@ function CloudUnavailableNotice() {
       <div className="flex-1 min-w-0">
         <h3 className="text-sm font-semibold text-amber-800">云端服务未配置</h3>
         <p className="text-xs text-amber-700 mt-1">
-          当前应用未配置 CLOUDBASE_API_KEY（位于项目根目录 <code className="px-1 bg-amber-100 rounded">.env</code> 文件），
-          涉及云端的功能（修改密码、邮箱/手机号绑定、注销账号）暂不可用。
+          当前应用未配置 CLOUDBASE_API_KEY（安装版可将 <code className="px-1 bg-amber-100 rounded">.env</code> 放在 exe 同级目录），
+          云端数据库同步与账号映射暂不可用；登录态下的 Auth 绑定、注销和修改密码会走独立链路。
         </p>
         <p className="text-xs text-amber-700 mt-1">
           本地功能（账号信息查看、数据概览、退出登录）仍可正常使用。
@@ -292,12 +307,11 @@ function InfoTab({
 // 子组件：安全设置（修改密码）
 // ═════════════════════════════════════════════════════════════════
 
-function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: string; cloudAvailable: boolean }) {
+function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email: string; phone: string; cloudAvailable: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [verifyChannel, setVerifyChannel] = useState<'email' | 'phone' | null>(null)
   const [showChannelDropdown, setShowChannelDropdown] = useState(false)
   const [code, setCode] = useState('')
-  const [vid, setVid] = useState('')
   const [codeSent, setCodeSent] = useState(false)
   const [newPwd, setNewPwd] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
@@ -328,7 +342,6 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
   const reset = () => {
     setVerifyChannel(null)
     setCode('')
-    setVid('')
     setCodeSent(false)
     setNewPwd('')
     setConfirmPwd('')
@@ -343,18 +356,16 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
     }
     // 只有 1 个渠道时直接发送，不显示选择器
     const target = verifyChannel || channels[0].key
-    const targetValue = channels.find(c => c.key === target)?.value
-    if (!targetValue) return
+    if (!channels.find(c => c.key === target)?.value) return
 
     setSending(true)
     try {
-      const result = await window.electronAPI.sendBindCode(targetValue)
-      setVid(result.verificationId)
+      await window.electronAPI.sendReauthCode(target === 'phone' ? 'phone_code' : 'email_code')
       setCodeSent(true)
       setVerifyChannel(target) // 记住用户选择（多个渠道时）
       addToast('success', `验证码已发送到${target === 'phone' ? '手机' : '邮箱'}`)
     } catch (e) {
-      addToast('error', friendlyError(e, lang))
+      addToast('error', bindingError(e, lang))
     } finally {
       setSending(false)
     }
@@ -362,12 +373,12 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
 
   // 提交修改
   const handleSubmit = async () => {
-    if (!code || !vid) {
+    if (!code) {
       addToast('error', '请先发送并填写验证码')
       return
     }
     if (!isPasswordValid(newPwd)) {
-      addToast('error', '新密码至少6位，需包含字母和数字')
+      addToast('error', '新密码需为 8-32 位，并包含小写字母、大写字母、数字、特殊字符中的至少三类')
       return
     }
     if (newPwd !== confirmPwd) {
@@ -376,11 +387,15 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
     }
     setSubmitting(true)
     try {
-      await window.electronAPI.changePassword(newPwd)
+      if (!verifyChannel) {
+        addToast('error', '请选择验证方式并发送验证码')
+        return
+      }
+      await window.electronAPI.changePassword(newPwd, code)
       addToast('success', '密码修改成功，请使用新密码重新登录')
       reset()
     } catch (e) {
-      addToast('error', friendlyError(e, lang))
+      addToast('error', bindingError(e, lang))
     } finally {
       setSubmitting(false)
     }
@@ -404,10 +419,8 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
             </div>
           </div>
           <button
-            onClick={() => cloudAvailable && setExpanded(!expanded)}
-            disabled={!cloudAvailable}
-            title={!cloudAvailable ? '云端服务未配置，暂不可用' : ''}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-50"
+            onClick={() => setExpanded(!expanded)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
           >
             {expanded ? '收起' : '修改'}
             <ChevronRight size={14} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
@@ -447,7 +460,6 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                               setShowChannelDropdown(false)
                               setCodeSent(false)
                               setCode('')
-                              setVid('')
                             }}
                             className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
                           >
@@ -484,7 +496,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                       <input
                         value={code}
                         onChange={e => setCode(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="profile-input w-full px-3 py-2 rounded-lg text-sm"
                         placeholder="输入收到的验证码"
                         maxLength={6}
                       />
@@ -492,14 +504,14 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
 
                     <div>
                       <label className="text-xs text-gray-500 block mb-1">
-                        新密码 <span className="text-gray-400">（至少6位，含字母和数字）</span>
+                        新密码 <span className="text-gray-400">（8-32 位，至少包含三类字符）</span>
                       </label>
                       <div className="relative">
                         <input
                           type={showPwd ? 'text' : 'password'}
                           value={newPwd}
                           onChange={e => setNewPwd(e.target.value)}
-                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="profile-input w-full px-3 py-2 pr-10 rounded-lg text-sm"
                           placeholder="输入新密码"
                         />
                         <button
@@ -519,8 +531,8 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                           type={showPwd ? 'text' : 'password'}
                           value={confirmPwd}
                           onChange={e => setConfirmPwd(e.target.value)}
-                          className={`w-full px-3 py-2 pr-10 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            confirmPwd && newPwd !== confirmPwd ? 'border-red-400' : 'border-gray-300'
+                          className={`profile-input w-full px-3 py-2 pr-10 rounded-lg text-sm ${
+                            confirmPwd && newPwd !== confirmPwd ? 'is-invalid' : ''
                           }`}
                           placeholder="再次输入新密码"
                         />
@@ -575,10 +587,11 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
 // 子组件：绑定管理（邮箱 + 手机号）
 // ═════════════════════════════════════════════════════════════════
 
-function BindingTab({ email, phone, onChange }: {
+function BindingTab({ email, phone, onChange, cloudAvailable: _cloudAvailable }: {
   email: string
   phone: string
   onChange: () => void | Promise<void>
+  cloudAvailable?: boolean
 }) {
   return (
     <div className="max-w-2xl space-y-6">
@@ -591,7 +604,7 @@ function BindingTab({ email, phone, onChange }: {
         {email && !phone && ' 至少需要保留一种绑定方式。'}
       </p>
 
-      <EmailBindingCard boundEmail={email} onChange={onChange} />
+      <EmailBindingCard boundEmail={email} boundPhone={phone} onChange={onChange} />
       <PhoneBindingCard boundPhone={phone} boundEmail={email} onChange={onChange} />
     </div>
   )
@@ -599,8 +612,9 @@ function BindingTab({ email, phone, onChange }: {
 
 // ─── 邮箱绑定 ──────────────────────────────────────────
 
-function EmailBindingCard({ boundEmail, onChange }: {
+function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   boundEmail: string
+  boundPhone: string
   onChange: () => void | Promise<void>
 }) {
   const [target, setTarget] = useState('')
@@ -631,7 +645,7 @@ function EmailBindingCard({ boundEmail, onChange }: {
       setStep('code-sent')
       addToast('success', '验证码已发送到邮箱')
     } catch (e) {
-      addToast('error', friendlyError(e, lang))
+      addToast('error', bindingError(e, lang))
     } finally {
       setSending(false)
     }
@@ -646,7 +660,7 @@ function EmailBindingCard({ boundEmail, onChange }: {
       reset()
       await onChange()
     } catch (e) {
-      addToast('error', friendlyError(e, lang))
+      addToast('error', bindingError(e, lang))
     } finally {
       setBinding(false)
     }
@@ -654,6 +668,10 @@ function EmailBindingCard({ boundEmail, onChange }: {
 
   const sendUnbindCode = async () => {
     if (!boundEmail) return
+    if (!boundPhone) {
+      addToast('error', '当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台')
+      return
+    }
     setSendingUnbind(true)
     try {
       const r = await window.electronAPI.sendBindCode(boundEmail)
@@ -715,7 +733,7 @@ function EmailBindingCard({ boundEmail, onChange }: {
             onChange={e => setUnbindCode(e.target.value)}
             placeholder="输入验证码"
             maxLength={6}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
           <div className="flex items-center gap-2">
             <button
@@ -745,7 +763,7 @@ function EmailBindingCard({ boundEmail, onChange }: {
             value={target}
             onChange={e => setTarget(e.target.value)}
             placeholder="输入要绑定的邮箱"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
           <button
             onClick={sendCode}
@@ -767,7 +785,7 @@ function EmailBindingCard({ boundEmail, onChange }: {
             onChange={e => setCode(e.target.value)}
             placeholder="输入验证码"
             maxLength={6}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
           <div className="flex items-center gap-2">
             <button
@@ -847,6 +865,10 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
 
   const sendUnbindCode = async () => {
     if (!boundPhone) return
+    if (!boundEmail) {
+      addToast('error', '当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台')
+      return
+    }
     setSendingUnbind(true)
     try {
       const r = await window.electronAPI.sendBindCode(boundPhone)
@@ -905,7 +927,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             value={unbindCode}
             onChange={e => setUnbindCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             placeholder="输入验证码"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
           <div className="flex items-center gap-2">
             <button
@@ -935,7 +957,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))}
             placeholder="输入11位手机号"
             maxLength={11}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
           <button
             onClick={sendCode}
@@ -956,7 +978,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             value={code}
             onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             placeholder="输入验证码"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
           <div className="flex items-center gap-2">
             <button
@@ -1046,17 +1068,17 @@ function StatCard({ label, value, variant }: {
 // ═════════════════════════════════════════════════════════════════
 
 function DangerTab({
-  accountId, email, phone, nickname, onDeleted
+  accountId, email, phone, nickname, onDeleted, cloudAvailable: _cloudAvailable
 }: {
   accountId: string
   email: string
   phone: string
   nickname: string
   onDeleted: () => void
+  cloudAvailable?: boolean
 }) {
   const [step, setStep] = useState<'idle' | 'code-sent'>('idle')
   const [code, setCode] = useState('')
-  const [vid, setVid] = useState('')
   const [confirmText, setConfirmText] = useState('')
   const [sending, setSending] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1070,7 +1092,6 @@ function DangerTab({
   const reset = () => {
     setStep('idle')
     setCode('')
-    setVid('')
     setConfirmText('')
   }
 
@@ -1081,8 +1102,7 @@ function DangerTab({
     }
     setSending(true)
     try {
-      const r = await window.electronAPI.sendBindCode(verifyTarget)
-      setVid(r.verificationId)
+      await window.electronAPI.sendReauthCode(verifyType === 'phone' ? 'phone_code' : 'email_code')
       setStep('code-sent')
       addToast('success', `验证码已发送到${verifyType === 'phone' ? '手机' : '邮箱'}`)
     } catch (e) {
@@ -1097,11 +1117,11 @@ function DangerTab({
       addToast('error', `请输入正确的账号ID ${accountId} 确认注销`)
       return
     }
-    if (!code || !vid) { addToast('error', '请输入验证码'); return }
+    if (!code) { addToast('error', '请输入验证码'); return }
     setDeleting(true)
     try {
-      await window.electronAPI.deleteAccount(code, vid)
-      addToast('success', '账号已注销')
+      const result = await window.electronAPI.deleteAccount(code)
+      addToast('success', result.cleanupPending ? '账号已注销，云端数据正在后台清理' : '账号和云端数据已注销')
       setTimeout(onDeleted, 500)
     } catch (e) {
       addToast('error', friendlyError(e, lang))
@@ -1160,7 +1180,7 @@ function DangerTab({
                     onChange={e => setCode(e.target.value)}
                     placeholder="输入收到的验证码"
                     maxLength={6}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    className="profile-input-danger w-full px-3 py-2 rounded-lg text-sm"
                   />
                 </div>
 
@@ -1172,7 +1192,7 @@ function DangerTab({
                     value={confirmText}
                     onChange={e => setConfirmText(e.target.value)}
                     placeholder={accountId || '加载中...'}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    className="profile-input-danger w-full px-3 py-2 rounded-lg text-sm font-mono"
                   />
                   {confirmText && confirmText !== accountId && (
                     <p className="text-xs text-red-500 mt-1">账号ID 不匹配</p>

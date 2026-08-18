@@ -13,7 +13,6 @@ import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts'
-import type { LegendProps } from 'recharts'
 import { Download, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -34,16 +33,17 @@ function pct(value: number, total: number): string {
  * 自定义 Legend 渲染函数：显示颜色圆点 + 分类名 + 百分比。
  * Legend 代替 inline label，彻底避免标签重叠问题。
  */
-const renderLegend = ({ payload }: LegendProps) => {
+type LegendEntry = { value?: string; color?: string; payload?: { value?: number } }
+const renderLegend = ({ payload }: { payload?: LegendEntry[] }) => {
   if (!payload) return null
   return (
     <ul className="flex flex-wrap gap-x-3 gap-y-1 justify-center text-xs mt-2">
-      {payload.map((entry, idx) => (
+      {payload.map((entry) => (
         <li key={entry.value} className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
           <span>{entry.value}</span>
           <span className="text-gray-400 dark:text-gray-500">
-            {pct(entry.payload?.value ?? 0, payload.reduce((s, p) => s + (p.payload?.value ?? 0), 0))}
+            {pct(entry.payload?.value ?? 0, payload.reduce((s: number, p: LegendEntry) => s + (p.payload?.value ?? 0), 0))}
           </span>
         </li>
       ))}
@@ -157,19 +157,19 @@ export function Stats() {
   const topCategory1 = stats?.byCategory1[0]?.category1 ?? null
 
   const subPieData = topCategory1
-    ? stats.byCategory2
-        .filter((c) => c.category1 === topCategory1)
+    ? stats?.byCategory2.filter((c) => c.category1 === topCategory1)
         .map((c) => ({ name: c.category2, value: c.total }))
     : []
+  const safeSubPieData = subPieData ?? []
 
   const totalAmount = stats?.totalAmount ?? 0
   const incomeTotal = incomeStats?.totalAmount ?? 0
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="page-view w-full min-w-0 space-y-6">
       {/* ── 时间粒度选择器 + CSV 导出按钮 ── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+      <div className="stats-toolbar flex flex-wrap items-center justify-between gap-3 min-w-0">
+        <div className="stats-periods flex flex-wrap items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 min-w-0">
           {([
             ['thisMonth', t('本月')],
             ['lastMonth', t('上月')],
@@ -178,7 +178,7 @@ export function Stats() {
             <button
               key={key}
               onClick={() => setPeriod(key)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+              className={`shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${period === key
                   ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -190,7 +190,7 @@ export function Stats() {
           ))}
         </div>
 
-        <button onClick={handleExport} className="btn-secondary dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1.5">
+        <button onClick={handleExport} className="btn-secondary shrink-0 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1.5">
           <Download size={14} />
           {t('导出 CSV')}
         </button>
@@ -226,20 +226,20 @@ export function Stats() {
       ) : (
         <>
           {/* ── 汇总卡片 ── */}
-          <div className="grid grid-cols-4 gap-4">
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+          <div className="stats-summary-grid grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总支出')}</p>
               <p className="text-xl font-bold text-red-500">¥{totalAmount.toFixed(2)}</p>
             </div>
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总收入')}</p>
               <p className="text-xl font-bold text-green-500">¥{incomeTotal.toFixed(2)}</p>
             </div>
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总笔数')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{stats.count + (incomeStats?.count ?? 0)}</p>
             </div>
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('结余')}</p>
               <p className={`text-xl font-bold ${incomeTotal - totalAmount >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                 ¥{(incomeTotal - totalAmount).toFixed(2)}
@@ -250,7 +250,7 @@ export function Stats() {
           {/* ── 图表区 ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 环形图 1：支出分类占比（Legend + 明细表替代 inline label） */}
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+            <div className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('支出分类占比')}</h3>
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
@@ -293,15 +293,15 @@ export function Stats() {
             </div>
 
             {/* 环形图 2：二级分类下钻 */}
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+            <div className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
                 {topCategory1 ? `「${topCategory1}」${t('二级分类')}` : t('二级分类明细')}
               </h3>
-              {subPieData.length > 0 ? (
+              {safeSubPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
-                      data={subPieData}
+                      data={safeSubPieData}
                       dataKey="value"
                       nameKey="name"
                       cx="50%"
@@ -310,7 +310,7 @@ export function Stats() {
                       innerRadius={50}
                       strokeWidth={0}
                     >
-                      {subPieData.map((_, idx) => (
+                      {safeSubPieData.map((_, idx) => (
                         <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                       ))}
                     </Pie>
@@ -324,7 +324,7 @@ export function Stats() {
                 </div>
               )}
               {/* 二级分类明细小表 */}
-              {subPieData.length > 0 && topCategory1 && (
+              {safeSubPieData.length > 0 && topCategory1 && (
                 <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
                   {stats.byCategory2
                     .filter(c => c.category1 === topCategory1)
@@ -346,7 +346,7 @@ export function Stats() {
             </div>
 
             {/* 折线图 */}
-            <div className="card dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
+            <div className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('每日支出趋势')}</h3>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={lineData}>

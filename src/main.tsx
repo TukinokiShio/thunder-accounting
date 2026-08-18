@@ -6,11 +6,12 @@ import './index.css'
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('No #root element')
+const root = rootEl
 
 // 全局错误捕获（使用 textContent 避免 XSS 注入）
 function showError(title: string, detail: string): void {
   document.body.classList.add('ready')
-  rootEl.textContent = ''
+  root.textContent = ''
   const div = document.createElement('div')
   div.style.cssText = 'padding:20px;color:red;font-family:monospace;font-size:14px'
   const b = document.createElement('b')
@@ -18,7 +19,7 @@ function showError(title: string, detail: string): void {
   div.appendChild(b)
   div.appendChild(document.createElement('br'))
   div.appendChild(document.createTextNode(detail))
-  rootEl.appendChild(div)
+  root.appendChild(div)
 }
 window.addEventListener('error', (e) => {
   showError('JS Error:', `${e.message}\nat ${e.filename}:${e.lineno}`)
@@ -28,7 +29,7 @@ window.addEventListener('unhandledrejection', (e) => {
 })
 
 // 渲染 React。开发模式启用 StrictMode 检测副作用；生产构建关闭，避免 Effect 双重调用。
-const r = ReactDOM.createRoot(rootEl)
+const r = ReactDOM.createRoot(root)
 const isDev = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development'
 r.render(
   isDev ? (

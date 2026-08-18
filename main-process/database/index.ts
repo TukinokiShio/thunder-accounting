@@ -84,6 +84,7 @@ export async function initDatabase(): Promise<void> {
       type TEXT NOT NULL DEFAULT 'expense',
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      ,cloud_id TEXT
     )
   `)
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date)')
@@ -110,12 +111,18 @@ export async function initDatabase(): Promise<void> {
     }
   }
   try {
+    db.run('ALTER TABLE bills ADD COLUMN cloud_id TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 bills.cloud_id 列）：', e)
+  }
+  try {
     db.run("ALTER TABLE categories ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))")
   } catch (e) {
     if (!String(e).includes('duplicate column')) {
       console.error('数据库迁移失败（添加 categories.updated_at 列）：', e)
     }
   }
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_bills_cloud_id ON bills(cloud_id) WHERE cloud_id IS NOT NULL')
 
   // ─── Categories table ──────────────────────────
   db.run(`
@@ -128,9 +135,16 @@ export async function initDatabase(): Promise<void> {
       is_preset INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      cloud_id TEXT
     )
   `)
+  try {
+    db.run('ALTER TABLE categories ADD COLUMN cloud_id TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 categories.cloud_id 列）：', e)
+  }
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_cloud_id ON categories(cloud_id) WHERE cloud_id IS NOT NULL')
 
   // 首次启动：写入预设分类
   initPresetCategories()
@@ -210,7 +224,8 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
       note TEXT DEFAULT '',
       type TEXT NOT NULL DEFAULT 'expense',
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      cloud_id TEXT
     )
   `)
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date)')
@@ -232,6 +247,13 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
     }
   }
   try {
+    db.run('ALTER TABLE bills ADD COLUMN cloud_id TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 bills.cloud_id 列）：', e)
+    }
+  }
+  try {
     db.run("ALTER TABLE categories ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))")
   } catch (e) {
     if (!String(e).includes('duplicate column')) {
@@ -249,9 +271,20 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
       is_preset INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      cloud_id TEXT
     )
   `)
+
+  try {
+    db.run('ALTER TABLE categories ADD COLUMN cloud_id TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) {
+      console.error('数据库迁移失败（添加 categories.cloud_id 列）：', e)
+    }
+  }
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_bills_cloud_id ON bills(cloud_id) WHERE cloud_id IS NOT NULL')
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_cloud_id ON categories(cloud_id) WHERE cloud_id IS NOT NULL')
 
   // 5. 初始化预设分类
   initPresetCategories()
@@ -289,6 +322,7 @@ export interface CategoryRow {
   sort_order: number
   created_at: string
   updated_at: string
+  cloud_id?: string | null
 }
 
 export interface AddCategoryParams {
@@ -459,6 +493,7 @@ export interface BillRow {
   type: string
   created_at: string
   updated_at: string
+  cloud_id?: string | null
 }
 
 export interface AddBillParams {
@@ -653,6 +688,7 @@ export interface CloudBillRow {
   created_at: string
   updated_at: string
   localId: number
+  _id?: string
 }
 
 export interface CloudCategoryRow {
@@ -665,20 +701,39 @@ export interface CloudCategoryRow {
   created_at: string
   updated_at: string
   localId: number
+  _id?: string
 }
 
 /**
- * 将云端拉取的账单批量写入本地数据库。
- * 只在本地数据库为空时调用（登录后首次同步）。
+ * 将云端拉取的账单合并写入本地数据库。
+ * 以云端文档 _id 建立稳定映射，避免跨设备本地自增 ID 冲突。
+ * 重复登录同步幂等，并按 updated_at 只应用较新的云端记录。
  */
 export function insertCloudBills(bills: CloudBillRow[]): void {
-  const stmt = db.prepare(
+  const withCloudId = db.prepare(
+    'INSERT OR IGNORE INTO bills (cloud_id, amount, category1, category2, date, note, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  )
+  const withoutId = db.prepare(
     'INSERT INTO bills (amount, category1, category2, date, note, type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   )
   for (const b of bills) {
-    stmt.run([b.amount, b.category1, b.category2, b.date, b.note || '', b.type || 'expense', b.created_at || '', b.updated_at || ''])
+    const values = [b.amount, b.category1, b.category2, b.date, b.note || '', b.type || 'expense', b.created_at || '', b.updated_at || '']
+    if (b._id) {
+      const existing = db.exec('SELECT id, updated_at FROM bills WHERE cloud_id = ?', [b._id])
+      if (existing.length && existing[0].values.length) {
+        const localUpdated = String(existing[0].values[0][1] || '')
+        if (b.updated_at > localUpdated) {
+          db.run('UPDATE bills SET amount=?, category1=?, category2=?, date=?, note=?, type=?, created_at=?, updated_at=? WHERE cloud_id=?', [...values, b._id])
+        }
+      } else {
+        withCloudId.run([b._id, ...values])
+      }
+    } else {
+      withoutId.run(values)
+    }
   }
-  stmt.free()
+  withCloudId.free()
+  withoutId.free()
   saveDb()
 }
 
@@ -687,14 +742,35 @@ export function insertCloudBills(bills: CloudBillRow[]): void {
  */
 export function insertCloudCategories(cats: CloudCategoryRow[]): void {
   const stmt = db.prepare(
-    'INSERT OR IGNORE INTO categories (name, icon, children, type, is_preset, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO categories (cloud_id, name, icon, children, type, is_preset, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   )
   for (const c of cats) {
     // 跳过预设分类（本地 initPresetCategories 已创建）
     if (c.is_preset === 1) continue
-    stmt.run([c.name, c.icon || '📦', c.children || '[]', c.type || 'expense', c.is_preset || 0, c.sort_order || 0, c.created_at || '', c.updated_at || ''])
+    if (c._id) {
+      const existing = db.exec('SELECT id, updated_at FROM categories WHERE cloud_id = ?', [c._id])
+      if (existing.length && existing[0].values.length) {
+        const localUpdated = String(existing[0].values[0][1] || '')
+        if (c.updated_at > localUpdated) {
+          db.run('UPDATE categories SET name=?, icon=?, children=?, type=?, is_preset=?, sort_order=?, created_at=?, updated_at=? WHERE cloud_id=?', [c.name, c.icon || '📦', c.children || '[]', c.type || 'expense', c.is_preset || 0, c.sort_order || 0, c.created_at || '', c.updated_at || '', c._id])
+        }
+      } else {
+        stmt.run([c._id, c.name, c.icon || '📦', c.children || '[]', c.type || 'expense', c.is_preset || 0, c.sort_order || 0, c.created_at || '', c.updated_at || ''])
+      }
+    }
   }
   stmt.free()
+  saveDb()
+}
+
+/** 将云端文档 ID 回写到本地，后续更新/删除使用稳定映射。 */
+export function setBillCloudId(localId: number, cloudId: string): void {
+  db.run('UPDATE bills SET cloud_id = ? WHERE id = ?', [cloudId, localId])
+  saveDb()
+}
+
+export function setCategoryCloudId(localId: number, cloudId: string): void {
+  db.run('UPDATE categories SET cloud_id = ? WHERE id = ?', [cloudId, localId])
   saveDb()
 }
 

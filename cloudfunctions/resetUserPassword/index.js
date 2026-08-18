@@ -1,48 +1,53 @@
-// resetUserPassword — CloudBase HTTP 云函数（v2 加固版）
+// resetUserPassword — CloudBase HTTP 云函数（v3 手机号支持版）
 // 由 雷霆记账 APP POST JSON 调用
-// Body: { email: string, newPassword: string, verificationCode: string }
+// Body: { email?: string, phone?: string, newPassword: string, verification_id: string, verification_code: string }
 //
-// 改进（v1.7.15）：
-// - 入参改为 email + newPassword + verificationCode（不再接收 uid）
-// - 内部通过 @cloudbase/node-sdk queryUserInfo 按邮箱查 UID
-// - 速率限制：CloudBase DB collection rate_limits，每 IP 每分钟最多 3 次
-// - HTTPS 请求超时：5 秒
-// - 密码强度校验：≥6 字符，禁止纯数字
-// - 完善错误处理与日志
+// v3 改进：支持手机号重置密码（通过 accounts 集合查找 UID）
 
 const cloudbase = require('@cloudbase/node-sdk')
 const crypto = require('crypto')
 const https = require('https')
 
 const ENV_ID = 'shio-d0gsoo414401468d6'
-const RATE_LIMIT_MAX = 3       // 每分钟最多请求次数
-const RATE_LIMIT_WINDOW_MS = 60 * 1000  // 窗口：1 分钟
+const AUTH_BASE = `https://${ENV_ID}.api.tcloudbasegateway.com`
+const RATE_LIMIT_MAX = 3
+const RATE_LIMIT_WINDOW_MS = 60 * 1000
 const HTTPS_TIMEOUT_MS = 5000
 
 // ─── 主入口 ──────────────────────────────────────────
 
 exports.main = async (event, context) => {
   const email = (event.email || '').trim().toLowerCase()
+  const phone = (event.phone || '').trim()
   const newPassword = event.newPassword || ''
-  const verificationCode = (event.verificationCode || '').trim()
-  const clientIp = (context && context.clientIp) || 'unknown'
+  const verificationId = String(event.verification_id || '').trim()
+  const verificationCode = String(event.verification_code || '').trim()
+  const clientIp = String(
+    (context && context.clientIp) || event.clientIp || 'unknown'
+  ).trim() || 'unknown'
 
   // ── 参数校验 ─────────────────────────────────────────
-  if (!email || !newPassword || !verificationCode) {
-    return { code: 400, message: 'Missing required fields: email, newPassword, verificationCode' }
+  if ((!email && !phone) || !newPassword || !verificationId || !verificationCode) {
+    return { code: 400, message: 'Missing required fields: email or phone, newPassword, verification_id, verification_code' }
   }
 
-  // 邮箱格式基本校验
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  // 邮箱格式校验（仅当有 email 时）
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { code: 400, message: 'Invalid email format' }
   }
 
-  // 密码强度：≥6 字符，禁止纯数字
-  if (newPassword.length < 6) {
-    return { code: 400, message: 'Password must be at least 6 characters' }
+  // 手机号格式校验（仅当有 phone 时）
+  if (phone && !/^\d{11}$/.test(phone)) {
+    return { code: 400, message: 'Invalid phone format' }
   }
-  if (/^\d+$/.test(newPassword)) {
-    return { code: 400, message: 'Password must not be purely numeric' }
+
+  // 密码强度与 CloudBase ModifyUser API 对齐：8-32 位，至少满足四类字符中的三类。
+  if (newPassword.length < 8 || newPassword.length > 32) {
+    return { code: 400, message: 'Password must be 8-32 characters' }
+  }
+  const passwordClasses = [/[a-z]/, /[A-Z]/, /\d/, /[()!@#$%^&*|?><_\-]/]
+  if (passwordClasses.filter(pattern => pattern.test(newPassword)).length < 3) {
+    return { code: 400, message: 'Password must contain at least three of lowercase, uppercase, number, and special character' }
   }
 
   // ── 速率限制 ─────────────────────────────────────────
@@ -52,30 +57,48 @@ exports.main = async (event, context) => {
       return { code: 429, message: 'Too many requests. Please try again in 1 minute.' }
     }
   } catch (e) {
-    // 速率限制检查失败不阻塞主流程，只记日志
-    console.warn('Rate limit check failed, proceeding:', e.message)
+    // 限流存储不可用时拒绝敏感操作，避免 fail-open 被绕过。
+    console.error('Rate limit check failed, refusing password reset:', e.message)
+    return { code: 503, message: 'Password reset temporarily unavailable. Please try again later.' }
   }
 
-  // ── 通过邮箱查找 UID ─────────────────────────────────
+  // ── 服务端验证验证码并绑定目标身份 ───────────────────
+  // 不能只相信桌面客户端提交的 verification_token：公开云函数必须自己验证
+  // verification_id + verification_code，并用 signin 确认 token 与目标账号一致。
   let uid
   try {
+    uid = await verifyIdentity(email || phone, !!phone, verificationId, verificationCode)
+    if (!uid) return { code: 401, message: 'Verification failed' }
+
     const app = cloudbase.init({ env: ENV_ID })
-    const auth = app.auth()
 
-    const { userInfo } = await auth.queryUserInfo({
-      platform: 'EMAIL',
-      platformId: email
-    })
-
-    if (!userInfo || !userInfo.uid) {
-      return { code: 404, message: 'User not found with this email' }
+    if (email) {
+      // 邮箱查找
+      const auth = app.auth()
+      const { userInfo } = await auth.queryUserInfo({
+        platform: 'EMAIL',
+        platformId: email
+      })
+      if (!userInfo || !userInfo.uid) {
+        return { code: 404, message: 'User not found with this email' }
+      }
+      if (userInfo.uid !== uid) return { code: 401, message: 'Verification target does not match user' }
+      console.log(`User found by email: ${uid}`)
+    } else if (phone) {
+      // 手机号查找：通过 accounts 集合
+      const db = app.database()
+      const result = await db.collection('accounts').where({ phone }).limit(1).get()
+      if (!result.data || !result.data.length) {
+        return { code: 404, message: 'User not found with this phone' }
+      }
+      const account = result.data[0]
+      if (account.uid !== uid) return { code: 401, message: 'Verification target does not match user' }
+      console.log(`User found by phone: ${uid}`)
     }
-    uid = userInfo.uid
-    console.log(`User found: ${uid} for email ${email}`)
   } catch (e) {
     console.error('queryUserInfo failed:', e.message)
     if (e.code === 'ResourceNotFound') {
-      return { code: 404, message: 'User not found with this email' }
+      return { code: 404, message: 'User not found' }
     }
     return { code: 500, message: 'Failed to lookup user: ' + e.message }
   }
@@ -107,6 +130,42 @@ exports.main = async (event, context) => {
   }
 }
 
+/**
+ * 在云函数侧完成验证码验证，并通过 signin 确认验证码对应的账号。
+ * signin 只用于身份确认，返回的 access token 不会向调用方暴露。
+ */
+async function verifyIdentity(identifier, isPhone, verificationId, verificationCode) {
+  const verifyRes = await fetch(`${AUTH_BASE}/auth/v1/verification/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ verification_id: verificationId, verification_code: verificationCode })
+  })
+  const verifyData = responsePayload(await verifyRes.json().catch(() => ({})))
+  if (!verifyRes.ok || !verifyData.verification_token) {
+    throw new Error(verifyData.error_description || verifyData.error || 'invalid_verification_code')
+  }
+
+  const signinRes = await fetch(`${AUTH_BASE}/auth/v1/signin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: isPhone ? '+86 ' + identifier : identifier,
+      verification_token: verifyData.verification_token
+    })
+  })
+  const signinData = responsePayload(await signinRes.json().catch(() => ({})))
+  if (!signinRes.ok || !signinData.sub) {
+    throw new Error(signinData.error_description || signinData.error || 'verification_target_mismatch')
+  }
+  return signinData.sub
+}
+
+function responsePayload(data) {
+  return data && data.data && typeof data.data === 'object' && !Array.isArray(data.data)
+    ? data.data
+    : data || {}
+}
+
 // ─── 速率限制 ─────────────────────────────────────────
 // 使用 CloudBase 数据库 rate_limits 集合记录每次调用
 
@@ -120,7 +179,8 @@ async function checkRateLimit(clientIp) {
     const windowStart = now - RATE_LIMIT_WINDOW_MS
 
     // 清理过期记录（异步，不阻塞）
-    cleanOldRecords(coll, windowStart)
+    // 清理使用同一个 db 实例的 command，避免异步清理函数引用作用域外变量。
+    cleanOldRecords(coll, db, windowStart)
 
     // 查询最近 1 分钟内的调用次数
     const countRes = await coll
@@ -152,7 +212,7 @@ async function checkRateLimit(clientIp) {
 }
 
 // 异步清理过期记录（不阻塞主流程）
-async function cleanOldRecords(coll, before) {
+async function cleanOldRecords(coll, db, before) {
   try {
     await coll.where({ timestamp: db.command.lt(before) }).remove()
   } catch { /* 清理失败不影响主流程 */ }
@@ -235,6 +295,8 @@ function callTCBApi(action, params, secretId, secretKey, token) {
           const j = JSON.parse(data)
           if (j.Response && j.Response.Error) {
             resolve({ success: false, error: JSON.stringify(j.Response.Error) })
+          } else if (!j.Response || !j.Response.Data || j.Response.Data.Success !== true) {
+            resolve({ success: false, error: 'ModifyUser returned an unsuccessful response' })
           } else {
             resolve({ success: true })
           }

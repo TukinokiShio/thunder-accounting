@@ -23,6 +23,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('账单')).toBeInTheDocument();
     expect(screen.getByText('统计')).toBeInTheDocument();
     expect(screen.getByText('分类管理')).toBeInTheDocument();
+    expect(screen.getByText('个人中心')).toBeInTheDocument();
   });
 
   it('should render settings button', () => {
@@ -71,14 +72,16 @@ describe('Sidebar', () => {
     render(<Sidebar onOpenSettings={() => {}} />);
 
     const billsButton = screen.getByText('账单').closest('button');
-    expect(billsButton?.className).toContain('bg-primary-50');
+    expect(billsButton?.className).toContain('aurora-nav-active');
   });
 
-  it('should render 4 navigation buttons', () => {
+  it('should render a fixed-width navigation shell', () => {
     render(<Sidebar onOpenSettings={() => {}} />);
 
-    // nav items (4) + settings button (1) = 5 buttons total
+    // nav items (5, including personal center) + settings button (1) = 6 buttons total
     const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(5);
+    expect(buttons).toHaveLength(6);
+    expect(screen.getByRole('complementary')).toHaveClass('aurora-sidebar');
+    expect(screen.getByRole('navigation', { name: '页面导航' })).toHaveClass('min-h-0', 'overflow-y-auto');
   });
 });

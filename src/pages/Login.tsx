@@ -1,32 +1,29 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Zap, Mail, Lock, ShieldCheck, Eye, EyeOff, Loader2, Check, X, Send, ArrowLeft } from 'lucide-react'
+import { Zap, Mail, Lock, ShieldCheck, Eye, EyeOff, Loader2, Check, X, Send, ArrowLeft, Smartphone, User } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { friendlyError } from '@/utils/errorMessages'
-
-// ─── 类型 ─────────────────────────────────────────
+import pkg from '../../package.json'
 
 type Mode = 'login' | 'register' | 'forgot'
+type LoginMode = 'password' | 'verification'
 type Lang = 'zh' | 'en'
 
 function m(l: Lang, zh: string, en: string): string { return l === 'zh' ? zh : en }
 
 // ─── 表单校验 ─────────────────────────────────────
-
 function validEmail(v: string): boolean { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) }
+function validPhone(v: string): boolean { return /^\d{11}$/.test(v) }
+function validAccount(v: string): boolean { return /^[a-zA-Z0-9_]+$/.test(v) }
 function validPasswordLen(v: string): boolean { return v.length >= 6 }
 function strongPassword(v: string): boolean {
   let s = 0; if (/[a-z]/.test(v)) s++; if (/[A-Z]/.test(v)) s++; if (/[0-9]/.test(v)) s++; if (/[^a-zA-Z0-9]/.test(v)) s++; return s >= 3
 }
 
-// ─── 图标 ─────────────────────────────────────────
-
 function ValIcon({ ok }: { ok: boolean | null }) {
   if (ok === null) return null
   return ok ? <Check size={14} className="text-green-500" /> : <X size={14} className="text-red-400" />
 }
-
-// ─── 组件 ─────────────────────────────────────────
 
 export function LoginPage() {
   const setUser = useStore(s => s.setUser)
@@ -35,12 +32,13 @@ export function LoginPage() {
   const lang = (language === 'en' ? 'en' : 'zh') as Lang
   const T = (zh: string, en: string) => m(lang, zh, en)
 
-  // ── 共有状态 ─────────────────────────────────────
   const [mode, setMode] = useState<Mode>('login')
-  const [email, setEmail] = useState('')
+  const [loginMode, setLoginMode] = useState<LoginMode>('password')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
   const [verifyCode, setVerifyCode] = useState('')
+  const [verificationId, setVerificationId] = useState('')
   const [remember, setRemember] = useState(true)
   const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
@@ -48,10 +46,9 @@ export function LoginPage() {
   const [sendingCode, setSendingCode] = useState(false)
   const [codeSent, setCodeSent] = useState(false)
 
-  // ── 自动填入凭据 ─────────────────────────────────
   useEffect(() => {
     window.electronAPI.loadCredentials().then(c => {
-      if (c.email) { setEmail(c.email); setPassword(c.password) }
+      if (c.email) { setIdentifier(c.email); setPassword(c.password) }
     })
   }, [])
 
@@ -60,44 +57,75 @@ export function LoginPage() {
     if (!v) window.electronAPI.saveCredentials('', '')
   }, [])
 
-  // ── 切换模式 ─────────────────────────────────────
   function toLogin() { setMode('login'); clear() }
   function toRegister() { setMode('register'); clear() }
   function toForgot() { setMode('forgot'); clear() }
   function clear() { setError(''); setVerifyCode(''); setConfirmPwd(''); setCodeSent(false) }
 
-  // ── 公共输入逻辑 ─────────────────────────────────
-  const emailTrim = email.trim()
-  const emailOk = emailTrim ? validEmail(emailTrim) : null
-  const noEmail = () => { setError(T('请输入有效的邮箱', 'Please enter a valid email')); return false }
+  // ── 标识符校验 ─────────────────────────────────────
+  const idTrim = identifier.trim()
+  const isAdmin = idTrim === 'admin'
 
-  // ── 验证码 ───────────────────────────────────────
+  // 判断标识符类型
+  const idType = (): 'email' | 'phone' | 'account' | 'invalid' => {
+    if (isAdmin) return 'account'
+    if (validEmail(idTrim)) return 'email'
+    if (validPhone(idTrim)) return 'phone'
+    if (validAccount(idTrim) && idTrim.length >= 3) return 'account'
+    return 'invalid'
+  }
+
+  const idOk = idTrim ? (isAdmin ? true : idType() !== 'invalid') : null
+  const noId = () => { setError(T('请输入有效的账号/邮箱/手机号', 'Enter valid account/email/phone')); return false }
+
+  // ── 管理员映射 ──────────────────────────────────────
+  const ADMIN_EMAIL = '15211073887@163.com'
+  const resolveIdentifier = () => isAdmin ? ADMIN_EMAIL : idTrim
+
+  // ── 验证码 ─────────────────────────────────────────
   async function sendCode() {
-    if (!validEmail(emailTrim)) { setError(T('邮箱格式不正确', 'Invalid email format')); return }
+    if (idType() === 'invalid') { setError(T('请输入有效的邮箱或手机号', 'Enter valid email or phone')); return }
     setError('')
     setSendingCode(true)
-    try { await window.electronAPI.sendCode(emailTrim); setCodeSent(true); addToast('success', T('验证码已发送到邮箱', 'Code sent to email')) }
-    catch (e) { setError(friendlyError(e, lang)) }
+    try {
+      // 找回密码只向已注册的 Auth 用户发送验证码，避免 accounts 映射参与身份解析。
+      const result = await window.electronAPI.sendCode(resolveIdentifier(), mode === 'forgot')
+      setCodeSent(true)
+      setVerificationId(result.verificationId || '')
+      const hint = result.type === 'phone'
+        ? T(`验证码已发送到手机 ${result.target}`, `Code sent to phone ${result.target}`)
+        : T(`验证码已发送到邮箱 ${result.target}`, `Code sent to email ${result.target}`)
+      addToast('success', hint)
+    } catch (e) { setError(friendlyError(e, lang)) }
     finally { setSendingCode(false) }
   }
 
-  // ── 登录 ─────────────────────────────────────────
+  // ── 登录 ───────────────────────────────────────────
   async function doLogin() {
-    if (!emailOk) return noEmail()
-    if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
+    if (!idOk) return noId()
+    const resolved = resolveIdentifier()
+
+    if (loginMode === 'password') {
+      if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
+    } else {
+      if (!verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
+    }
+
     setError(''); setLoading(true)
     try {
-      const result = await window.electronAPI.login(emailTrim, password)
-      if (remember) window.electronAPI.saveCredentials(emailTrim, password)
+      const result = loginMode === 'password'
+        ? await window.electronAPI.login(resolved, password)
+        : await window.electronAPI.loginWithCode(resolved, verifyCode.trim(), verificationId)
+      if (remember) window.electronAPI.saveCredentials(resolved, password)
       setUser(result.user)
       addToast('success', T('欢迎回来！', 'Welcome back!'))
     } catch (e) { setError(friendlyError(e, lang)) }
     finally { setLoading(false) }
   }
 
-  // ── 注册 ─────────────────────────────────────────
+  // ── 注册 ───────────────────────────────────────────
   async function doRegister() {
-    if (!emailOk) return noEmail()
+    if (!idOk) return noId()
     if (!codeSent) { setError(T('请先发送验证码', 'Please send verification code first')); return }
     if (!verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
     if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
@@ -105,17 +133,18 @@ export function LoginPage() {
     if (password !== confirmPwd) { setError(T('两次密码不一致', 'Passwords do not match')); return }
     setError(''); setLoading(true)
     try {
-      const user = await window.electronAPI.register(emailTrim, password, verifyCode.trim())
-      if (remember) window.electronAPI.saveCredentials(emailTrim, password)
-      setUser(user)
+      // 注册逻辑：邮箱或手机号，由 main.ts IPC 内部分流到 registerWithEmail / registerWithPhone
+      const result = await window.electronAPI.register(idTrim, password, verifyCode.trim(), verificationId)
+      if (remember) window.electronAPI.saveCredentials(idTrim, password)
+      setUser(result.user || result)
       addToast('success', T('注册成功！', 'Registered!'))
     } catch (e) { setError(friendlyError(e, lang)) }
     finally { setLoading(false) }
   }
 
-  // ── 忘记密码 ─────────────────────────────────────
+  // ── 忘记密码 ───────────────────────────────────────
   async function doReset() {
-    if (!emailOk) return noEmail()
+    if (!idOk) return noId()
     if (!codeSent) { setError(T('请先发送验证码', 'Please send verification code first')); return }
     if (!verifyCode.trim()) { setError(T('请输入验证码', 'Enter verification code')); return }
     if (!validPasswordLen(password)) { setError(T('密码至少 6 位', 'Password at least 6 characters')); return }
@@ -123,37 +152,40 @@ export function LoginPage() {
     if (password !== confirmPwd) { setError(T('两次密码不一致', 'Passwords do not match')); return }
     setError(''); setLoading(true)
     try {
-      await window.electronAPI.resetPassword(emailTrim, password, verifyCode.trim())
+      await window.electronAPI.resetPassword(idTrim, password, verifyCode.trim(), verificationId)
       addToast('success', T('密码已重置，请登录', 'Password reset! Please login'))
       toLogin()
     } catch (e) { setError(friendlyError(e, lang)) }
     finally { setLoading(false) }
   }
 
-  // ── 提交 ─────────────────────────────────────────
   async function submit() {
     if (mode === 'login')      await doLogin()
     else if (mode === 'register') await doRegister()
     else if (mode === 'forgot')   await doReset()
   }
 
-  // ── 键盘 ─────────────────────────────────────────
   function onKey(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !sendingCode) submit()
   }
 
-  // ── 公用 input 样式 ──────────────────────────────
   const cls = "w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
   const clsNoIcon = "w-full py-2.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
 
-  // ── 按钮 ─────────────────────────────────────────
   function btnLabel() {
     if (mode === 'login')    return T('登录', 'Login')
     if (mode === 'register') return T('注册', 'Register')
     return T('重置密码', 'Reset')
   }
 
-  // ── Render ───────────────────────────────────────
+  // ── 标识符图标 ──────────────────────────────────────
+  function IdIcon() {
+    const t = idType()
+    if (t === 'email') return <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+    if (t === 'phone') return <Smartphone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+    return <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+  }
+
   return (
     <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-900">
       <div className="w-full max-w-sm mx-4 bg-white dark:bg-gray-850 rounded-2xl shadow-lg p-8 relative">
@@ -171,13 +203,27 @@ export function LoginPage() {
           <p className="text-sm text-gray-400 mt-1">{T('个人记账，轻松管理', 'Simple personal finance')}</p>
         </div>
 
-        {/* Tab 切换 */}
-        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1 mb-6">
+        {/* 模式切换（登录/注册） */}
+        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1 mb-4">
           <button onClick={toLogin}    className={`flex-1 py-2 text-sm rounded-md font-medium transition-colors ${mode==='login'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>{T('登录','Login')}</button>
           <button onClick={toRegister} className={`flex-1 py-2 text-sm rounded-md font-medium transition-colors ${mode==='register'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>{T('注册','Register')}</button>
         </div>
 
-        {/* 忘记密码标题 */}
+        {/* 登录方式切换（仅登录模式） */}
+        {mode === 'login' && (
+          <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1 mb-4">
+            <button onClick={() => { setLoginMode('password'); clear() }}
+              className={`flex-1 py-1.5 text-xs rounded-md font-medium transition-colors ${loginMode==='password'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>
+              {T('密码登录','Password')}
+            </button>
+            <button onClick={() => { setLoginMode('verification'); clear() }}
+              className={`flex-1 py-1.5 text-xs rounded-md font-medium transition-colors ${loginMode==='verification'?'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm':'text-gray-500'}`}>
+              {T('验证码登录','Code')}
+            </button>
+          </div>
+        )}
+
+        {/* 忘记密码返回按钮 */}
         {mode === 'forgot' && (
           <button onClick={toLogin} className="flex items-center gap-1 text-xs text-gray-500 hover:text-primary-500 mb-4 transition-colors">
             <ArrowLeft size={14} />{T('返回登录','Back')}
@@ -190,39 +236,46 @@ export function LoginPage() {
         {/* 表单 */}
         <div className="space-y-4" onKeyDown={onKey}>
 
-          {/* ===== 邮箱 (所有模式) ===== */}
+          {/* ── 标识符输入 ── */}
           <div>
             <div className="relative">
-              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="email" value={email} onChange={e => { setEmail(e.target.value); setCodeSent(false) }}
-                placeholder="name@example.com" className={cls} />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2"><ValIcon ok={emailOk} /></span>
+              <IdIcon />
+              <input type="text" value={identifier} onChange={e => { setIdentifier(e.target.value); setCodeSent(false) }}
+                placeholder={mode === 'forgot'
+                  ? T('邮箱或手机号', 'Email or phone')
+                  : mode === 'register'
+                    ? T('邮箱或手机号', 'Email or phone')
+                    : T('账号 / 邮箱 / 手机号', 'Account / Email / Phone')}
+                className={cls} />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2"><ValIcon ok={idOk} /></span>
             </div>
           </div>
 
-          {/* ===== 密码 (login: 现有密码, register/forgot: 新密码) ===== */}
-          {mode !== 'forgot' ? (
+          {/* ── 密码输入（密码登录 / 注册 / 忘记密码） ── */}
+          {(loginMode === 'password' || mode !== 'login') && (
             <div>
               <div className="relative">
                 <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input type={showPwd?'text':'password'} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••" className={cls} />
+                  placeholder={mode === 'forgot' ? T('新密码','New Password') : '••••••'} className={cls} />
                 <span className="absolute right-8 top-1/2 -translate-y-1/2">
-                  {mode==='register' ? <ValIcon ok={password ? strongPassword(password) : null} /> : <ValIcon ok={password ? validPasswordLen(password) : null} />}
+                  {mode==='register' || mode==='forgot'
+                    ? <ValIcon ok={password ? strongPassword(password) : null} />
+                    : <ValIcon ok={password ? validPasswordLen(password) : null} />}
                 </span>
                 <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
                   {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
             </div>
-          ) : null}
+          )}
 
-          {/* ===== 验证码 (register + forgot) ===== */}
-          {(mode === 'register' || mode === 'forgot') && (
+          {/* ── 验证码输入（验证码登录 / 注册 / 忘记密码） ── */}
+          {(loginMode === 'verification' || mode === 'register' || mode === 'forgot') && (
             <div className="flex gap-2">
               <input type="text" value={verifyCode} onChange={e => setVerifyCode(e.target.value)}
-                placeholder={T('邮箱验证码', 'Email code')} className={clsNoIcon + ' flex-1 px-3'} />
-              <button onClick={sendCode} disabled={sendingCode || !emailOk}
+                placeholder={T('验证码', 'Verification code')} className={clsNoIcon + ' flex-1 px-3'} />
+              <button onClick={sendCode} disabled={sendingCode || !idOk}
                 className="px-3 py-2 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap flex items-center gap-1">
                 {sendingCode ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
                 {codeSent ? T('已发送','Sent') : T('发送验证码','Send Code')}
@@ -230,22 +283,7 @@ export function LoginPage() {
             </div>
           )}
 
-          {/* ===== 新密码 (forgot) ===== */}
-          {mode === 'forgot' && (
-            <div>
-              <div className="relative">
-                <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type={showPwd?'text':'password'} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder={T('新密码','New Password')} className={cls} />
-                <span className="absolute right-8 top-1/2 -translate-y-1/2"><ValIcon ok={password ? strongPassword(password) : null} /></span>
-                <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ===== 确认密码 (register + forgot) ===== */}
+          {/* ── 确认密码（注册 / 忘记密码） ── */}
           {(mode === 'register' || mode === 'forgot') && (
             <div>
               <div className="relative">
@@ -257,8 +295,8 @@ export function LoginPage() {
             </div>
           )}
 
-          {/* ===== 记住我 (login only) ===== */}
-          {mode === 'login' && (
+          {/* ── 记住我 ── */}
+          {mode === 'login' && loginMode === 'password' && (
             <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer select-none">
               <input type="checkbox" checked={remember} onChange={e => handleRemember(e.target.checked)}
                 className="rounded border-gray-300 text-primary-500 focus:ring-primary-500" />
@@ -266,20 +304,23 @@ export function LoginPage() {
             </label>
           )}
 
-          {/* ===== 提交 ===== */}
+          {/* ── 提交 ── */}
           <button onClick={submit} disabled={loading}
             className="w-full py-2.5 bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
             {loading && <Loader2 size={16} className="animate-spin" />}
             {btnLabel()}
           </button>
 
-          {/* ===== 忘记密码链接 (login only) ===== */}
-          {mode === 'login' && (
+          {/* ── 忘记密码链接 ── */}
+          {mode === 'login' && loginMode === 'password' && (
             <button onClick={toForgot} className="w-full text-xs text-gray-400 hover:text-primary-500 text-center transition-colors">
               {T('忘记密码？','Forgot password?')}
             </button>
           )}
         </div>
+
+        {/* 版本号 */}
+        <p className="text-center text-xs text-gray-300 dark:text-gray-600 mt-6">v{pkg.version}</p>
       </div>
     </div>
   )

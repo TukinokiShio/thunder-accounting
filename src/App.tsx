@@ -23,11 +23,25 @@ export default function App() {
   const user = useStore((s) => s.user)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // 每次启动都强制要求登录（清除之前 session 残留）
+  // 启动时恢复持久化会话；只有 CloudBase 明确判定会话失效时才回到登录页。
   useEffect(() => {
-    const store = useStore.getState()
-    store.setUser(null)
-    store.setCheckingSession(false)
+    let cancelled = false
+    const restoreSession = async () => {
+      const store = useStore.getState()
+      store.setCheckingSession(true)
+      try {
+        const session = await window.electronAPI.checkSession()
+        if (!cancelled) store.setUser(session?.user ?? null)
+      } catch (error) {
+        console.error('恢复登录会话失败:', error)
+        if (!cancelled) store.setUser(null)
+      } finally {
+        if (!cancelled) store.setCheckingSession(false)
+      }
+    }
+
+    void restoreSession()
+    return () => { cancelled = true }
   }, [])
 
   // 登录后加载账单和分类数据

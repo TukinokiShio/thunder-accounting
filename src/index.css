@@ -2,6 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg: #fafafa;
+  --bg2: #f5f5f5;
+  --bg-card: #ffffff;
+  --border: #e5e5e5;
+  --border-h: #d4d4d4;
+  --text: #1a1a1a;
+  --text2: #6b6b6b;
+  --text3: #9e9e9e;
+  --accent: #2563eb;
+  --accent-h: #3b82f6;
+  --accent-dim: rgba(37, 99, 235, .08);
+  --success: #059669;
+  --warn: #d97706;
+  --danger: #dc2626;
+  --danger-dim: rgba(220, 38, 38, .12);
+  --radius: 10px;
+  --radius-sm: 7px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --sidebar-width: 14rem;
+  --content-gutter: 1.5rem;
+  --content-gutter-block: 1.75rem;
+}
+
+.dark,
+[data-theme='dark'] {
+  --bg: #0a0a0b;
+  --bg2: #111113;
+  --bg-card: #161618;
+  --border: #27272b;
+  --border-h: #3a3a40;
+  --text: #ededef;
+  --text2: #a0a0a6;
+  --text3: #5e5e62;
+  --accent: #3b82f6;
+  --accent-h: #5190ff;
+  --accent-dim: rgba(59, 130, 246, .12);
+  --success: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --danger-dim: rgba(239, 68, 68, .16);
+}
+
 @layer base {
   * {
     margin: 0;
@@ -10,11 +53,24 @@
   }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei',
-      'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
+  }
+
+  #root {
+    width: 100%;
+    min-width: 0;
+    min-height: 100%;
+  }
+
+  button, input, select, textarea { font: inherit; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   /* Dark mode background */
@@ -50,23 +106,102 @@
 
 @layer components {
   .card {
-    @apply bg-white rounded-xl border border-gray-100 shadow-sm;
-    @apply dark:bg-gray-800 dark:border-gray-700;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+  }
+  .card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px var(--accent-dim);
   }
 
   .btn-primary {
-    @apply bg-primary-500 text-white px-4 py-2 rounded-lg font-medium
-           hover:bg-primary-600 active:bg-primary-700
-           transition-colors duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    background: var(--accent); color: white; padding: 9px 18px;
+    border: 1px solid var(--accent); border-radius: var(--radius-sm);
+    font-weight: 600; transition: all .18s ease;
+  }
+  .btn-primary:hover { background: var(--accent-h); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+  .aurora-shell {
+    width: 100%;
+    min-width: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .aurora-sidebar {
+    flex: 0 0 var(--sidebar-width);
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    min-height: 0;
+    background: var(--bg-card);
+    border-color: var(--border);
+  }
+  .aurora-topbar {
+    min-width: 0;
+    background: var(--bg-card);
+    border-color: var(--border);
+  }
+  .aurora-main {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: auto;
+    /* Reserve the vertical scrollbar on the trailing edge only. This keeps
+       the content's left baseline stable without adding a second gutter. */
+    scrollbar-gutter: stable;
+    padding: var(--content-gutter-block) var(--content-gutter);
+  }
+  .aurora-nav-active { background: var(--accent-dim); color: var(--accent); border-left: 2px solid var(--accent); }
+  .aurora-nav-item:hover { background: var(--accent-dim); color: var(--accent); }
+  .aurora-muted { color: var(--text2); }
+  .aurora-border { border-color: var(--border); }
+  .aurora-dialog { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); }
+  .aurora-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); }
+  .aurora-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+  /* Every top-level page shares one stable canvas. Individual pages may
+     arrange content internally, but navigation never changes the outer
+     left/right gutters. */
+  .page-viewport {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  .page-frame {
+    width: 100%;
+    max-width: 1180px;
+    min-width: 0;
+    min-height: 100%;
+    margin-inline: auto;
+  }
+  .page-view {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .page-view > * {
+    min-width: 0;
+  }
+  /* Category management uses the existing page-mode h-full root. */
+  .page-frame > .h-full {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .btn-secondary {
-    @apply bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-medium
-           hover:bg-gray-200 active:bg-gray-300
-           transition-colors duration-150;
-    @apply dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 dark:active:bg-gray-500;
+    background: transparent; color: var(--text); padding: 9px 18px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-weight: 600; transition: all .18s ease;
   }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
   .input-field {
     @apply w-full px-3 py-2 rounded-lg border border-gray-200
@@ -77,5 +212,78 @@
     @apply dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100
            dark:placeholder:text-gray-500
            dark:focus:ring-primary-500/30 dark:focus:border-primary-400;
+  }
+
+  /* Profile inputs use the Aurora tokens with one restrained focus halo.
+     This prevents the global focus outline and Tailwind ring from stacking
+     with validation colors into a thick blue/red halo. */
+  .profile-input {
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    color: #111827;
+    outline: none;
+    box-shadow: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .profile-input:focus,
+  .profile-input:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent-dim);
+  }
+  .profile-input.is-invalid {
+    border-color: #f87171;
+  }
+  .profile-input.is-invalid:focus,
+  .profile-input.is-invalid:focus-visible {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, .45);
+  }
+  .dark .profile-input {
+    border-color: #4b5563;
+    background: #1f2937;
+    color: #f3f4f6;
+  }
+
+  /* Dangerous actions must never inherit the normal Aurora blue focus state. */
+  .profile-input-danger {
+    border: 1px solid var(--danger);
+    background: #ffffff;
+    color: #111827;
+    outline: none;
+    box-shadow: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .profile-input-danger:focus,
+  .profile-input-danger:focus-visible {
+    border-color: var(--danger);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--danger-dim);
+  }
+  .dark .profile-input-danger {
+    background: #1f2937;
+    color: #f3f4f6;
+  }
+}
+
+@media (max-width: 1024px) {
+  .aurora-main {
+    --content-gutter: 1.25rem;
+    --content-gutter-block: 1.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .aurora-main {
+    --content-gutter: 1rem;
+    --content-gutter-block: 1.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-main,
+  .aurora-sidebar,
+  .aurora-topbar {
+    scroll-behavior: auto;
   }
 }

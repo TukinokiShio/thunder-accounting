@@ -72,7 +72,7 @@ export interface ElectronAPI {
   showOpenDialog: () => Promise<{ filePath: string; content: string } | null>
   onShortcut: (callback: (action: string) => void) => () => void
   // Auth
-  sendCode: (email: string) => Promise<void>
+  sendCode: (target: string, registeredUserOnly?: boolean) => Promise<{ type: 'phone' | 'email'; target: string; verificationId: string; isUser: boolean }>
   register: (email: string, password: string, verifyCode: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   login: (email: string, password: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   loginWithCode: (email: string, code: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
@@ -82,9 +82,9 @@ export interface ElectronAPI {
   getSyncStatus: () => Promise<{ isLoggedIn: boolean }>
   saveCredentials: (email: string, password: string) => Promise<void>
   loadCredentials: () => Promise<{ email: string; password: string }>
-  sendReauthCode: (currentPassword: string) => Promise<void>
-  changePassword: (newPassword: string) => Promise<void>
-  resetPassword: (email: string, newPassword: string, verificationCode: string, verificationId: string) => Promise<void>
+  sendReauthCode: (verifyOpt?: 'phone_code' | 'email_code') => Promise<void>
+  changePassword: (newPassword: string, verificationCode: string, oldPassword?: string) => Promise<void>
+  resetPassword: (identifier: string, newPassword: string, verificationCode: string, verificationId: string) => Promise<void>
   createShortcut: () => Promise<{ success: boolean; message: string }>
   // Account
   getAccountBindings: () => Promise<{ accountId: string; email: string; phone: string } | null>
@@ -93,7 +93,7 @@ export interface ElectronAPI {
   unbindPhone: (code: string, verificationId: string) => Promise<void>
   bindEmail: (email: string, code: string, verificationId: string) => Promise<void>
   unbindEmail: (code: string, verificationId: string) => Promise<void>
-  deleteAccount: (code: string, verificationId: string) => Promise<void>
+  deleteAccount: (code: string) => Promise<{ cleanupPending: boolean }>
   getUserStats: () => Promise<{ billCount: number; categoryCount: number; totalExpense: number; totalIncome: number }>
 
   /** 检查云端服务是否可用（access_token + CLOUDBASE_API_KEY 都存在） */

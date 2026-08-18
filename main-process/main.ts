@@ -173,21 +173,20 @@ function trySync(fn: () => Promise<void>): void {
   fn().catch(e => console.error('后台同步失败:', e))
 }
 
-/** 登录后同步云端数据到本地（本地为空时） */
+/** 登录后幂等合并云端数据到本地；本地已有数据时也要拉取新增的跨设备记录。 */
 async function syncCloudData(uid: string): Promise<void> {
   try {
-    const localBills = getBills()
-    if (localBills.length === 0 && isLoggedIn()) {
-      console.log(`[Sync] 本地无数据，从云端拉取 ${uid} 的数据...`)
+    if (isLoggedIn()) {
+      console.log(`[Sync] 合并拉取 ${uid} 的云端数据...`)
       const cloudBills = await pullBillsFromCloud()
       if (cloudBills.length > 0) {
         insertCloudBills(cloudBills)
-        console.log(`[Sync] 已写入 ${cloudBills.length} 条云端账单到本地`)
+        console.log(`[Sync] 已合并 ${cloudBills.length} 条云端账单到本地`)
       }
       const cloudCategories = await pullCategoriesFromCloud()
       if (cloudCategories.length > 0) {
         insertCloudCategories(cloudCategories)
-        console.log(`[Sync] 已写入 ${cloudCategories.length} 条云端分类到本地`)
+        console.log(`[Sync] 已合并 ${cloudCategories.length} 条云端分类到本地`)
       }
     }
   } catch (e) {
@@ -237,7 +236,10 @@ function registerIpcHandlers(): void {
     try {
       const allowedPaths = [app.getPath('userData'), app.getPath('documents')]
       const normalized = path.normalize(filePath)
-      if (!allowedPaths.some(p => normalized.startsWith(p))) {
+      if (!allowedPaths.some(p => {
+        const relative = path.relative(path.normalize(p), normalized)
+        return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+      })) {
         throw new Error('不允许写入此路径')
       }
       writeFileSync(filePath, content, 'utf-8')
@@ -291,8 +293,8 @@ function registerIpcHandlers(): void {
 
   // ─── Auth IPC Handlers ──────────────────────────
 
-  ipcMain.handle('auth:sendCode', async (_event, target: string) => {
-    return sendVerificationCode(target)
+  ipcMain.handle('auth:sendCode', async (_event, target: string, registeredUserOnly = false) => {
+    return sendVerificationCode(target, registeredUserOnly)
   })
 
   ipcMain.handle('auth:register', async (_event, identifier: string, password: string, verifyCode: string, verificationId: string) => {
@@ -334,7 +336,12 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('auth:checkSession', async () => {
-    return checkSession()
+    const session = await checkSession()
+    if (session?.user.uid) {
+      await switchToUserDatabase(session.user.uid, false)
+      await syncCloudData(session.user.uid)
+    }
+    return session
   })
 
   // ─── Sync IPC Handlers ──────────────────────────
@@ -360,12 +367,12 @@ function registerIpcHandlers(): void {
 
   // ─── Change Password ───────────────────────────
 
-  ipcMain.handle('auth:sendReauthCode', async (_event, currentPassword: string) => {
-    return sendReauthCode(currentPassword)
+  ipcMain.handle('auth:sendReauthCode', async (_event, verifyOpt?: 'phone_code' | 'email_code') => {
+    return sendReauthCode(verifyOpt)
   })
 
-  ipcMain.handle('auth:changePassword', async (_event, newPassword: string) => {
-    return changePassword(newPassword)
+  ipcMain.handle('auth:changePassword', async (_event, newPassword: string, verificationCode: string, oldPassword?: string) => {
+    return changePassword(newPassword, verificationCode, oldPassword)
   })
 
   ipcMain.handle('auth:resetPassword', async (_event, identifier: string, newPassword: string, verificationCode: string, verificationId: string) => {
@@ -398,8 +405,8 @@ function registerIpcHandlers(): void {
     return unbindEmail(code, verificationId)
   })
 
-  ipcMain.handle('account:deleteAccount', async (_event, code: string, verificationId: string) => {
-    return deleteAccount(code, verificationId)
+  ipcMain.handle('account:deleteAccount', async (_event, code: string) => {
+    return deleteAccount(code)
   })
 
   ipcMain.handle('account:getUserStats', async () => {
@@ -424,7 +431,6 @@ function registerIpcHandlers(): void {
       description: '雷霆记账 - 个人记账工具',
       icon: target,
       iconIndex: 0,
-      workingDirectory: path.dirname(target)
     })
     return { success: result, message: result ? 'Created' : 'Failed to create shortcut' }
   })

@@ -4,7 +4,6 @@
  */
 import type { ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
-import { ToastContainer } from './Toast'
 import { Plus, Cloud, CloudOff, CloudCog } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -21,31 +20,31 @@ export function Layout({ children, onOpenSettings }: Props) {
   const { t } = useLanguage()
 
   const syncIcon = () => {
-    if (!user) return <CloudOff size={16} className="text-gray-400" title="未登录" />
+    if (!user) return <span title="未登录"><CloudOff size={16} className="text-gray-400" /></span>
     switch (syncStatus) {
-      case 'syncing': return <CloudCog size={16} className="text-primary-500 animate-spin" title="同步中" />
-      case 'error': return <CloudOff size={16} className="text-red-400" title="同步失败" />
-      case 'offline': return <CloudOff size={16} className="text-gray-400" title="离线" />
-      default: return <Cloud size={16} className="text-green-500" title="已同步" />
+      case 'syncing': return <span title="同步中"><CloudCog size={16} className="text-primary-500 animate-spin" /></span>
+      case 'error': return <span title="同步失败"><CloudOff size={16} className="text-red-400" /></span>
+      case 'offline': return <span title="离线"><CloudOff size={16} className="text-gray-400" /></span>
+      default: return <span title="已同步"><Cloud size={16} className="text-green-500" /></span>
     }
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
+    <div className="flex h-screen min-w-0 aurora-shell" data-testid="app-shell">
       {/* Sidebar */}
       <Sidebar onOpenSettings={onOpenSettings} />
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Top bar */}
-        <header className="h-14 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-850 flex items-center justify-between px-6 shrink-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t('雷霆记账')}</h1>
+        <header className="h-14 min-w-0 border-b flex items-center justify-between gap-3 px-6 shrink-0 aurora-topbar">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">{t('雷霆记账')}</h1>
             {syncIcon()}
           </div>
           <button
             onClick={openAddDialog}
-            className="btn-primary flex items-center gap-1.5 text-sm"
+            className="btn-primary flex items-center gap-1.5 text-sm shrink-0"
           >
             <Plus size={16} />
             {t('记一笔')}
@@ -53,13 +52,14 @@ export function Layout({ children, onOpenSettings }: Props) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">
-          {children}
+        <main className="flex-1 min-w-0 aurora-main" data-testid="app-main">
+          <div className="page-viewport">
+            <div className="page-frame" data-testid="page-frame">
+              {children}
+            </div>
+          </div>
         </main>
       </div>
-
-      {/* Toast notifications */}
-      <ToastContainer />
     </div>
   )
 }

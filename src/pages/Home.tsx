@@ -126,13 +126,13 @@ export function Home() {
   const topCategories = stats?.byCategory2.slice(0, 5) ?? []
 
   return (
-    <div className="w-full space-y-6">
+    <div className="page-view w-full min-w-0 space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="home-stats-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className="card dark:bg-gray-800 dark:border-gray-700 p-4">
+            <div key={card.label} className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-2">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${card.color}`}>
                   <Icon size={16} />

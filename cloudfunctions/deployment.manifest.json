@@ -1,0 +1,19 @@
+{
+  "functions": [
+    {
+      "name": "delUser",
+      "trigger": "http",
+      "public": true,
+      "environmentVariables": ["CLOUDBASE_APIKEY"],
+      "notes": "Requires caller Auth access_token plus reauthenticate verify_code. No uid accepted."
+    },
+    {
+      "name": "cleanupDeletedUsers",
+      "trigger": "timer",
+      "schedule": "every 5 minutes",
+      "public": false,
+      "environmentVariables": ["CLOUDBASE_APIKEY"],
+      "notes": "Internal retry worker only; do not configure an HTTP route."
+    }
+  ]
+}

@@ -32,7 +32,7 @@ export async function saveCredentials(email: string, password: string): Promise<
     return
   }
 
-  const encrypted = await safeStorage.encryptStringAsync(password)
+  const encrypted = safeStorage.encryptString(password)
 
   const data: EncryptedPayload = {
     email,
@@ -66,18 +66,7 @@ export async function loadCredentials(): Promise<{ email: string; password: stri
         return null
       }
 
-      const { result: password, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted)
-
-      // 密钥轮换：用新密钥重新加密保存
-      if (shouldReEncrypt) {
-        const reEncrypted = await safeStorage.encryptStringAsync(password)
-        const updated: EncryptedPayload = {
-          email: data.email,
-          encryptedPassword: reEncrypted.toString('base64')
-        }
-        fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(updated), 'utf-8')
-      }
-
+      const password = safeStorage.decryptString(encrypted)
       return { email: data.email, password }
     } catch (e) {
       console.error('读取加密凭据失败：', e)

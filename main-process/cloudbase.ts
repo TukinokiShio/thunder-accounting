@@ -1,10 +1,9 @@
-import { execFileSync } from 'child_process'
 import cloudbase from '@cloudbase/node-sdk'
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import type { BillRow, CategoryRow } from './database'
-import { clearAllData, getDbPath, getBills, getCategories } from './database'
+import { clearAllData, getDbPath, getBills, getCategories, setBillCloudId, setCategoryCloudId } from './database'
 import { saveCredentials as safeSave, loadCredentials as safeLoad, clearCredentials } from './credential-store'
 
 // ─── Load .env file (manual, no dependency) ─────
@@ -21,7 +20,10 @@ function loadEnvFile(envPath: string): void {
       const eqIdx = trimmed.indexOf('=')
       if (eqIdx === -1) continue
       const key = trimmed.slice(0, eqIdx).trim()
-      const val = trimmed.slice(eqIdx + 1).trim()
+      let val = trimmed.slice(eqIdx + 1).trim()
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1)
+      }
       if (!process.env[key]) process.env[key] = val
     }
   } catch (e) {
@@ -33,15 +35,19 @@ function loadEnvFile(envPath: string): void {
 
 const ENV_ID = 'shio-d0gsoo414401468d6'
 const AUTH_BASE = `https://${ENV_ID}.api.tcloudbasegateway.com`
+// CloudBase 网关实际登记的 delUser 路由（不是 service.tcloudbase.com 函数直连域名）。
+const DELETE_ACCOUNT_URL = 'https://shio-d0gsoo414401468d6-1458734732.tcloudbaseapp.com/delUser'
 
 /**
- * Admin API Key — 从环境变量 CLOUDBASE_API_KEY 加载。
+ * CloudBase API Key — 同时兼容项目自定义的 CLOUDBASE_API_KEY 和
+ * CloudBase Node SDK 官方约定的 CLOUDBASE_APIKEY。
  * 在 initCloudBase() 中通过 loadEnvFile() 注入 process.env 后读取。
- * 生产环境无 .env 文件时 API_KEY 为空字符串，Admin 功能（密码重置等）将不可用。
+ * 生产环境无 .env 文件时 API_KEY 为空字符串，云同步和云端账号功能不可用。
  * 通过动态属性名访问 process.env，避免 electron-vite 构建时静态替换。
  */
 function getApiKey(): string {
-  return (process.env as Record<string, string>)['CLOUDBASE_API_KEY'] || ''
+  const env = process.env as Record<string, string | undefined>
+  return (env['CLOUDBASE_API_KEY'] || env['CLOUDBASE_APIKEY'] || '').trim()
 }
 
 // ─── Types ────────────────────────────────────────
@@ -49,8 +55,10 @@ function getApiKey(): string {
 export interface CloudBaseUser {
   uid: string
   email: string
+  phone?: string
   emailVerified: boolean
   accountId?: string
+  nickname?: string
 }
 
 /** 精简版会话信息（不暴露 token 给前端） */
@@ -75,7 +83,8 @@ interface SessionFile {
 
 // ─── Internal State ───────────────────────────────
 
-let db: ReturnType<typeof cloudbase.init>['database'] | null = null
+let db: ReturnType<ReturnType<typeof cloudbase.init>['database']> | null = null
+let cloudApiKey = ''
 let currentSession: AuthSession | null = null
 
 // ─── Session Persistence ──────────────────────────
@@ -112,16 +121,23 @@ export function initCloudBase(): void {
   // app.getAppPath() 在 whenReady 前不可用，用 __dirname 推导
   const envPath1 = path.join(__dirname, '..', '..', '.env')
   const envPath2 = path.join(process.resourcesPath || '', '.env')
+  const envPath3 = path.join(app.getPath('userData'), '.env')
   loadEnvFile(envPath1)
   loadEnvFile(envPath2)
+  loadEnvFile(envPath3)
+  // 安装版允许把 .env 放在 exe 同级目录；不要要求用户修改 asar 或源码目录。
+  loadEnvFile(path.join(path.dirname(process.execPath), '.env'))
 
   const apiKey = getApiKey()
+  cloudApiKey = apiKey
   if (!apiKey) {
-    console.warn('⚠ CLOUDBASE_API_KEY not set. Admin features (password reset, etc.) will be unavailable.')
+    console.warn('⚠ CloudBase API Key not set. Cloud sync and cloud account features will be unavailable.')
   }
   try {
-    db = cloudbase.init({ env: ENV_ID, accessKey: apiKey }).database()
+    // 空 accessKey 不能视为已初始化，否则 UI 会错误地显示“云端可用”。
+    db = apiKey ? cloudbase.init({ env: ENV_ID, accessKey: apiKey }).database() : null
   } catch (e) {
+    db = null
     console.error('CloudBase SDK 初始化失败，云同步功能不可用:', e)
   }
   const saved = loadSession()
@@ -154,14 +170,43 @@ async function authFetch(
   endpoint: string,
   body: Record<string, unknown> = {},
   token?: string,
-  method: string = 'POST'
+  method: string = 'POST',
+  retryOn401 = true
 ): Promise<{ ok: boolean; data: Record<string, unknown>; status: number }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(`${AUTH_BASE}${endpoint}`, { method, headers, body: JSON.stringify(body) })
+  const request: RequestInit = { method, headers }
+  if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
+    request.body = JSON.stringify(body)
+  }
+  const res = await fetch(`${AUTH_BASE}${endpoint}`, request)
   let data: Record<string, unknown>
   try { data = await res.json() as Record<string, unknown> } catch { data = { error: `HTTP ${res.status}` } }
-  return { ok: res.ok, data, status: res.status }
+  const payload = data.data && typeof data.data === 'object' && !Array.isArray(data.data)
+    ? data.data as Record<string, unknown>
+    : data
+  const businessError = payload.error || payload.error_description || payload.error_code
+  if (res.status === 401 && retryOn401 && token && currentSession?.refreshToken && endpoint !== '/auth/v1/token') {
+    const refreshed = await authFetch('/auth/v1/token', {
+      grant_type: 'refresh_token',
+      refresh_token: currentSession.refreshToken
+    }, undefined, 'POST', false)
+    if (refreshed.ok) {
+      const refreshedData = authPayload(refreshed.data) as {
+        access_token?: string
+        refresh_token?: string
+        expires_in?: number
+      }
+      if (refreshedData.access_token) {
+        currentSession.accessToken = refreshedData.access_token
+        currentSession.refreshToken = refreshedData.refresh_token || currentSession.refreshToken
+        currentSession.expiresAt = Date.now() + (refreshedData.expires_in || 7200) * 1000
+        saveSession(currentSession)
+        return authFetch(endpoint, body, currentSession.accessToken, method, false)
+      }
+    }
+  }
+  return { ok: res.ok && !businessError, data, status: res.status }
 }
 
 // ─── Auth Functions ───────────────────────────────
@@ -251,6 +296,8 @@ export function generateDefaultNickname(email: string): string {
  * 支持：账号 ID → 查 accounts 集合；邮箱 → 直接返回；手机号 → 查 accounts 集合。
  */
 export async function resolveLoginIdentifier(identifier: string): Promise<string> {
+  // CloudBase Auth 原生支持手机号登录；不应因本地 accounts 映射不可用而阻断。
+  if (/^\d{11}$/.test(identifier)) return identifier
   // 邮箱格式 → 直接返回
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) return identifier
 
@@ -331,7 +378,7 @@ export interface SendCodeResult {
 }
 
 /** 发送验证码到邮箱或手机号。返回实际接收方信息和 verification_id */
-export async function sendVerificationCode(target: string): Promise<SendCodeResult> {
+export async function sendVerificationCode(target: string, registeredUserOnly = false): Promise<SendCodeResult> {
   const isPhone = /^\d{11}$/.test(target)
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)
   const body: Record<string, string> = {}
@@ -340,12 +387,12 @@ export async function sendVerificationCode(target: string): Promise<SendCodeResu
 
   if (isPhone) {
     body.phone_number = '+86 ' + target
-    body.target = 'ANY'
+    body.target = registeredUserOnly ? 'USER' : 'ANY'
     resolvedType = 'phone'
     resolvedTarget = target
   } else if (isEmail) {
     body.email = target
-    body.target = 'ANY'
+    body.target = registeredUserOnly ? 'USER' : 'ANY'
     resolvedType = 'email'
     resolvedTarget = target
   } else {
@@ -357,7 +404,7 @@ export async function sendVerificationCode(target: string): Promise<SendCodeResu
       } else {
         body.email = resolved.target
       }
-      body.target = 'ANY'
+      body.target = registeredUserOnly ? 'USER' : 'ANY'
       resolvedType = resolved.type
       resolvedTarget = resolved.target
     } else {
@@ -371,7 +418,7 @@ export async function sendVerificationCode(target: string): Promise<SendCodeResu
     throw new Error(e.error_description || e.error || 'verification_code_send_failed')
   }
 
-  const d = data as { verification_id?: string; is_user?: boolean }
+  const d = authPayload(data) as { verification_id?: string; is_user?: boolean }
   return {
     type: resolvedType || 'email',
     target: resolvedTarget || target,
@@ -389,8 +436,7 @@ export async function registerWithEmail(email: string, password: string, code: s
   const body: Record<string, string> = {
     email,
     password,
-    verification_token: verificationToken,
-    verification_code: code
+    verification_token: verificationToken
   }
   const { ok, data, status } = await authFetch('/auth/v1/signup', body)
   if (!ok) {
@@ -398,7 +444,7 @@ export async function registerWithEmail(email: string, password: string, code: s
     if (e.error === 'user_already_exists' || status === 409) throw new Error('user_already_exists')
     throw new Error(e.error_description || e.error || 'signup_failed')
   }
-  const u = data as { uid: string; email_verified?: boolean; sub?: string }
+  const u = authPayload(data) as { uid: string; email_verified?: boolean; sub?: string }
   const uid = u.uid || u.sub || ''
 
   const accountId = generateStandardAccountId(email)
@@ -420,12 +466,11 @@ export async function registerWithPhone(phone: string, password: string, code: s
   const body: Record<string, string> = {
     phone_number: '+86 ' + phone,
     password,
-    verification_token: verificationToken,
-    verification_code: code
+    verification_token: verificationToken
   }
   const { ok, data, status } = await authFetch('/auth/v1/signup', body)
   if (ok) {
-    const u = data as { uid: string; email_verified?: boolean; sub?: string }
+    const u = authPayload(data) as { uid: string; email_verified?: boolean; sub?: string }
     const uid = u.uid || u.sub || ''
     const internalEmail = `${phone}@phone.tb`
     const accountId = generateStandardAccountId(internalEmail)
@@ -440,41 +485,26 @@ export async function registerWithPhone(phone: string, password: string, code: s
     }
   }
 
-  // 兜底：内部邮箱注册
-  const internalEmail = `${phone}@phone.tb`
-  const { ok: ok2, data: data2, status: status2 } = await authFetch('/auth/v1/signup', {
-    email: internalEmail, password,
-    verification_token: verificationToken,
-    verification_code: code
-  })
-  if (!ok2) {
-    const e = data2 as { error?: string; error_description?: string }
-    if (e.error === 'user_already_exists' || status2 === 409) throw new Error('user_already_exists')
-    throw new Error(e.error_description || e.error || 'signup_failed')
-  }
-  const u = data2 as { uid: string; email_verified?: boolean; sub?: string }
-  const uid = u.uid || u.sub || ''
-  const accountId = generateStandardAccountId(internalEmail)
-  const nickname = generateDefaultNickname(phone)
-  await createAccountRecord(internalEmail, uid, accountId, nickname)
-  try { await db?.collection('accounts').where({ uid }).update({ phone }) } catch { /* ignore */ }
-  return {
-    user: { uid, email: internalEmail, emailVerified: false, accountId, nickname },
-    accountId
-  }
+  const e = data as { error?: string; error_description?: string }
+  if (e.error === 'user_already_exists' || status === 409) throw new Error('user_already_exists')
+  // 绝不能把手机号悄悄降级注册为伪邮箱：这会造成真实手机号未绑定，随后登录、改密和注销都无法工作。
+  throw new Error(e.error_description || e.error || 'signup_failed')
 }
 
 /** 登录 */
 export async function loginWithEmail(email: string, password: string): Promise<LoginResult> {
-  const { ok, data } = await authFetch('/auth/v1/signin', { username: email, password })
+  const isPhone = /^\d{11}$/.test(email)
+  const authIdentifier = isPhone ? '+86 ' + email : email
+  const { ok, data } = await authFetch('/auth/v1/signin', { username: authIdentifier, password })
   if (!ok) {
     const e = data as { error?: string; error_description?: string }
     if (e.error === 'invalid_username_or_password') throw new Error('invalid_username_or_password')
     if (e.error === 'email_not_verified') throw new Error('email_not_verified')
     throw new Error(e.error_description || e.error || 'signin_failed')
   }
-  const result = data as { sub?: string; access_token?: string; refresh_token?: string; expires_in?: number; email_verified?: boolean }
+  const result = authPayload(data) as { sub?: string; access_token?: string; refresh_token?: string; expires_in?: number; email_verified?: boolean }
   const uid = result.sub || ''
+  const sessionEmail = isPhone ? `${email}@phone.tb` : email
 
   // 从 accounts 集合获取 accountId
   let accountId: string | undefined
@@ -485,19 +515,19 @@ export async function loginWithEmail(email: string, password: string): Promise<L
         const acc = accResult.data[0] as { accountId?: string; email?: string; nickname?: string }
         accountId = acc.accountId
         if (!accountId) {
-          const refEmail = acc.email || email
+          const refEmail = acc.email || sessionEmail
           accountId = generateStandardAccountId(refEmail)
           await db.collection('accounts').doc((accResult.data[0] as { _id: string })._id).update({ accountId })
         }
       } else {
-        accountId = generateStandardAccountId(email)
+        accountId = generateStandardAccountId(sessionEmail)
       }
     } else {
-      accountId = generateStandardAccountId(email)
+      accountId = generateStandardAccountId(sessionEmail)
     }
   } catch (e) {
     console.error('获取 accountId 失败（用规范化算法兜底）:', e)
-    accountId = generateStandardAccountId(email)
+    accountId = generateStandardAccountId(sessionEmail)
   }
 
   // 尝试获取 nickname（accounts 集合优先，否则从 email 推断）
@@ -511,10 +541,17 @@ export async function loginWithEmail(email: string, password: string): Promise<L
       }
     }
   } catch { /* ignore */ }
-  if (!nickname) nickname = generateDefaultNickname(email)
+  if (!nickname) nickname = generateDefaultNickname(sessionEmail)
 
   const session: AuthSession = {
-    user: { uid, email, emailVerified: !!result.email_verified, accountId, nickname },
+    user: {
+      uid,
+      email: sessionEmail,
+      phone: isPhone ? email : undefined,
+      emailVerified: !!result.email_verified,
+      accountId,
+      nickname
+    },
     accessToken: result.access_token || '',
     refreshToken: result.refresh_token || '',
     expiresAt: Date.now() + (result.expires_in || 7200) * 1000
@@ -531,12 +568,12 @@ export async function loginWithEmail(email: string, password: string): Promise<L
  */
 /**
  * 检查云端服务是否可用
- * - 必须有 CLOUDBASE_API_KEY（db 已初始化）
+ * - 必须有 CloudBase API Key（db 已初始化）
  * - 必须有当前 session（用户已登录）
  * - session.accessToken 必须存在
  */
 export function isCloudSyncEnabled(): boolean {
-  return !!(db && currentSession?.accessToken)
+  return !!(cloudApiKey && db && currentSession?.accessToken)
 }
 
 export async function verifyCode(verificationId: string, code: string): Promise<string> {
@@ -556,7 +593,7 @@ export async function verifyCode(verificationId: string, code: string): Promise<
     if (errorCode.includes('invalid') || errorCode.includes('incorrect')) throw new Error('verification_code_invalid')
     throw new Error(e.error_description || errorCode)
   }
-  const result = data as { verification_token?: string; ticket?: string }
+  const result = authPayload(data) as { verification_token?: string; ticket?: string }
   const token = result.verification_token || result.ticket
   if (!token) throw new Error('no_verification_token_in_response')
   return token
@@ -586,7 +623,7 @@ export async function loginWithVerificationCode(identifier: string, code: string
     const code = e.error || `http_${status}`
     throw new Error(desc ? `${code}|${desc}` : code)
   }
-  const result = data as { sub?: string; access_token?: string; refresh_token?: string; expires_in?: number; email_verified?: boolean }
+  const result = authPayload(data) as { sub?: string; access_token?: string; refresh_token?: string; expires_in?: number; email_verified?: boolean }
   const uid = result.sub || ''
 
   // 从 accounts 集合获取 accountId
@@ -617,7 +654,14 @@ export async function loginWithVerificationCode(identifier: string, code: string
   if (!nickname) nickname = generateDefaultNickname(target.target)
 
   const session: AuthSession = {
-    user: { uid, email: target.target, emailVerified: !!result.email_verified, accountId, nickname },
+    user: {
+      uid,
+      email: target.type === 'phone' ? `${target.target}@phone.tb` : target.target,
+      phone: target.type === 'phone' ? target.target : undefined,
+      emailVerified: !!result.email_verified,
+      accountId,
+      nickname
+    },
     accessToken: result.access_token || '',
     refreshToken: result.refresh_token || '',
     expiresAt: Date.now() + (result.expires_in || 7200) * 1000
@@ -679,12 +723,12 @@ export async function checkSession(): Promise<LoginResult | null> {
       grant_type: 'refresh_token', refresh_token: currentSession.refreshToken
     })
     if (!ok) { currentSession = null; clearSession(); return null }
-    const t = data as { access_token: string; refresh_token: string; expires_in: number }
+    const t = authPayload(data) as { access_token: string; refresh_token: string; expires_in: number }
     currentSession.accessToken = t.access_token
     currentSession.refreshToken = t.refresh_token
     currentSession.expiresAt = Date.now() + (t.expires_in || 7200) * 1000
     saveSession(currentSession)
-    return { user: currentSession.user }
+    return { user: currentSession.user, accountId: currentSession.user.accountId }
   } catch {
     currentSession = null; clearSession(); return null
   }
@@ -698,12 +742,16 @@ export function isLoggedIn(): boolean {
   return currentSession !== null && currentSession.expiresAt > Date.now()
 }
 
-/** 发送重认证验证码（需提供当前密码） */
-export async function sendReauthCode(currentPassword: string): Promise<void> {
+/** 发送重认证验证码。CloudBase 由 verify_opt 决定发往已绑定的手机或邮箱。 */
+export async function sendReauthCode(verifyOpt?: 'phone_code' | 'email_code'): Promise<void> {
   if (!currentSession) throw new Error('reauth_not_logged_in')
+  const binding = await readAuthBindings()
+  const hasAuthoritativePhone = !!binding?.phone && !isPlaceholderPhone(binding.phone)
+  const selectedOpt = verifyOpt || (hasAuthoritativePhone ? 'phone_code' : 'email_code')
+  if (selectedOpt === 'phone_code' && !hasAuthoritativePhone) throw new Error('phone_not_bound')
+  if (selectedOpt === 'email_code' && !binding?.email) throw new Error('email_not_bound')
   const { ok, data } = await authFetch('/auth/v1/user/reauthenticate', {
-    password: currentPassword,
-    verify_opt: 'email_code'
+    verify_opt: selectedOpt
   }, currentSession.accessToken)
   if (!ok) {
     const e = data as { error_description?: string; error?: string }
@@ -711,52 +759,54 @@ export async function sendReauthCode(currentPassword: string): Promise<void> {
   }
 }
 
-/** 修改密码（已登录用户，通过 Admin API） */
-export async function changePassword(newPassword: string): Promise<void> {
+/** 修改密码（已登录用户，使用当前会话和 reauthenticate 验证码）。 */
+export async function changePassword(
+  newPassword: string,
+  verificationCode: string,
+  oldPassword?: string
+): Promise<void> {
   if (!currentSession) throw new Error('reauth_not_logged_in')
-  try {
-    const uid = currentSession.user.uid
-    execFileSync(process.execPath, [
-      path.join(__dirname, '..', 'scripts', 'admin-api.cjs'),
-      uid, newPassword
-    ], { encoding: 'utf-8', timeout: 30000 })
-  } catch (e: any) {
-    const msg = e.stderr || e.message || ''
-    throw new Error(msg.trim() || 'password_change_failed')
+  if (!verificationCode) throw new Error('verification_required')
+  const body: Record<string, string> = {
+    new_password: newPassword,
+    confirm_password: newPassword,
+    verify_code: verificationCode
+  }
+  if (oldPassword) body.old_password = oldPassword
+  const { ok, data, status } = await authFetch('/auth/v1/user/password', {
+    ...body
+  }, currentSession.accessToken, 'PATCH')
+  if (!ok) {
+    const error = data as { error?: string; error_description?: string }
+    throw new Error(error.error_description || error.error || `password_change_failed: HTTP ${status}`)
   }
 }
 
-/** 重置密码（未登录用户，通过加固后的云函数完成邮箱/手机→UID 查找与密码修改） */
+/**
+ * 重置密码：验证码必须由 target=USER 申请。验证后以 verification_token 登录目标账号，
+ * 再用该短时认证会话调用原生改密接口；不经过管理员云函数或 accounts 映射。
+ */
 export async function resetPassword(identifier: string, newPassword: string, verificationCode: string, verificationId: string): Promise<void> {
-  const cfUrl = `https://${ENV_ID}.service.tcloudbase.com/resetUserPassword`
-
-  // Step 1: 解析手机号/邮箱
-  const isPhone = /^\d{11}$/.test(identifier)
-  const lookupId = isPhone ? identifier : identifier
-
-  // Step 2: 验证 code 换 verification_token（本地做，更快）
-  let verificationToken: string
-  if (verificationId) {
-    verificationToken = await verifyCode(verificationId, verificationCode)
-  } else {
-    // 兼容旧调用：直接用 code 当作 token（降级路径，可能失败）
-    verificationToken = verificationCode
-  }
-
-  // Step 3: 调用云函数，传 verification_token（云函数 v3 已支持 phone）
-  const body: Record<string, string> = isPhone
-    ? { phone: lookupId, newPassword, verification_token: verificationToken }
-    : { email: lookupId, newPassword, verification_token: verificationToken }
-
-  const res = await fetch(cfUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+  if (!identifier || !newPassword || !verificationCode || !verificationId) throw new Error('verification_required')
+  const verificationToken = await verifyCode(verificationId, verificationCode)
+  const { ok: signInOk, data: signInData, status: signInStatus } = await authFetch('/auth/v1/signin', {
+    username: /^\d{11}$/.test(identifier) ? '+86 ' + identifier : identifier,
+    verification_token: verificationToken
   })
-
-  const data = await res.json() as { code?: number; message?: string }
-  if (data.code !== 0) {
-    throw new Error(data.message || 'password_change_failed')
+  if (!signInOk) {
+    const error = signInData as { error?: string; error_description?: string }
+    throw new Error(error.error_description || error.error || `verification_signin_failed: HTTP ${signInStatus}`)
+  }
+  const signedIn = authPayload(signInData) as { access_token?: string }
+  if (!signedIn.access_token) throw new Error('verification_signin_failed')
+  const { ok, data, status } = await authFetch('/auth/v1/user/password', {
+    new_password: newPassword,
+    confirm_password: newPassword,
+    verify_code: verificationCode
+  }, signedIn.access_token, 'PATCH')
+  if (!ok) {
+    const error = data as { error?: string; error_description?: string }
+    throw new Error(error.error_description || error.error || `password_change_failed: HTTP ${status}`)
   }
 }
 
@@ -779,11 +829,16 @@ export async function upsertRemoteBill(bill: BillRow): Promise<void> {
       created_at: bill.created_at || new Date().toISOString(),
       updated_at: bill.updated_at || new Date().toISOString()
     }
-    const existing = await db!.collection('bills').where({ localId: bill.id, userId }).get()
+    const existing = bill.cloud_id
+      ? { data: [{ _id: bill.cloud_id }] }
+      : await db!.collection('bills').where({ localId: bill.id, userId }).get()
     if (existing.data?.length) {
       await db!.collection('bills').doc(existing.data[0]._id).update(remote)
+      setBillCloudId(bill.id, existing.data[0]._id)
     } else {
-      await db!.collection('bills').add(remote)
+      const added = await db!.collection('bills').add(remote)
+      const cloudId = (added as { id?: string }).id
+      if (cloudId) setBillCloudId(bill.id, cloudId)
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -795,7 +850,10 @@ export async function upsertRemoteBill(bill: BillRow): Promise<void> {
 export async function deleteRemoteBill(localId: number): Promise<void> {
   try {
     const { userId } = ensureDbAndUser()
-    const existing = await db!.collection('bills').where({ localId, userId }).get()
+    const local = getBills().find(bill => bill.id === localId)
+    const existing = local?.cloud_id
+      ? { data: [{ _id: local.cloud_id }] }
+      : await db!.collection('bills').where({ localId, userId }).get()
     if (existing.data?.length) await db!.collection('bills').doc(existing.data[0]._id).remove()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -814,11 +872,16 @@ export async function upsertRemoteCategory(cat: CategoryRow): Promise<void> {
       created_at: cat.created_at,
       updated_at: cat.updated_at || new Date().toISOString()
     }
-    const existing = await db!.collection('categories').where({ localId: cat.id, userId }).get()
+    const existing = cat.cloud_id
+      ? { data: [{ _id: cat.cloud_id }] }
+      : await db!.collection('categories').where({ localId: cat.id, userId }).get()
     if (existing.data?.length) {
       await db!.collection('categories').doc(existing.data[0]._id).update(remote)
+      setCategoryCloudId(cat.id, existing.data[0]._id)
     } else {
-      await db!.collection('categories').add(remote)
+      const added = await db!.collection('categories').add(remote)
+      const cloudId = (added as { id?: string }).id
+      if (cloudId) setCategoryCloudId(cat.id, cloudId)
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -830,7 +893,10 @@ export async function upsertRemoteCategory(cat: CategoryRow): Promise<void> {
 export async function deleteRemoteCategory(localId: number): Promise<void> {
   try {
     const { userId } = ensureDbAndUser()
-    const existing = await db!.collection('categories').where({ localId, userId }).get()
+    const local = getCategories().find(category => category.id === localId)
+    const existing = local?.cloud_id
+      ? { data: [{ _id: local.cloud_id }] }
+      : await db!.collection('categories').where({ localId, userId }).get()
     if (existing.data?.length) await db!.collection('categories').doc(existing.data[0]._id).remove()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -878,8 +944,16 @@ export async function pullBillsFromCloud(): Promise<CloudBill[]> {
   if (!userId) return []
 
   try {
-    const result = await db.collection('bills').where({ userId }).limit(1000).get()
-    const data = (result.data || []) as CloudBill[]
+    const data: CloudBill[] = []
+    const pageSize = 1000
+    let offset = 0
+    while (true) {
+      const result = await db.collection('bills').where({ userId }).skip(offset).limit(pageSize).get()
+      const page = (result.data || []) as CloudBill[]
+      data.push(...page)
+      if (page.length < pageSize) break
+      offset += page.length
+    }
     if (data.length === 0) {
       console.warn('[Sync] 云端无账单数据。请检查 .env 中 CLOUDBASE_API_KEY 是否已配置')
     }
@@ -900,8 +974,17 @@ export async function pullCategoriesFromCloud(): Promise<CloudCategory[]> {
   if (!userId) return []
 
   try {
-    const result = await db.collection('categories').where({ userId }).limit(100).get()
-    return (result.data || []) as CloudCategory[]
+    const data: CloudCategory[] = []
+    const pageSize = 100
+    let offset = 0
+    while (true) {
+      const result = await db.collection('categories').where({ userId }).skip(offset).limit(pageSize).get()
+      const page = (result.data || []) as CloudCategory[]
+      data.push(...page)
+      if (page.length < pageSize) break
+      offset += page.length
+    }
+    return data
   } catch (e) {
     console.error('从云端拉取分类失败:', e)
     return []
@@ -917,6 +1000,53 @@ export interface AccountInfo {
   nickname?: string
 }
 
+function normalizeAuthPhone(value: unknown): string {
+  const raw = String(value || '').trim()
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 13 && digits.startsWith('86')) return digits.slice(2)
+  return digits.length === 11 ? digits : raw
+}
+
+function isPlaceholderEmail(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return !normalized || normalized.endsWith('@phone.tb') || normalized.endsWith('@thunder.invalid') || normalized.endsWith('@lgs.invalid')
+}
+
+function isPlaceholderPhone(value: string): boolean {
+  const normalized = value.replace(/\s/g, '')
+  return !normalized || normalized.startsWith('+86140') || normalized.startsWith('86140') || normalized.startsWith('140')
+}
+
+function authPayload(data: Record<string, unknown>): Record<string, unknown> {
+  return data.data && typeof data.data === 'object' && !Array.isArray(data.data)
+    ? data.data as Record<string, unknown>
+    : data
+}
+
+/** 从 CloudBase Auth 读取真实绑定状态；accounts 不可用时仍可工作。 */
+async function readAuthBindings(): Promise<Pick<AccountInfo, 'email' | 'phone'> | null> {
+  if (!currentSession?.accessToken) return null
+  try {
+    const { ok, data } = await authFetch('/auth/v1/user/me', {}, currentSession.accessToken, 'GET')
+    if (!ok) return null
+    const profile = authPayload(data)
+    const email = String(profile.email || '')
+    const phone = normalizeAuthPhone(profile.phone_number || profile.phone)
+    if (email || phone) {
+      currentSession.user = {
+        ...currentSession.user,
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {})
+      }
+      saveSession(currentSession)
+    }
+    return { email, phone }
+  } catch (e) {
+    console.warn('读取 CloudBase Auth 绑定信息失败，将使用本地映射:', e)
+    return null
+  }
+}
+
 /**
  * 获取当前用户的账号绑定信息。
  * 多层 fallback：accounts 集合 → 当前 session → null。
@@ -925,17 +1055,33 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
   const userId = getUserId()
   if (!userId) return null
 
+  // Auth 是手机号/邮箱的权威来源；先读它，避免无 API Key 或映射延迟时显示旧状态。
+  const authBinding = await readAuthBindings()
+
   // 1. 从 accounts 集合查（最权威）
   if (db) {
     try {
       const result = await db.collection('accounts').where({ uid: userId }).limit(1).get()
       if (result.data?.length) {
         const a = result.data[0] as AccountInfo & { uid: string; createdAt?: string }
-        return {
-          accountId: a.accountId,
-          email: a.email,
-          phone: a.phone,
+        const resolved = {
+          accountId: a.accountId || '',
+          email: authBinding?.email || a.email || '',
+          phone: authBinding?.phone || a.phone || '',
           nickname: (a as { nickname?: string }).nickname
+        }
+        if (authBinding && (resolved.email !== a.email || resolved.phone !== a.phone)) {
+          try {
+            await db.collection('accounts').doc(result.data[0]._id).update({
+              email: resolved.email,
+              phone: resolved.phone
+            })
+          } catch (e) {
+            console.warn('Auth 绑定状态已读取，但 accounts 映射回写失败:', e)
+          }
+        }
+        return {
+          ...resolved
         }
       }
     } catch (e) {
@@ -944,12 +1090,12 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
     }
   }
 
-  // 2. Fallback：从当前 session 构造（db 不可用时）
+  // 2. Fallback：从 Auth/当前 session 构造（db 不可用时）
   if (currentSession) {
     return {
-      accountId: currentSession.user.accountId,
-      email: currentSession.user.email,
-      phone: '',  // session 中没有 phone 字段
+      accountId: currentSession.user.accountId || '',
+      email: authBinding?.email || currentSession.user.email,
+      phone: authBinding?.phone || currentSession.user.phone || '',
       nickname: currentSession.user.nickname
     }
   }
@@ -978,7 +1124,7 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
 
   // 云端服务未配置（缺 CLOUDBASE_API_KEY 或 .env 不存在）
   if (!currentSession?.accessToken) {
-    throw new Error('云端服务未配置：缺少 access_token。请联系管理员在项目根目录 .env 中配置 CLOUDBASE_API_KEY')
+    throw new Error('reauth_not_logged_in')
   }
 
   // 需要 access_token 才能发送到当前登录用户的目标
@@ -989,7 +1135,7 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
     throw new Error(e.error_description || e.error || 'verification_code_send_failed')
   }
 
-  const d = data as { verification_id?: string }
+  const d = authPayload(data) as { verification_id?: string }
   return { verificationId: d.verification_id || '', type: isPhone ? 'phone' : 'email' }
 }
 
@@ -998,25 +1144,16 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
  * 发送验证码到新邮箱 → 用户输入验证码 → 调用此函数验证并绑定。
  */
 export async function bindEmail(newEmail: string, code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
   // 验证验证码
-  await verifyCode(verificationId, code)
+  const verificationToken = await verifyCode(verificationId, code)
 
-  // 检查邮箱是否已被其他账号绑定
-  const existing = await db.collection('accounts').where({ email: newEmail }).get()
-  if (existing.data?.length) {
-    const acc = existing.data[0] as { uid: string }
-    if (acc.uid !== userId) throw new Error('email_already_bound')
-  }
-
-  // 更新当前用户的邮箱
-  const result = await db.collection('accounts').where({ uid: userId }).get()
-  if (!result.data?.length) throw new Error('account_not_found')
-
-  await db.collection('accounts').doc(result.data[0]._id).update({ email: newEmail })
+  // Auth 是绑定的权威来源，不能因本地 accounts 映射不可用而跳过真实绑定。
+  await updateAuthBasicInfo({ email: newEmail }, verificationToken)
+  cacheAuthBinding({ email: newEmail })
+  await persistAccountBinding(userId, { email: newEmail })
 }
 
 /**
@@ -1025,48 +1162,68 @@ export async function bindEmail(newEmail: string, code: string, verificationId: 
  * 至少保留手机号绑定，否则拒绝解绑。
  */
 export async function unbindEmail(code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
-  // 获取当前账号信息
-  const result = await db.collection('accounts').where({ uid: userId }).get()
-  if (!result.data?.length) throw new Error('account_not_found')
-
-  const account = result.data[0] as AccountInfo
+  // Auth 是权威来源；没有 API Key 时也能读取当前绑定并完成换绑。
+  const account = await getAccountBindings()
+  if (!account) throw new Error('account_not_found')
 
   // 验证验证码（发送到当前邮箱）
-  await verifyCode(verificationId, code)
+  const verificationToken = await verifyCode(verificationId, code)
 
   // 至少保留手机号绑定
-  if (!account.phone) throw new Error('cannot_remove_last_binding')
+  if (isPlaceholderPhone(account.phone)) throw new Error('cannot_remove_last_binding')
 
-  await db.collection('accounts').doc(result.data[0]._id).update({ email: '' })
+  // CloudBase basic/edit 不接受空邮箱；用合法且唯一的占位值释放旧邮箱。
+  const unboundEmail = makeUnboundEmail(userId)
+  await updateAuthBasicInfo({ email: unboundEmail }, verificationToken)
+  cacheAuthBinding({ email: unboundEmail })
+  await persistAccountBinding(userId, { email: '' })
 }
 
 /**
  * 绑定手机号到当前用户账号（验证码确认）。
  */
 export async function bindPhone(phone: string, code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
   // 验证验证码
-  await verifyCode(verificationId, code)
+  const verificationToken = await verifyCode(verificationId, code)
 
-  // 检查手机号是否已被其他账号绑定
-  const existing = await db.collection('accounts').where({ phone }).get()
-  if (existing.data?.length) {
-    const acc = existing.data[0] as { uid: string }
-    if (acc.uid !== userId) throw new Error('phone_already_bound')
+  // Auth 会校验手机号唯一性；本地 accounts 只是可选的应用侧映射。
+  await updateAuthBasicInfo({ phone: '+86 ' + phone }, verificationToken)
+  cacheAuthBinding({ phone })
+  await persistAccountBinding(userId, { phone })
+}
+
+/**
+ * Auth 绑定成功后再写应用映射。
+ * 映射失败必须显式报告，避免 UI 声称“绑定成功”但 accounts 仍未持久化。
+ */
+async function persistAccountBinding(userId: string, binding: { email?: string; phone?: string }): Promise<void> {
+  if (!db) {
+    console.warn('binding_mapping_pending: CloudBase Auth 已完成，等待 accounts 映射恢复同步。')
+    return
   }
+  try {
+    const result = await db.collection('accounts').where({ uid: userId }).limit(1).get()
+    if (!result.data?.length) {
+      console.warn('binding_mapping_pending: CloudBase Auth 已完成，但 accounts 记录不存在。')
+      return
+    }
+    await db.collection('accounts').doc(result.data[0]._id).update(binding)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.warn(`binding_mapping_pending: CloudBase Auth 已完成，但账号映射同步失败（${message}）。`, e)
+  }
+}
 
-  // 更新当前用户的手机号
-  const result = await db.collection('accounts').where({ uid: userId }).get()
-  if (!result.data?.length) throw new Error('account_not_found')
-
-  await db.collection('accounts').doc(result.data[0]._id).update({ phone })
+function cacheAuthBinding(binding: { email?: string; phone?: string }): void {
+  if (!currentSession) return
+  currentSession.user = { ...currentSession.user, ...binding }
+  saveSession(currentSession)
 }
 
 /**
@@ -1074,68 +1231,84 @@ export async function bindPhone(phone: string, code: string, verificationId: str
  * 至少保留邮箱绑定，否则拒绝解绑。
  */
 export async function unbindPhone(code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
-  const result = await db.collection('accounts').where({ uid: userId }).get()
-  if (!result.data?.length) throw new Error('account_not_found')
-
-  const account = result.data[0] as AccountInfo
+  const account = await getAccountBindings()
+  if (!account) throw new Error('account_not_found')
 
   // 验证验证码（发送到当前手机号）
-  await verifyCode(verificationId, code)
+  const verificationToken = await verifyCode(verificationId, code)
 
   // 至少保留邮箱绑定
-  if (!account.email) throw new Error('cannot_remove_last_binding')
+  if (isPlaceholderEmail(account.email)) throw new Error('cannot_remove_last_binding')
 
-  await db.collection('accounts').doc(result.data[0]._id).update({ phone: '' })
+  // CloudBase basic/edit 不接受空手机号；用合法且唯一的占位值释放旧手机号。
+  const unboundPhone = makeUnboundPhone(userId)
+  await updateAuthBasicInfo({ phone: unboundPhone }, verificationToken)
+  cacheAuthBinding({ phone: unboundPhone })
+  await persistAccountBinding(userId, { phone: '' })
+}
+
+function stableBindingHash(value: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function makeUnboundEmail(userId: string): string {
+  return `unbound-${stableBindingHash(`${userId}:email`).toString(36)}@thunder.invalid`
+}
+
+function makeUnboundPhone(userId: string): string {
+  // 140 为参考项目采用的保留号段，避免解绑占位值误占用真实号码。
+  const suffix = String(stableBindingHash(`${userId}:phone`) % 100_000_000).padStart(8, '0')
+  return `+86 140${suffix}`
+}
+
+/**
+ * 同步更新 CloudBase Auth 的真实身份绑定。
+ * accounts 只是应用侧映射表，不能替代 Auth 的 email/phone 字段。
+ */
+async function updateAuthBasicInfo(binding: { email?: string; phone?: string }, verificationToken: string): Promise<void> {
+  if (!currentSession?.accessToken) throw new Error('reauth_not_logged_in')
+  // verificationToken 已由 verifyCode 校验；basic/edit 官方契约只接收
+  // email/phone 等基础字段，不把 verification_token 当作编辑字段发送。
+  void verificationToken
+  const { ok, data, status } = await authFetch('/auth/v1/user/basic/edit', {
+    ...binding
+  }, currentSession.accessToken)
+  if (!ok) {
+    const e = data as { error_description?: string; error?: string }
+    throw new Error(e.error_description || e.error || `auth_binding_update_failed_${status}`)
+  }
 }
 
 // ─── Account Deletion ──────────────────────────────
 
 /**
- * 注销账号（验证码确认后删除所有数据）。
- * 流程：
- * 1. 验证验证码
- * 2. 删除 CloudBase 集合中的用户数据（accounts, bills, categories）
- * 3. 清理本地数据库文件
- * 4. 尝试删除 CloudBase Auth 用户（通过云函数或直接 API）
+ * 注销账号：仅删除当前认证用户。远端业务数据必须由具备最小权限的、可重试的
+ * 服务端清理任务处理；绝不能在 Auth 删除前由客户端或公开函数先删数据。
  */
-export async function deleteAccount(code: string, verificationId: string): Promise<void> {
-  if (!db) throw new Error('云端服务不可用，请检查 .env 是否配置 CLOUDBASE_API_KEY')
-  const userId = getUserId()
-  if (!userId) throw new Error('未登录')
-
-  // Step 1: 验证验证码
-  await verifyCode(verificationId, code)
-
-  // Step 2: 删除云端数据
-  const collections = ['bills', 'categories', 'accounts']
-  const errors: string[] = []
-  for (const col of collections) {
-    try {
-      const { data: items } = await db!.collection(col).where({ userId }).get()
-      if (items?.length) {
-        for (const item of items as Array<{ _id: string }>) {
-          await db!.collection(col).doc(item._id).remove()
-        }
-      }
-      // accounts 集合用 uid 查询
-      if (col === 'accounts') {
-        const { data: accItems } = await db!.collection(col).where({ uid: userId }).get()
-        if (accItems?.length) {
-          for (const item of accItems as Array<{ _id: string }>) {
-            await db!.collection(col).doc(item._id).remove()
-          }
-        }
-      }
-    } catch (e) {
-      errors.push(`${col}: ${(e as Error).message}`)
-    }
+export async function deleteAccount(code: string): Promise<{ cleanupPending: boolean }> {
+  if (!currentSession?.accessToken) throw new Error('reauth_not_logged_in')
+  if (!code) throw new Error('verification_required')
+  const res = await fetch(DELETE_ACCOUNT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ access_token: currentSession.accessToken, verify_code: code })
+  })
+  const raw = await res.json().catch(() => ({})) as Record<string, unknown>
+  const data = (raw.data && typeof raw.data === 'object' ? raw.data : raw) as { code?: number; message?: string; cleanup_pending?: boolean }
+  if (!res.ok || (data.code !== 0 && data.code !== 202)) {
+    throw new Error(`auth_delete_failed: ${data.message || `HTTP ${res.status}`}`)
   }
 
-  // Step 3: 清理本地数据库
+  // Auth 删除成功后才清理本地状态。cleanup_pending 表示远端清理由 saga 重试，不是假报已清理。
+  let localCleanupError: string | null = null
   try {
     clearAllData()
     const dbPath = getDbPath()
@@ -1143,34 +1316,15 @@ export async function deleteAccount(code: string, verificationId: string): Promi
       fs.unlinkSync(dbPath)
     }
   } catch (e) {
-    errors.push(`local_db: ${(e as Error).message}`)
+    localCleanupError = (e as Error).message
   }
 
-  // Step 4: 尝试删除 CloudBase Auth 用户（best-effort）
-  try {
-    // 通过云函数删除用户（需要部署 delUser 云函数）
-    const cfUrl = `https://${ENV_ID}.service.tcloudbase.com/delUser`
-    const res = await fetch(cfUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: userId })
-    })
-    const resData = await res.json() as { code?: number }
-    if (resData.code !== 0) {
-      console.warn('云函数删除用户返回非零码:', resData)
-    }
-  } catch (e) {
-    // 云函数可能不存在，静默处理
-    console.warn('删除 Auth 用户失败（云函数可能未部署）:', (e as Error).message)
-  }
-
-  // 清除 session
+  // 无论本地清理是否成功，Auth 已删除后都必须清除本机会话，避免继续使用失效 token。
   currentSession = null
   clearSession()
 
-  if (errors.length > 0) {
-    throw new Error(`部分数据清理失败: ${errors.join('; ')}`)
-  }
+  if (localCleanupError) throw new Error(`local_cleanup_failed: ${localCleanupError}`)
+  return { cleanupPending: data.cleanup_pending === true }
 }
 
 // ─── User Stats ────────────────────────────────────

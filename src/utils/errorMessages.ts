@@ -48,7 +48,7 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     en: 'CloudBase config error (signature invalid). Check CLOUDBASE_API_KEY in .env'
   },
   {
-    patterns: [/verification[_ ]code (?:is )?invalid/i, /verification[_ ]token invalid/i, /invalid verification token/i, /验证码错误/i, /验证码过期/],
+    patterns: [/verification[_ ]code (?:is )?invalid/i, /verification[_ ]token invalid/i, /invalid verification token/i, /phone or email does not match validation code/i, /验证码错误/i, /验证码过期/],
     zh: '验证码错误或已过期，请重新获取',
     en: 'Verification code invalid or expired'
   },
@@ -174,6 +174,11 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     en: 'Please login first'
   },
   {
+    patterns: [/cannot_remove_last_binding/i, /只绑定一个平台/, /至少保留.*绑定/],
+    zh: '当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台',
+    en: 'You cannot unbind the only remaining platform. Bind another platform first.'
+  },
+  {
     patterns: [/password_change_failed/i],
     zh: '密码修改失败，请检查验证码是否正确',
     en: 'Password change failed. Check your verification code.'
@@ -182,6 +187,26 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     patterns: [/CloudBase SDK 未初始化/i],
     zh: '云同步服务暂不可用',
     en: 'Cloud sync unavailable'
+  },
+  {
+    patterns: [/auth_delete_failed/i, /Failed to delete user data/i, /Delete user failed/i],
+    zh: '注销失败：云端数据未完成清理，请稍后重试或联系管理员',
+    en: 'Account deletion failed. Cloud data was not fully cleaned up; please retry or contact an administrator.'
+  },
+  {
+    patterns: [/local_cleanup_failed/i],
+    zh: '账号已注销，但本地数据清理失败，请重新启动应用后重试清理',
+    en: 'Account deleted, but local cleanup failed. Restart the app and retry cleanup.'
+  },
+  {
+    patterns: [/auth_delete_failed/i, /Failed to delete user data/i, /Delete user failed/i],
+    zh: '注销失败：云端数据未完成清理，请稍后重试或联系管理员',
+    en: 'Account deletion failed. Cloud data was not fully cleaned up; please retry or contact an administrator.'
+  },
+  {
+    patterns: [/local_cleanup_failed/i],
+    zh: '账号已注销，但本地数据清理失败，请重新启动应用后重试清理',
+    en: 'Account deleted, but local cleanup failed. Restart the app and retry cleanup.'
   },
   {
     patterns: [/CloudBase 管理员 API 暂未集成/, /请联系 WorkBuddy AI 助手/, /password_reset_requires_admin/],
@@ -219,6 +244,8 @@ export function friendlyError(e: unknown, lang: Lang, fallback?: string): string
   if (translated !== (lang === 'zh' ? FALLBACK_ZH : FALLBACK_EN)) return translated
   // 没匹配上但有兜底文案
   if (fallback) return fallback
-  // 显示原文（一般是英文），但格式友好
-  return raw
+  // 不能把后端英文/IPC 包装错误直接暴露给中文用户；截图中的
+  // "Error invoking remote method ... phone or email does not match validation code"
+  // 等未知变体统一落到中文可操作提示。
+  return lang === 'zh' ? (fallback || FALLBACK_ZH) : (fallback || raw)
 }

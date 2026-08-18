@@ -40,7 +40,12 @@
       .dots span:nth-child(2) { animation-delay: 0.2s; }
       .dots span:nth-child(3) { animation-delay: 0.4s; }
       #root { display: none; }
-      body.ready #splash { opacity: 0; pointer-events: none; }
+      /* Fade the splash out without leaving its flex item footprint beside #root. */
+      body.ready #splash {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
       body.ready #root { display: block; }
       @keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
       @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }

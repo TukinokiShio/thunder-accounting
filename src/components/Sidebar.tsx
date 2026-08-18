@@ -33,17 +33,17 @@ export function Sidebar({ onOpenSettings }: Props) {
   }
 
   return (
-    <aside className="w-56 bg-white dark:bg-gray-850 border-r border-gray-100 dark:border-gray-700 flex flex-col shrink-0">
+    <aside className="w-56 min-w-0 border-r flex flex-col shrink-0 aurora-sidebar" aria-label="主导航侧栏">
       {/* Logo 区域 */}
-      <div className="h-14 flex items-center gap-2 px-5 border-b border-gray-100 dark:border-gray-700">
-        <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
+      <div className="h-14 flex items-center gap-2 px-5 border-b aurora-border">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent)' }}>
           <Zap size={18} className="text-white" />
         </div>
-        <span className="font-bold text-gray-900 dark:text-gray-100">{t('雷霆记账')}</span>
+        <span className="font-bold text-gray-900 dark:text-gray-100 min-w-0 truncate">{t('雷霆记账')}</span>
       </div>
 
       {/* 导航菜单项 */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1" aria-label="页面导航">
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activePage === item.id
@@ -52,11 +52,11 @@ export function Sidebar({ onOpenSettings }: Props) {
               key={item.id}
               onClick={() => setActivePage(item.id)}
               className={`
-                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+                w-full min-w-0 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
                 transition-colors duration-150
                 ${isActive
-                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-750 hover:text-gray-900 dark:hover:text-gray-200'
+                  ? 'aurora-nav-active'
+                  : 'aurora-muted aurora-nav-item'
                 }
               `}
             >
@@ -69,10 +69,10 @@ export function Sidebar({ onOpenSettings }: Props) {
 
       {/* 用户信息 — 点击进入个人中心 */}
       {user && (
-        <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="px-3 py-2 border-t aurora-border">
           <button
             onClick={() => setActivePage('profile')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+            className="w-full min-w-0 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
           >
             <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">

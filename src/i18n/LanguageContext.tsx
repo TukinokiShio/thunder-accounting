@@ -12,6 +12,7 @@ import { loadSettings, saveSettings } from '@/utils/settings'
 
 interface LanguageContextValue {
   language: 'zh' | 'en'
+  lang: 'zh' | 'en'
   /** 翻译函数：传入中文原文，返回当前语言的文本。未知 key 返回原文。 */
   t: (key: string) => string
   setLanguage: (lang: 'zh' | 'en') => void
@@ -37,7 +38,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     [language]
   )
 
-  const value = useMemo(() => ({ language, t, setLanguage }), [language, t, setLanguage])
+  const value = useMemo(() => ({ language, lang: language, t, setLanguage }), [language, t, setLanguage])
 
   return (
     <LanguageContext.Provider value={value}>
@@ -50,7 +51,7 @@ export function useLanguage(): LanguageContextValue {
   const ctx = useContext(LanguageContext)
   if (!ctx) {
     // 降级模式：没有 LanguageProvider 时（如测试环境），默认返回中文
-    return { language: 'zh', t: (key: string) => key, setLanguage: () => {} }
+    return { language: 'zh', lang: 'zh', t: (key: string) => key, setLanguage: () => {} }
   }
   return ctx
 }

@@ -3,6 +3,13 @@ set -e
 exec /var/lang/node18/bin/node -e "
 const http = require('http');
 const main = require('./index.js').main;
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) return realIp.trim();
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
+}
 const server = http.createServer(async (req, res) => {
   const buf = [];
   req.on('data', c => buf.push(c));
@@ -10,7 +17,11 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = buf.join('');
       const event = body ? JSON.parse(body) : {};
-      const result = await main(event);
+      const context = {
+        clientIp: getClientIp(req),
+        requestId: req.headers['x-request-id'] || ''
+      };
+      const result = await main(event, context);
       res.writeHead(200, {'Content-Type':'application/json'});
       res.end(JSON.stringify(result));
     } catch(e) {

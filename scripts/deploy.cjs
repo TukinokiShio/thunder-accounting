@@ -11,9 +11,8 @@
  * 5. 在输出目录创建快捷方式
  *
  * 用法：
- *   node scripts/deploy.js           # patch（默认）
- *   node scripts/deploy.js minor     # minor
- *   node scripts/deploy.js major     # major
+ *   node scripts/deploy.cjs patch --force --allow-dirty
+ *   node scripts/deploy.cjs patch --output <隔离输出目录>
  */
 
 const fs = require('fs')
@@ -26,12 +25,30 @@ const ROOT = path.resolve(__dirname, '..')
 const PKG_PATH = path.join(ROOT, 'package.json')
 const SIDEBAR_PATH = path.join(ROOT, 'src', 'components', 'Sidebar.tsx')
 const RELEASE_DIR = path.join(ROOT, 'release', 'win-unpacked')
-const OUTPUT_DIR = 'E:/Code/BlackHorse/VibeCoding/记账app/雷霆记账app_exe'
 const DESKTOP_DIR = path.join(require('os').homedir(), 'Desktop')
+
+const args = process.argv.slice(2)
+const bumpLevel = args.find((arg) => !arg.startsWith('--')) || 'patch'
+const allowDirty = args.includes('--allow-dirty')
+const force = args.includes('--force')
+const outputArgIndex = args.indexOf('--output')
+const OUTPUT_DIR = outputArgIndex >= 0 && args[outputArgIndex + 1]
+  ? path.resolve(ROOT, args[outputArgIndex + 1])
+  : path.join(ROOT, '雷霆记账app_exe')
+
+function assertSafeWorkspace() {
+  if (allowDirty) return
+  const dirty = execSync('git status --porcelain --untracked-files=all', { cwd: ROOT, encoding: 'utf8' }).trim()
+  if (dirty) {
+    console.error('❌ 工作树存在未提交改动。为避免覆盖用户文件，请先提交/隔离改动，或显式传入 --allow-dirty。')
+    process.exit(1)
+  }
+}
+
+assertSafeWorkspace()
 
 // ─── 1. 读取并递增版本号 ───────────────────────
 
-const bumpLevel = process.argv[2] || 'patch'
 const validLevels = ['major', 'minor', 'patch']
 if (!validLevels.includes(bumpLevel)) {
   console.error(`❌ 无效的版本级别 "${bumpLevel}"，请使用：major | minor | patch`)
@@ -73,6 +90,10 @@ console.log('✅ Sidebar.tsx 版本号已同步')
 // ─── 3. 构建 ───────────────────────────────────
 
 console.log('🔨 开始构建...')
+if (fs.existsSync(RELEASE_DIR) && fs.readdirSync(RELEASE_DIR).length > 0 && !force) {
+  console.error(`❌ 构建输出已存在：${RELEASE_DIR}。为避免覆盖，请显式传入 --force。`)
+  process.exit(1)
+}
 try {
   execSync('npm run dist:win', { cwd: ROOT, stdio: 'inherit' })
   console.log('✅ 构建完成')
@@ -95,8 +116,12 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 const destDir = path.join(OUTPUT_DIR, 'win-unpacked')
-// 清空旧目录
-if (fs.existsSync(destDir)) {
+// 默认拒绝覆盖既有产物；只有显式 --force 才允许清理目标目录。
+if (fs.existsSync(destDir) && !force) {
+  console.error(`❌ 输出目录已存在：${destDir}。为避免覆盖，请换用 --output 或显式传入 --force。`)
+  process.exit(1)
+}
+if (fs.existsSync(destDir) && force) {
   fs.rmSync(destDir, { recursive: true, force: true })
 }
 

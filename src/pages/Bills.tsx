@@ -130,7 +130,7 @@ export function Bills() {
     allCategories.find((c) => c.name === cat1)?.icon ?? '📦'
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="page-view space-y-4">
       {/* ── 筛选栏 ── */}
       <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
         {/* 快速时间段 */}

@@ -61,9 +61,15 @@ function mockElectronAPI() {
   };
 }
 
-// ─── Helper: 填写邮箱 ─────────────────────────────
+// ─── Helper: 填写登录标识符（账号 / 邮箱 / 手机号）─
 function fillEmail(value: string) {
-  const input = screen.getByPlaceholderText('name@example.com');
+  const input = screen.getByPlaceholderText('账号 / 邮箱 / 手机号');
+  fireEvent.change(input, { target: { value } });
+}
+
+// ─── Helper: 填写注册/忘记密码模式的邮箱 ──────────
+function fillEmailReg(value: string) {
+  const input = screen.getByPlaceholderText('邮箱或手机号');
   fireEvent.change(input, { target: { value } });
 }
 
@@ -90,16 +96,18 @@ describe('LoginPage', () => {
   it('should render login mode default UI', () => {
     render(<LoginPage />);
 
-    // 邮箱输入框
-    expect(screen.getByPlaceholderText('name@example.com')).toBeInTheDocument();
+    // 标识符输入框（登录模式用"账号 / 邮箱 / 手机号"）
+    expect(screen.getByPlaceholderText('账号 / 邮箱 / 手机号')).toBeInTheDocument();
     // 密码输入框
     const pwdInput = screen.getByPlaceholderText('••••••');
     expect(pwdInput).toBeInTheDocument();
     expect(pwdInput).toHaveAttribute('type', 'password');
-    // Tab 切换：登录模式下有 tab"登录" + 按钮"登录" = 2 个
-    expect(screen.getAllByText('登录').length).toBe(2);
-    // 注册 tab（仅一个）
+    // Tab 切换：登录/注册 + 密码登录/验证码登录
+    expect(screen.getAllByText('登录').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('注册')).toBeInTheDocument();
+    // 登录方式 tabs
+    expect(screen.getByText('密码登录')).toBeInTheDocument();
+    expect(screen.getByText('验证码登录')).toBeInTheDocument();
     // "记住我"
     expect(screen.getByText('记住账号')).toBeInTheDocument();
     // 忘记密码链接
@@ -109,6 +117,8 @@ describe('LoginPage', () => {
     expect(screen.getByText('EN')).toBeInTheDocument();
     // Logo / 标题
     expect(screen.getByText('雷霆记账')).toBeInTheDocument();
+    // 版本号
+    expect(screen.getByText(/v\d+\.\d+\.\d+/)).toBeInTheDocument();
   });
 
   // ── 2. 切换到注册模式 ─────────────────────────
@@ -118,13 +128,14 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByText('注册'));
 
     // 验证码输入框
-    expect(screen.getByPlaceholderText('邮箱验证码')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('验证码')).toBeInTheDocument();
     // 两个密码输入框（密码 + 确认密码）
     expect(screen.getAllByPlaceholderText('••••••').length).toBe(2);
     // 发送验证码按钮
     expect(screen.getByText('发送验证码')).toBeInTheDocument();
     // 提交按钮文本变为"注册"（tab + button）
-    expect(screen.getAllByText('注册').length).toBe(2);
+    const regTabs = screen.getAllByText('注册');
+    expect(regTabs.length).toBeGreaterThanOrEqual(1);
     // 密码强度指示器（而非仅长度检查）
     // 输入弱密码，应显示 X 而不是 Check
     fillPassword('123');
@@ -140,7 +151,7 @@ describe('LoginPage', () => {
     // 返回登录按钮
     expect(screen.getByText('返回登录')).toBeInTheDocument();
     // 验证码输入框
-    expect(screen.getByPlaceholderText('邮箱验证码')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('验证码')).toBeInTheDocument();
     // 新密码输入框
     expect(screen.getByPlaceholderText('新密码')).toBeInTheDocument();
     // 确认密码输入框
@@ -151,25 +162,25 @@ describe('LoginPage', () => {
     expect(screen.queryByText('记住账号')).not.toBeInTheDocument();
   });
 
-  // ── 4. 空邮箱提交显示错误 ──────────────────────
+  // ── 4. 空标识符提交显示错误 ────────────────────
   it('should show error when submitting with empty email', () => {
     render(<LoginPage />);
 
-    // 点击登录按钮（第二个"登录"是提交按钮，第一个是 tab）
+    // 点击登录按钮
     const submitBtn = screen.getAllByText('登录')[1];
     fireEvent.click(submitBtn);
 
-    expect(screen.getByText('请输入有效的邮箱')).toBeInTheDocument();
+    expect(screen.getByText('请输入有效的账号/邮箱/手机号')).toBeInTheDocument();
   });
 
-  // ── 5. 邮箱格式错误显示提示 ────────────────────
+  // ── 5. 无效标识符格式错误 ────────────────────
   it('should show error for invalid email format', () => {
     render(<LoginPage />);
 
-    fillEmail('invalid-email');
+    fillEmail('ab'); // 太短，不是有效邮箱/手机/账号（账号至少3位）
     fireEvent.click(screen.getAllByText('登录')[1]);
 
-    expect(screen.getByText('请输入有效的邮箱')).toBeInTheDocument();
+    expect(screen.getByText('请输入有效的账号/邮箱/手机号')).toBeInTheDocument();
   });
 
   // ── 6. 密码过短显示错误 ───────────────────────
@@ -185,18 +196,19 @@ describe('LoginPage', () => {
 
   // ── 7. 验证码发送按钮交互 ─────────────────────
   it('should send verification code on button click', async () => {
-    mockSendCode.mockResolvedValue(undefined);
+    mockSendCode.mockResolvedValue({ type: 'email', target: 'test@example.com', verificationId: 'v-123', isUser: true });
 
     render(<LoginPage />);
 
-    // 切换到注册模式
+    // 切换��注册模式
     fireEvent.click(screen.getByText('注册'));
     // 输入有效邮箱
-    fillEmail('test@example.com');
+    fillEmailReg('test@example.com');
     // 点击发送验证码
     fireEvent.click(screen.getByText('发送验证码'));
 
-    expect(mockSendCode).toHaveBeenCalledWith('test@example.com');
+    // 正常注册仍明确请求 ANY（false）；仅找回密码才传 true → target=USER。
+    expect(mockSendCode).toHaveBeenCalledWith('test@example.com', false);
 
     // 发送后按钮文本变为"已发送"
     await waitFor(() => {

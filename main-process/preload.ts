@@ -95,8 +95,8 @@ const electronAPI = {
   },
 
   // Auth
-  sendCode: (email: string) =>
-    ipcRenderer.invoke('auth:sendCode', email),
+  sendCode: (email: string, registeredUserOnly = false) =>
+    ipcRenderer.invoke('auth:sendCode', email, registeredUserOnly),
 
   register: (email: string, password: string, verifyCode: string, verificationId: string) =>
     ipcRenderer.invoke('auth:register', email, password, verifyCode, verificationId),
@@ -119,14 +119,14 @@ const electronAPI = {
   loadCredentials: () =>
     ipcRenderer.invoke('auth:loadCredentials'),
 
-  sendReauthCode: (currentPassword: string) =>
-    ipcRenderer.invoke('auth:sendReauthCode', currentPassword),
+  sendReauthCode: (verifyOpt?: 'phone_code' | 'email_code') =>
+    ipcRenderer.invoke('auth:sendReauthCode', verifyOpt),
 
-  changePassword: (newPassword: string) =>
-    ipcRenderer.invoke('auth:changePassword', newPassword),
+  changePassword: (newPassword: string, verificationCode: string, oldPassword?: string) =>
+    ipcRenderer.invoke('auth:changePassword', newPassword, verificationCode, oldPassword),
 
-  resetPassword: (email: string, newPassword: string, verificationCode: string, verificationId: string) =>
-    ipcRenderer.invoke('auth:resetPassword', email, newPassword, verificationCode, verificationId),
+  resetPassword: (identifier: string, newPassword: string, verificationCode: string, verificationId: string) =>
+    ipcRenderer.invoke('auth:resetPassword', identifier, newPassword, verificationCode, verificationId),
 
   // Sync
   getSyncStatus: () =>
@@ -151,8 +151,8 @@ const electronAPI = {
   unbindEmail: (code: string, verificationId: string) =>
     ipcRenderer.invoke('account:unbindEmail', code, verificationId),
 
-  deleteAccount: (code: string, verificationId: string) =>
-    ipcRenderer.invoke('account:deleteAccount', code, verificationId),
+  deleteAccount: (code: string) =>
+    ipcRenderer.invoke('account:deleteAccount', code),
 
   getUserStats: () =>
     ipcRenderer.invoke('account:getUserStats'),
