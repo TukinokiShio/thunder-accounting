@@ -73,6 +73,15 @@
     outline-offset: 2px;
   }
 
+  /* Login/register surfaces intentionally use a quiet border-only focus state. */
+  .login-shell input:focus,
+  .login-shell input:focus-visible,
+  .login-shell textarea:focus,
+  .login-shell textarea:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
   /* Dark mode background */
   .dark body,
   body.dark {
