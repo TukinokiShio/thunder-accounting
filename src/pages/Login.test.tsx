@@ -43,6 +43,7 @@ describe('LoginPage', () => {
 
   it('defaults to account/password login with an email-or-phone account input', () => {
     render(<LoginPage />)
+    expect(screen.getByRole('heading', { level: 1, name: '雷霆记账' })).toBeInTheDocument()
     expect(account()).toHaveAttribute('placeholder', '邮箱或手机号')
     expect(password()).toBeInTheDocument()
     expect(screen.getByText('账号密码')).toBeInTheDocument()
