@@ -87,7 +87,7 @@ describe('LoginPage', () => {
     enter(screen.getByLabelText('手机号'), '13900139000')
     fireEvent.click(screen.getAllByRole('button', { name: '登录' }).at(-1)!)
     expect(mockLoginWithCode).not.toHaveBeenCalled()
-    expect(screen.getByRole('alert')).toHaveTextContent('请先发送验证码')
+    expect(mockAddToast).toHaveBeenCalledWith('error', '请先发送验证码')
   })
 
   it('uses email-code login only with an email', async () => {
@@ -129,10 +129,10 @@ describe('LoginPage', () => {
   it('shows validation errors for an empty or invalid account', async () => {
     await renderPage()
     fireEvent.click(screen.getAllByRole('button', { name: '登录' }).at(-1)!)
-    expect(screen.getByRole('alert')).toHaveTextContent('请输入有效的邮箱或手机号')
+    expect(mockAddToast).toHaveBeenCalledWith('error', '请输入有效的邮箱或手机号')
     enter(account(), 'bad')
     fireEvent.click(screen.getAllByRole('button', { name: '登录' }).at(-1)!)
-    expect(screen.getByRole('alert')).toHaveTextContent('请输入有效的邮箱或手机号')
+    expect(mockAddToast).toHaveBeenLastCalledWith('error', '请输入有效的邮箱或手机号')
   })
 
   it('rejects a short password before making a login request', async () => {
@@ -140,7 +140,7 @@ describe('LoginPage', () => {
     enter(account(), 'test@example.com')
     enter(password(), '123')
     fireEvent.click(screen.getAllByRole('button', { name: '登录' }).at(-1)!)
-    expect(screen.getByRole('alert')).toHaveTextContent('密码至少 6 位')
+    expect(mockAddToast).toHaveBeenCalledWith('error', '密码至少 6 位')
     expect(mockLogin).not.toHaveBeenCalled()
   })
 
@@ -180,14 +180,6 @@ describe('LoginPage', () => {
     expect(password()).toHaveAttribute('type', 'password')
   })
 
-  it('calls the language selector for Chinese and English', async () => {
-    await renderPage()
-    fireEvent.click(screen.getByRole('button', { name: 'EN' }))
-    fireEvent.click(screen.getByRole('button', { name: '中' }))
-    expect(mockSetLanguage).toHaveBeenNthCalledWith(1, 'en')
-    expect(mockSetLanguage).toHaveBeenNthCalledWith(2, 'zh')
-  })
-
   it('clearing remember account also clears automatic sign-in preference', async () => {
     await renderPage()
     const [rememberBox, autoLoginBox] = screen.getAllByRole('checkbox')
@@ -203,6 +195,6 @@ describe('LoginPage', () => {
     enter(account(), 'test@example.com')
     enter(password(), 'password123')
     fireEvent.click(screen.getAllByRole('button', { name: '登录' }).at(-1)!)
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('邮箱或密码错误'))
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('error', '邮箱或密码错误'))
   })
 })

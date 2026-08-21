@@ -8,7 +8,12 @@ describe('friendlyError', () => {
   })
 
   it('does not expose an unknown English backend error to Chinese users', () => {
-    expect(friendlyError(new Error('unrecognized cloud backend failure'), 'zh')).toBe('操作失败，请重试')
+    expect(friendlyError(new Error('unrecognized cloud backend failure'), 'zh')).toContain('云端服务暂时不可用')
+  })
+
+  it('explains unregistered verification-code targets and missing CloudBase IDs', () => {
+    expect(friendlyError(new Error('account_not_found'), 'zh')).toBe('账号尚未注册')
+    expect(friendlyError(new Error('verification_code_missing_id'), 'zh')).toContain('验证码编号')
   })
 
   it('explains the deletion-job deployment failure instead of claiming cleanup is pending', () => {

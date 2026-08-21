@@ -72,7 +72,7 @@ export interface ElectronAPI {
   showOpenDialog: () => Promise<{ filePath: string; content: string } | null>
   onShortcut: (callback: (action: string) => void) => () => void
   // Auth
-  sendCode: (target: string, registeredUserOnly?: boolean) => Promise<{ type: 'phone' | 'email'; target: string; verificationId: string; isUser: boolean }>
+  sendCode: (target: string, registeredUserOnly?: boolean) => Promise<{ type: 'phone' | 'email'; target: string; verificationId: string; isUser: boolean; expiresIn: number }>
   register: (email: string, password: string, verifyCode: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   login: (email: string, password: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
   loginWithCode: (email: string, code: string, verificationId: string) => Promise<{ user: CloudBaseUser; accountId?: string }>
@@ -88,10 +88,11 @@ export interface ElectronAPI {
   createShortcut: () => Promise<{ success: boolean; message: string }>
   // Account
   getAccountBindings: () => Promise<{ accountId: string; email: string; phone: string } | null>
-  sendBindCode: (target: string) => Promise<{ verificationId: string; type: 'email' | 'phone' }>
+  sendBindCode: (target: string) => Promise<{ verificationId: string; type: 'email' | 'phone'; expiresIn: number }>
+  sendBindingReauthCode: () => Promise<{ verificationId: string; type: 'email' | 'phone'; expiresIn: number }>
   bindPhone: (phone: string, code: string, verificationId: string) => Promise<void>
   unbindPhone: (code: string, verificationId: string) => Promise<void>
-  bindEmail: (email: string, code: string, verificationId: string) => Promise<void>
+  bindEmail: (email: string, code: string, verificationId: string, reauthCode: string, reauthVerificationId: string) => Promise<void>
   unbindEmail: (code: string, verificationId: string) => Promise<void>
   deleteAccount: (code: string) => Promise<{ cleanupPending: boolean }>
   getUserStats: () => Promise<{ billCount: number; categoryCount: number; totalExpense: number; totalIncome: number }>

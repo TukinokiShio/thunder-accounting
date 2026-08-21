@@ -3,10 +3,11 @@
  * 显示应用 Logo、四个导航项（总览/账单/统计/分类管理）、底部设置按钮和版本号。
  * 当前激活的导航项高亮显示。
  */
-import { Home, FileText, PieChart, Zap, Settings, Tags, LogOut, User } from 'lucide-react'
+import { Home, FileText, PieChart, Settings, Tags, LogOut, User } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import pkg from '../../package.json'
+import logoUrl from '../../resources/icon.ico?url'
 
 /** 导航项配置：页面 ID → 显示文本 → Lucide 图标 */
 const navItems = [
@@ -35,9 +36,9 @@ export function Sidebar({ onOpenSettings }: Props) {
   return (
     <aside className="w-56 min-w-0 border-r flex flex-col shrink-0 aurora-sidebar" aria-label="主导航侧栏">
       {/* Logo 区域 */}
-      <div className="h-14 flex items-center gap-2 px-5 border-b aurora-border">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent)' }}>
-          <Zap size={18} className="text-white" />
+      <div className="h-16 flex items-center gap-3 px-5 border-b aurora-border">
+        <div className="brand-mark" aria-hidden="true">
+          <img src={logoUrl} alt="" className="h-8 w-8 object-contain" />
         </div>
         <span className="font-bold text-gray-900 dark:text-gray-100 min-w-0 truncate">{t('雷霆记账')}</span>
       </div>
@@ -74,8 +75,8 @@ export function Sidebar({ onOpenSettings }: Props) {
             onClick={() => setActivePage('profile')}
             className="w-full min-w-0 flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
           >
-            <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
-              <span className="text-xs font-semibold text-primary-600 dark:text-primary-400">
+            <div className="sidebar-avatar w-7 h-7 rounded-full flex items-center justify-center shrink-0">
+              <span className="text-xs font-semibold">
                 {user.email?.charAt(0)?.toUpperCase() ?? '?'}
               </span>
             </div>

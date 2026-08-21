@@ -8,6 +8,31 @@ export type Lang = 'zh' | 'en'
 /** 关键字 → 中英翻译（按关键字匹配，错误信息含此关键字即翻译） */
 const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
   {
+    patterns: [/verification_code_missing_id/i, /missing verification[_ ]id/i],
+    zh: '云端验证码服务未返回验证码编号，验证码尚未发送成功；请稍后重试，若持续出现请检查 CloudBase 短信/邮件配置。',
+    en: 'CloudBase did not return a verification ID, so the code was not sent. Check the CloudBase SMS/email configuration.'
+  },
+  {
+    patterns: [/phone_not_bound/i, /phone[_ ]not[_ ]configured/i, /sms.*not.*configured/i, /短信.*未开启/i],
+    zh: 'CloudBase 短信登录未启用或当前账号未绑定手机号，请在 CloudBase 控制台开启短信登录并确认手机号绑定。',
+    en: 'CloudBase SMS login is disabled or this account has no bound phone. Check the Auth configuration and binding.'
+  },
+  {
+    patterns: [/account_not_found/i, /user_not_found/i, /phone.*not.*found/i, /email.*not.*found/i, /user.*does not exist/i],
+    zh: '账号尚未注册',
+    en: 'This account is not registered'
+  },
+  {
+    patterns: [/verification_code_send_failed/i, /send.*verification.*failed/i, /sms.*send.*failed/i, /email.*send.*failed/i],
+    zh: 'CloudBase 验证码发送失败：请检查短信/邮件服务是否启用、模板是否审核、配额和网络；验证码未发送成功。',
+    en: 'CloudBase failed to send the code. Check the SMS/email provider, template approval, quota, and network.'
+  },
+  {
+    patterns: [/invalid_phone_number/i, /phone.*format/i, /手机号格式/],
+    zh: '手机号格式无效，请输入11位大陆手机号数字。',
+    en: 'Invalid mainland China phone number. Enter 11 digits.'
+  },
+  {
     patterns: [/verification[_ ]token or verification[_ ]code required/i],
     zh: '需要先验证邮箱。请先在登录页点击"发送验证码"获取验证码后再注册。',
     en: 'Email verification required. Please send a verification code first, then enter it during registration.'
@@ -73,9 +98,9 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     en: 'Network error. Please check your connection.'
   },
   {
-    patterns: [/401|invalid[_ ]token|expired[_ ]token|token has expired|Unauthorized/i],
-    zh: '登录已过期，请重新登录',
-    en: 'Session expired. Please login again.'
+    patterns: [/expired[_ ]token|token has expired|token expiry/i],
+    zh: '登录状态已过期，请重新登录',
+    en: 'Your sign-in session has expired. Please sign in again.'
   },
   {
     patterns: [/403|forbidden/i, /权限不足/],
@@ -174,6 +199,26 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
     en: 'Please login first'
   },
   {
+    patterns: [/binding_reauth_target_missing/i],
+    zh: '当前账号没有可用的已绑定手机号或邮箱，无法完成身份验证',
+    en: 'No bound phone or email is available for verification.'
+  },
+  {
+    patterns: [/binding_reauth_required/i],
+    zh: '请先验证当前绑定渠道，再绑定新邮箱',
+    en: 'Verify the existing bound contact before binding a new email.'
+  },
+  {
+    patterns: [/auth_binding_sudo_failed/i, /auth_binding_sudo_missing/i],
+    zh: '当前绑定渠道验证未通过，无法授权绑定新邮箱',
+    en: 'The existing contact could not authorize this binding.'
+  },
+  {
+    patterns: [/auth_binding_update_failed/i, /invalid_argument/i, /参数错误/i],
+    zh: '邮箱绑定失败，请检查验证码是否对应新邮箱',
+    en: 'Email binding failed. Check that the code belongs to the new email.'
+  },
+  {
     patterns: [/cannot_remove_last_binding/i, /只绑定一个平台/, /至少保留.*绑定/],
     zh: '当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台',
     en: 'You cannot unbind the only remaining platform. Bind another platform first.'
@@ -226,7 +271,7 @@ const KEYWORD_MAP: Array<{ patterns: RegExp[]; zh: string; en: string }> = [
 ]
 
 /** 通用兜底 */
-const FALLBACK_ZH = '操作失败，请重试'
+const FALLBACK_ZH = '云端服务返回未分类错误'
 const FALLBACK_EN = 'Operation failed, please try again'
 
 /**
@@ -244,7 +289,7 @@ export function translateError(rawError: string, lang: Lang): string {
     }
   }
 
-  return lang === 'zh' ? FALLBACK_ZH : FALLBACK_EN
+  return lang === 'zh' ? '云端服务暂时不可用，请稍后再试' : 'Cloud service is temporarily unavailable. Try again later.'
 }
 
 /** 把 Error 对象转成友好提示 */
@@ -257,5 +302,5 @@ export function friendlyError(e: unknown, lang: Lang, fallback?: string): string
   // 不能把后端英文/IPC 包装错误直接暴露给中文用户；截图中的
   // "Error invoking remote method ... phone or email does not match validation code"
   // 等未知变体统一落到中文可操作提示。
-  return lang === 'zh' ? (fallback || FALLBACK_ZH) : (fallback || raw)
+  return fallback || translated
 }

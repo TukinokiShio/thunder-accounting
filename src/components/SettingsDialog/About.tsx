@@ -10,7 +10,7 @@ export function About({ t }: Props) {
     <section className="border-t border-gray-100 pt-4">
       <h3 className="text-sm font-semibold text-gray-900 mb-3">{t('关于')}</h3>
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 bg-primary-500 rounded-xl flex items-center justify-center">
+        <div className="w-10 h-10 bg-[var(--accent)] rounded-xl flex items-center justify-center">
           <Zap size={20} className="text-white" />
         </div>
         <div>

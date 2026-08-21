@@ -3,13 +3,19 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "1.11.5"
+#define AppVersion "1.15.2"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"
 ; 可通过 ISCC.exe /DBuildOutputDir="..." 覆盖，便于隔离验证安装包来源
 #ifndef BuildOutputDir
 #define BuildOutputDir "..\release"
+#endif
+#ifndef InstallerOutputDir
+#define InstallerOutputDir "..\release"
+#endif
+#ifndef InstallerFileName
+#define InstallerFileName "雷霆记账_Inno_v" + AppVersion
 #endif
 
 [Setup]
@@ -21,8 +27,8 @@ AppPublisherURL={#AppURL}
 ; 默认安装到当前用户程序目录，避免写入开发机工作树
 DefaultDirName={localappdata}\Programs\{#AppName}
 DisableProgramGroupPage=yes
-OutputDir=..\release
-OutputBaseFilename=雷霆记账_Inno_v{#AppVersion}
+OutputDir={#InstallerOutputDir}
+OutputBaseFilename={#InstallerFileName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

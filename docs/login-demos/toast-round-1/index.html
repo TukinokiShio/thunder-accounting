@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>雷霆记账 Toast 方案预览</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Microsoft YaHei", system-ui, sans-serif; background:#111315; color:#eee7da; }
+    body { margin:0; min-height:100vh; padding:48px; box-sizing:border-box; background:radial-gradient(circle at 15% 0%,rgba(213,155,37,.12),transparent 32%),#111315; }
+    h1 { margin:0 0 8px; font-size:24px; } .lead { margin:0 0 32px; color:#a69b89; }
+    .group { margin:28px 0 40px; } .group h2 { font-size:14px; color:#d59b25; letter-spacing:.08em; }
+    .stage { min-height:160px; border:1px solid #403a31; border-radius:16px; background:#191b1e; display:flex; align-items:flex-end; justify-content:center; padding:24px; box-sizing:border-box; }
+    .toast-row { display:flex; flex-wrap:wrap; gap:18px; justify-content:center; width:100%; }
+    .toast { width:min(360px,100%); display:flex; gap:12px; align-items:flex-start; border:1px solid #5a4b35; border-radius:12px; padding:14px 16px; background:#242526; box-shadow:0 12px 28px rgba(0,0,0,.24); }
+    .toast .mark { width:22px; height:22px; display:grid; place-items:center; flex:none; border-radius:50%; color:#111315; background:#d59b25; font-weight:800; }
+    .toast strong { display:block; margin-bottom:4px; font-size:14px; color:#f1eadf; } .toast span { color:#bdb19e; font-size:12px; line-height:1.6; }
+    .toast button { margin-left:auto; border:0; color:#a69b89; background:transparent; cursor:pointer; font-size:16px; }
+    .toast.light { background:#fffaf2; border-color:#ddcfbc; } .toast.light strong { color:#211d18; } .toast.light span { color:#776e63; }
+    .toast.success { border-left:3px solid #73b48b; } .toast.success .mark { background:#9ed1a9; }
+    .toast.warning { border-left:3px solid #d59b25; } .toast.error { border-left:3px solid #c87968; } .toast.error .mark { background:#e1a095; }
+    .toast.info { border-left:3px solid #a69b89; }
+    .label { margin-top:10px; text-align:center; color:#776e63; font-size:11px; }
+  </style>
+</head>
+<body>
+  <h1>雷霆记账 Toast 方案预览</h1>
+  <p class="lead">本页仅为视觉 demo，当前程序 Toast 尚未替换。请从四组方案中裁定方向。</p>
+  <section class="group"><h2>A · 金色状态条</h2><div class="stage"><div class="toast-row"><article class="toast success"><div class="mark">✓</div><div><strong>已保存这笔账</strong><span>晚餐 · 餐饮 · ¥28.00</span></div><button>×</button></article><article class="toast warning"><div class="mark">!</div><div><strong>还差一步</strong><span>请填写验证码后继续。</span></div><button>×</button></article></div></div><div class="label">左侧细状态边，金色品牌标记</div></section>
+  <section class="group"><h2>B · 账本纸张卡</h2><div class="stage" style="background:#f0e7da"><div class="toast-row"><article class="toast light success"><div class="mark">✓</div><div><strong>邮箱验证码已发送</strong><span>验证码将在 10 分钟后失效。</span></div><button>×</button></article><article class="toast light error"><div class="mark">!</div><div><strong>该邮箱尚未绑定</strong><span>请检查邮箱地址后重试。</span></div><button>×</button></article></div></div><div class="label">浅色主题，接近登录页白色卡片</div></section>
+  <section class="group"><h2>C · 极简底部提示</h2><div class="stage"><div class="toast-row"><article class="toast info"><div class="mark">i</div><div><strong>数据已同步</strong><span>刚刚完成本地与云端账本同步。</span></div><button>×</button></article></div></div><div class="label">减少装饰，强调文案与阅读效率</div></section>
+</body>
+</html>

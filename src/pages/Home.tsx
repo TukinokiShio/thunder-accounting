@@ -80,7 +80,7 @@ export function Home() {
       value: `¥${todayTotal.toFixed(2)}`,
       detail: `${todayBills.length} ${t('笔')}`,
       icon: Wallet,
-      color: 'text-blue-500 bg-blue-50 dark:bg-blue-900/20'
+      color: 'text-[var(--accent)] bg-[var(--accent-dim)]'
     },
     {
       label: t('本月支出'),
@@ -201,7 +201,7 @@ export function Home() {
                     </div>
                     <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-primary-500 rounded-full transition-all duration-500"
+                        className="h-full bg-[var(--accent)] rounded-full transition-all duration-500"
                         style={{ width: `${Math.max(pct, 2)}%` }}
                       />
                     </div>

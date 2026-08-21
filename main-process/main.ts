@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories } from './database/index'
-import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
 import { logoutAndDisableAutoLogin } from './auth-preferences'
 
 let mainWindow: BrowserWindow | null = null
@@ -392,6 +392,10 @@ function registerIpcHandlers(): void {
     return sendBindVerificationCode(target)
   })
 
+  ipcMain.handle('account:sendBindingReauthCode', async () => {
+    return sendBindingReauthCode()
+  })
+
   ipcMain.handle('account:bindPhone', async (_event, phone: string, code: string, verificationId: string) => {
     return bindPhone(phone, code, verificationId)
   })
@@ -400,8 +404,8 @@ function registerIpcHandlers(): void {
     return unbindPhone(code, verificationId)
   })
 
-  ipcMain.handle('account:bindEmail', async (_event, email: string, code: string, verificationId: string) => {
-    return bindEmail(email, code, verificationId)
+  ipcMain.handle('account:bindEmail', async (_event, email: string, code: string, verificationId: string, reauthCode: string, reauthVerificationId: string) => {
+    return bindEmail(email, code, verificationId, reauthCode, reauthVerificationId)
   })
 
   ipcMain.handle('account:unbindEmail', async (_event, code: string, verificationId: string) => {

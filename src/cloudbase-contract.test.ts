@@ -64,8 +64,8 @@ describe('Tencent Cloud contracts', () => {
     const source = read('main-process/cloudbase.ts')
     expect(source).toContain('makeUnboundEmail(userId)')
     expect(source).toContain('makeUnboundPhone(userId)')
-    expect(source).toContain('basic/edit 官方契约只接收')
-    expect(source).not.toContain("verification_token: verificationToken\n  }, currentSession.accessToken)")
+    expect(source).toContain("authFetch('/auth/v1/user/contact'")
+    expect(source).toContain('verification_token: verificationToken')
   })
 
   it('hides historical fake-unbind email domains from the user', () => {
@@ -127,7 +127,7 @@ describe('Tencent Cloud contracts', () => {
   it('keeps Auth response envelopes and password UI independent from database availability', () => {
     const client = read('main-process/cloudbase.ts')
     const profile = read('src/pages/Profile.tsx')
-    expect(client).toContain('const d = authPayload(data) as { verification_id?: string }')
+    expect(client).toContain('const d = authPayload(data) as { verification_id?: string; expires_in?: number }')
     expect(client).toContain("throw new Error('reauth_not_logged_in')")
     expect(profile).toContain('onClick={() => setExpanded(!expanded)}')
     expect(profile).not.toContain('disabled={!cloudAvailable}')
@@ -136,11 +136,30 @@ describe('Tencent Cloud contracts', () => {
     expect(client).not.toContain('password: currentPassword')
   })
 
+  it('uses the public CloudBase verification contract for binding codes', () => {
+    const client = read('main-process/cloudbase.ts')
+    const binding = client.slice(client.indexOf('export async function sendBindVerificationCode'))
+    expect(binding).toContain("authFetch('/auth/v1/verification', body)")
+    expect(binding).toContain('expires_in?: number')
+    expect(binding).not.toContain("authFetch('/auth/v1/verification', body, accessToken)")
+    expect(binding).toContain('verifyCode(verificationId, code)')
+    expect(binding).toContain("authFetch('/auth/v1/user/sudo'")
+    expect(binding).toContain("authFetch('/auth/v1/user/contact'")
+    expect(binding).toContain('verification_token: verificationToken')
+  })
+
   it('allows password login with a phone number without an accounts database mapping', () => {
     const client = read('main-process/cloudbase.ts')
     expect(client).toContain("if (/^\\d{11}$/.test(identifier)) return identifier")
     expect(client).toContain("const authIdentifier = isPhone ? '+86 ' + email : email")
     expect(client).toContain("email: target.type === 'phone' ? `${target.target}@phone.tb` : target.target")
+  })
+
+  it('resolves the admin aliases without requiring the accounts database mapping', () => {
+    const client = read('main-process/cloudbase.ts')
+    expect(client).toContain("identifier.trim().toLowerCase() === 'admin'")
+    expect(client).toContain('ADMIN_ACCOUNT_ID.toLowerCase()')
+    expect(client).toContain("return ADMIN_EMAIL")
   })
 
   it('uses CloudBase document ids instead of local auto-increment ids for sync merges', () => {
@@ -169,5 +188,14 @@ describe('Tencent Cloud contracts', () => {
     const phoneSignup = client.slice(client.indexOf('export async function registerWithPhone'), client.indexOf('/** 登录 */'))
     expect(phoneSignup).toContain('phone_number: \'+86 \' + phone')
     expect(phoneSignup).toContain('return loginWithEmail(phone, password)')
+  })
+
+  it('does not send a stale session token when verifying a login or registration code', () => {
+    const client = read('main-process/cloudbase.ts')
+    expect(client).toContain('export async function verifyCode(verificationId: string, code: string, useCurrentSession = false)')
+    expect(client).toContain("const accessToken = useCurrentSession ? (currentSession?.accessToken || '') : ''")
+    const loginFlow = client.slice(client.indexOf('export async function loginWithVerificationCode'), client.indexOf('export async function logout'))
+    expect(loginFlow).toContain('verifyCode(verificationId, code)')
+    expect(loginFlow).not.toContain('verifyCode(verificationId, code, true)')
   })
 })

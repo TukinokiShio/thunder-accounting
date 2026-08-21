@@ -39,7 +39,7 @@ export function EmojiPicker({ value, onChange }: Props) {
             onClick={() => onChange(emoji)}
             className={`w-8 h-8 flex items-center justify-center text-lg rounded-md transition-colors
               ${emoji === value
-                ? 'bg-primary-100 ring-2 ring-primary-400 scale-110'
+                ? 'bg-[var(--accent-dim)] ring-2 ring-[var(--accent)] scale-110'
                 : 'hover:bg-gray-100 hover:scale-105'
               }`}
           >

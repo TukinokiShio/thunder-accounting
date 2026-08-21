@@ -139,14 +139,17 @@ const electronAPI = {
   sendBindCode: (target: string) =>
     ipcRenderer.invoke('account:sendBindCode', target),
 
+  sendBindingReauthCode: () =>
+    ipcRenderer.invoke('account:sendBindingReauthCode'),
+
   bindPhone: (phone: string, code: string, verificationId: string) =>
     ipcRenderer.invoke('account:bindPhone', phone, code, verificationId),
 
   unbindPhone: (code: string, verificationId: string) =>
     ipcRenderer.invoke('account:unbindPhone', code, verificationId),
 
-  bindEmail: (email: string, code: string, verificationId: string) =>
-    ipcRenderer.invoke('account:bindEmail', email, code, verificationId),
+  bindEmail: (email: string, code: string, verificationId: string, reauthCode: string, reauthVerificationId: string) =>
+    ipcRenderer.invoke('account:bindEmail', email, code, verificationId, reauthCode, reauthVerificationId),
 
   unbindEmail: (code: string, verificationId: string) =>
     ipcRenderer.invoke('account:unbindEmail', code, verificationId),

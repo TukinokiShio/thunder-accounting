@@ -79,7 +79,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
       {user ? (
         <div className="space-y-2">
           <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-            <Mail size={16} className="text-primary-500 shrink-0" />
+            <Mail size={16} className="text-[var(--accent)] shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-gray-700 dark:text-gray-300 truncate">{user.email}</div>
               <div className="text-xs text-gray-400">
@@ -105,7 +105,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
                   placeholder={t('旧密码')}
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
-                  className="w-full pr-8 py-2 px-3 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full pr-8 py-2 px-3 text-sm border border-[var(--border)] rounded-lg bg-[var(--bg-card)] text-[var(--text)] placeholder:text-[var(--text3)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
                 />
                 <button
                   type="button"
@@ -121,7 +121,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
                   placeholder={t('新密码')}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full pr-8 py-2 px-3 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full pr-8 py-2 px-3 text-sm border border-[var(--border)] rounded-lg bg-[var(--bg-card)] text-[var(--text)] placeholder:text-[var(--text3)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
                 />
                 <button
                   type="button"
@@ -137,7 +137,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
                   placeholder={t('验证码')}
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value)}
-                  className="flex-1 py-2 px-3 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="flex-1 py-2 px-3 text-sm border border-[var(--border)] rounded-lg bg-[var(--bg-card)] text-[var(--text)] placeholder:text-[var(--text3)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
                 />
                 <button
                   onClick={handleSendCode}
@@ -151,7 +151,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
               <button
                 onClick={handleChangePassword}
                 disabled={changingPwd}
-                className="w-full py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                className="w-full py-2 bg-[var(--accent)] hover:bg-[var(--accent-h)] text-white text-sm rounded-lg transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {changingPwd && <Loader2 size={14} className="animate-spin" />}
                 {t('确认修改')}

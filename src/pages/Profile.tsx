@@ -153,8 +153,8 @@ export default function ProfilePage() {
               onClick={() => setActiveTab(tab.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  ? 'profile-tab-active'
+                  : 'profile-tab-idle'
               }`}
             >
               {tab.icon}
@@ -167,7 +167,7 @@ export default function ProfilePage() {
       {/* ── 右侧内容区 ── */}
       <div className="profile-content flex-1 min-w-0 space-y-4">
         {/* 云端服务状态提示（统一在顶部展示） */}
-        {cloudAvailable === false && <CloudUnavailableNotice />}
+        {/* CloudBase 配置异常不在产品界面暴露内部配置细节，改由 Codex 交付报告反馈。 */}
 
         {activeTab === 'info' && (
           <InfoTab
@@ -251,7 +251,7 @@ function InfoTab({
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-2xl font-bold text-blue-600">
+        <div className="profile-avatar w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold">
           {nickname?.charAt(0).toUpperCase() || '?'}
         </div>
         <div className="min-w-0 flex-1">
@@ -260,7 +260,7 @@ function InfoTab({
         </div>
       </div>
 
-      <div className="bg-gray-50 rounded-xl p-4">
+      <div className="profile-surface rounded-xl p-4">
         <label className="text-xs text-gray-500 mb-1 block">雷霆记账账号</label>
         <div className="flex items-center gap-2">
           <code className="text-lg font-mono font-bold text-gray-800 tracking-wider flex-1">
@@ -269,7 +269,7 @@ function InfoTab({
           <button
             onClick={onCopy}
             disabled={!accountId}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-50 transition-colors"
+            className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 transition-colors"
             title="复制账号ID"
           >
             {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
@@ -281,7 +281,7 @@ function InfoTab({
         </p>
       </div>
 
-      <div className="flex items-center gap-4 p-4 bg-white border border-gray-200 rounded-xl">
+      <div className="profile-surface flex items-center gap-4 p-4 rounded-xl">
         <Mail size={20} className="text-gray-400 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-xs text-gray-500">邮箱</p>
@@ -294,7 +294,7 @@ function InfoTab({
 
       <button
         onClick={onLogout}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+        className="profile-action profile-danger-outline inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
       >
         <LogOut size={16} />
         退出登录
@@ -308,9 +308,9 @@ function InfoTab({
 // ═════════════════════════════════════════════════════════════════
 
 function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email: string; phone: string; cloudAvailable: boolean }) {
-  const [expanded, setExpanded] = useState(false)
   const [verifyChannel, setVerifyChannel] = useState<'email' | 'phone' | null>(null)
   const [showChannelDropdown, setShowChannelDropdown] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [code, setCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
   const [newPwd, setNewPwd] = useState('')
@@ -404,7 +404,7 @@ function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email:
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <Shield size={20} className="text-blue-600" />
+        <Shield size={20} className="profile-accent-icon" />
         安全设置
       </h2>
 
@@ -420,7 +420,7 @@ function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email:
           </div>
           <button
             onClick={() => setExpanded(!expanded)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+            className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
           >
             {expanded ? '收起' : '修改'}
             <ChevronRight size={14} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
@@ -482,7 +482,7 @@ function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email:
                 <button
                   onClick={handleSendCode}
                   disabled={sending || (channels.length > 1 && !verifyChannel)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sending && <Loader2 size={14} className="animate-spin" />}
                   <Send size={14} />
@@ -596,7 +596,7 @@ function BindingTab({ email, phone, onChange, cloudAvailable: _cloudAvailable }:
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <Link size={20} className="text-blue-600" />
+        <Link size={20} className="profile-accent-icon" />
         绑定管理
       </h2>
       <p className="text-sm text-gray-500">
@@ -617,10 +617,13 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   boundPhone: string
   onChange: () => void | Promise<void>
 }) {
+  const [expanded, setExpanded] = useState(false)
   const [target, setTarget] = useState('')
   const [code, setCode] = useState('')
   const [vid, setVid] = useState('')
-  const [step, setStep] = useState<'idle' | 'code-sent'>('idle')
+  const [step, setStep] = useState<'idle' | 'reauth-sent' | 'code-sent'>('idle')
+  const [reauthCode, setReauthCode] = useState('')
+  const [reauthVid, setReauthVid] = useState('')
   const [sending, setSending] = useState(false)
   const [binding, setBinding] = useState(false)
   const [unbinding, setUnbinding] = useState(false)
@@ -631,7 +634,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   const { addToast } = useStore()
   const { lang } = useLanguage()
 
-  const reset = () => { setTarget(''); setCode(''); setVid(''); setStep('idle') }
+  const reset = () => { setTarget(''); setCode(''); setVid(''); setReauthCode(''); setReauthVid(''); setStep('idle') }
 
   const sendCode = async () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) {
@@ -643,7 +646,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       const r = await window.electronAPI.sendBindCode(target)
       setVid(r.verificationId)
       setStep('code-sent')
-      addToast('success', '验证码已发送到邮箱')
+      addToast('success', `验证码已发送到邮箱 ${target}，10分钟内有效`)
     } catch (e) {
       addToast('error', bindingError(e, lang))
     } finally {
@@ -652,10 +655,21 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   }
 
   const confirmBind = async () => {
-    if (!code || !vid) { addToast('error', '请输入验证码'); return }
+    if (!code || !vid) { addToast('error', '请输入邮箱验证码'); return }
+    if (!reauthCode || !reauthVid) {
+      setSending(true)
+      try {
+        const r = await window.electronAPI.sendBindingReauthCode()
+        setReauthVid(r.verificationId)
+        setStep('reauth-sent')
+        addToast('success', '邮箱验证码已收到，请再验证当前绑定渠道，有效期10分钟')
+      } catch (e) { addToast('error', bindingError(e, lang)) }
+      finally { setSending(false) }
+      return
+    }
     setBinding(true)
     try {
-      await window.electronAPI.bindEmail(target, code, vid)
+      await window.electronAPI.bindEmail(target, code, vid, reauthCode, reauthVid)
       addToast('success', '邮箱绑定成功')
       reset()
       await onChange()
@@ -701,14 +715,14 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   }
 
   return (
-    <div className="border border-gray-200 rounded-xl p-5">
+    <div className="profile-surface rounded-xl p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Mail size={18} className="text-gray-400" />
           <div>
             <p className="text-sm font-medium text-gray-900">邮箱</p>
-            <p className="text-xs text-gray-500 truncate max-w-[200px]">
-              {boundEmail || '未绑定'}
+            <p className={`text-xs truncate max-w-[200px] ${boundEmail ? 'text-gray-500' : 'profile-unbound-label'}`}>
+              {boundEmail || '未绑定邮箱'}
             </p>
           </div>
         </div>
@@ -716,17 +730,22 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
           <button
             onClick={sendUnbindCode}
             disabled={sendingUnbind}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg disabled:opacity-50"
+            className="profile-action profile-danger-outline inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-50"
           >
             {sendingUnbind && <Loader2 size={14} className="animate-spin" />}
             解绑
+          </button>
+        )}
+        {!boundEmail && (
+          <button onClick={() => setExpanded(v => !v)} className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg">
+            {expanded ? '取消' : '绑定'}
           </button>
         )}
       </div>
 
       {/* 解绑流程 */}
       {unbindStep === 'code-sent' && (
-        <div className="mt-4 pl-11 space-y-3 bg-red-50/30 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t border-red-100">
+        <div className="profile-danger-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="text-xs text-red-700">验证码已发送到：{boundEmail}</p>
           <input
             value={unbindCode}
@@ -739,14 +758,14 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
             <button
               onClick={confirmUnbind}
               disabled={unbinding || !unbindCode}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
+            className="profile-danger-button inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               {unbinding && <Loader2 size={14} className="animate-spin" />}
               确认解绑邮箱
             </button>
             <button
               onClick={() => { setUnbindCode(''); setUnbindVid(''); setUnbindStep('idle') }}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
               <X size={14} />
               取消
@@ -756,7 +775,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       )}
 
       {/* 绑定新邮箱 */}
-      {!boundEmail && step === 'idle' && (
+      {!boundEmail && expanded && step === 'idle' && (
         <div className="mt-4 pl-11 space-y-3">
           <input
             type="email"
@@ -765,40 +784,46 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
             placeholder="输入要绑定的邮箱"
             className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
-          <button
-            onClick={sendCode}
-            disabled={!target || sending}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50"
-          >
-            {sending && <Loader2 size={14} className="animate-spin" />}
-            <Send size={14} />
-            发送验证码
-          </button>
+          <div className="profile-code-field flex items-center rounded-lg">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={!target || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+          </div>
         </div>
       )}
 
-      {!boundEmail && step === 'code-sent' && (
-        <div className="mt-4 pl-11 space-y-3 bg-blue-50/30 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t border-blue-100">
-          <p className="text-xs text-blue-700">验证码已发送到：{target}</p>
-          <input
-            value={code}
-            onChange={e => setCode(e.target.value)}
-            placeholder="输入验证码"
-            maxLength={6}
-            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-          />
+      {!boundEmail && expanded && step === 'reauth-sent' && (
+        <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
+          <p className="profile-accent-text text-xs">验证码已发送到当前绑定渠道，请先验证身份（有效期10分钟）</p>
+          <input value={reauthCode} onChange={e => setReauthCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入当前渠道验证码" maxLength={6} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          <div className="flex items-center gap-2">
+            <button onClick={() => void confirmBind()} disabled={!reauthCode || sending} className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+              {sending && <Loader2 size={14} className="animate-spin" />} 验证身份并绑定邮箱
+            </button>
+            <button onClick={reset} className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"><X size={14} />取消</button>
+          </div>
+        </div>
+      )}
+
+      {!boundEmail && expanded && step === 'code-sent' && (
+        <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
+          <p className="profile-accent-text text-xs">验证码已发送到：{target}</p>
+          <input type="email" value={target} onChange={e => setTarget(e.target.value)} placeholder="输入要绑定的邮箱" className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          <div className="profile-code-field flex items-center rounded-lg">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={confirmBind}
               disabled={binding || !code}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+            className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               {binding && <Loader2 size={14} className="animate-spin" />}
-              确认绑定邮箱
+              验证邮箱并继续
             </button>
             <button
               onClick={reset}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
               <X size={14} />
               取消
@@ -817,6 +842,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
   boundEmail: string
   onChange: () => void | Promise<void>
 }) {
+  const [expanded, setExpanded] = useState(false)
   const [target, setTarget] = useState('')
   const [code, setCode] = useState('')
   const [vid, setVid] = useState('')
@@ -898,30 +924,35 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
   }
 
   return (
-    <div className="border border-gray-200 rounded-xl p-5">
+    <div className="profile-surface rounded-xl p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Phone size={18} className="text-gray-400" />
           <div>
             <p className="text-sm font-medium text-gray-900">手机号</p>
-            <p className="text-xs text-gray-500">{boundPhone || '未绑定'}</p>
+            <p className={`text-xs ${boundPhone ? 'text-gray-500' : 'profile-unbound-label'}`}>{boundPhone || '未绑定手机号'}</p>
           </div>
         </div>
         {boundPhone && unbindStep === 'idle' && (
           <button
             onClick={sendUnbindCode}
             disabled={sendingUnbind}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg disabled:opacity-50"
+            className="profile-action profile-danger-outline inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-50"
           >
             {sendingUnbind && <Loader2 size={14} className="animate-spin" />}
             解绑
+          </button>
+        )}
+        {!boundPhone && (
+          <button onClick={() => setExpanded(v => !v)} className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg">
+            {expanded ? '取消' : '绑定'}
           </button>
         )}
       </div>
 
       {/* 解绑流程 */}
       {unbindStep === 'code-sent' && (
-        <div className="mt-4 pl-11 space-y-3 bg-red-50/30 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t border-red-100">
+        <div className="profile-danger-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="text-xs text-red-700">验证码已发送到：{boundPhone}</p>
           <input
             value={unbindCode}
@@ -933,14 +964,14 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             <button
               onClick={confirmUnbind}
               disabled={unbinding || !unbindCode}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
+            className="profile-danger-button inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               {unbinding && <Loader2 size={14} className="animate-spin" />}
               确认解绑手机号
             </button>
             <button
               onClick={() => { setUnbindCode(''); setUnbindVid(''); setUnbindStep('idle') }}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
               <X size={14} />
               取消
@@ -950,7 +981,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
       )}
 
       {/* 绑定新手机号 */}
-      {!boundPhone && step === 'idle' && (
+      {!boundPhone && expanded && step === 'idle' && (
         <div className="mt-4 pl-11 space-y-3">
           <input
             value={target}
@@ -959,39 +990,33 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             maxLength={11}
             className="profile-input w-full px-3 py-2 rounded-lg text-sm"
           />
-          <button
-            onClick={sendCode}
-            disabled={target.length !== 11 || sending}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50"
-          >
-            {sending && <Loader2 size={14} className="animate-spin" />}
-            <Send size={14} />
-            发送验证码
-          </button>
+          <div className="profile-code-field flex items-center rounded-lg">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={target.length !== 11 || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+          </div>
         </div>
       )}
 
-      {!boundPhone && step === 'code-sent' && (
-        <div className="mt-4 pl-11 space-y-3 bg-blue-50/30 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t border-blue-100">
-          <p className="text-xs text-blue-700">验证码已发送到：{target}</p>
-          <input
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="输入验证码"
-            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-          />
+      {!boundPhone && expanded && step === 'code-sent' && (
+        <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
+          <p className="profile-accent-text text-xs">验证码已发送到：{target}</p>
+          <input value={target} onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="输入11位手机号" maxLength={11} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          <div className="profile-code-field flex items-center rounded-lg">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={confirmBind}
               disabled={binding || !code}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+            className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
               {binding && <Loader2 size={14} className="animate-spin" />}
               确认绑定手机号
             </button>
             <button
               onClick={reset}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
               <X size={14} />
               取消
@@ -1019,20 +1044,20 @@ function StatsTab({ stats }: { stats: UserStats }) {
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <BarChart3 size={20} className="text-blue-600" />
+        <BarChart3 size={20} className="profile-accent-icon" />
         数据概览
       </h2>
 
       <div className="grid grid-cols-2 gap-4">
-        <StatCard label="账单总数" value={stats.billCount} variant="blue" />
+        <StatCard label="账单总数" value={stats.billCount} variant="gold" />
         <StatCard label="分类总数" value={stats.categoryCount} variant="green" />
         <StatCard label="累计支出" value={`¥${stats.totalExpense.toLocaleString()}`} variant="red" />
         <StatCard label="累计收入" value={`¥${stats.totalIncome.toLocaleString()}`} variant="emerald" />
       </div>
 
-      <div className={`rounded-xl p-4 ${net >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-        <p className="text-xs text-gray-600 font-medium">净收支</p>
-        <p className={`text-2xl font-bold mt-1 ${net >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+      <div className="profile-stat profile-stat-neutral rounded-xl p-4">
+        <p className="text-xs profile-stat-gold-label font-medium">净收支</p>
+        <p className={`text-2xl font-bold mt-1 ${net >= 0 ? 'profile-stat-income-label' : 'profile-stat-expense-label'}`}>
           ¥{net.toLocaleString()}
         </p>
         <p className="text-xs text-gray-500 mt-1">
@@ -1046,17 +1071,17 @@ function StatsTab({ stats }: { stats: UserStats }) {
 function StatCard({ label, value, variant }: {
   label: string
   value: string | number
-  variant: 'blue' | 'green' | 'red' | 'emerald'
+  variant: 'gold' | 'green' | 'red' | 'emerald'
 }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-600 text-blue-900',
-    green: 'bg-green-50 text-green-600 text-green-900',
-    red: 'bg-red-50 text-red-600 text-red-900',
-    emerald: 'bg-emerald-50 text-emerald-600 text-emerald-900'
+    gold: 'profile-stat-neutral profile-stat-gold-label profile-stat-value',
+    green: 'profile-stat-neutral profile-stat-positive-label profile-stat-value',
+    red: 'profile-stat-neutral profile-stat-expense-label profile-stat-value',
+    emerald: 'profile-stat-neutral profile-stat-income-label profile-stat-value'
   }
   const [bg, light, dark] = colors[variant].split(' ')
   return (
-    <div className={`${bg} rounded-xl p-4`}>
+      <div className={`profile-stat ${bg} rounded-xl p-4`}>
       <p className={`text-xs ${light} font-medium`}>{label}</p>
       <p className={`text-2xl font-bold ${dark} mt-1`}>{value}</p>
     </div>
@@ -1139,8 +1164,8 @@ function DangerTab({
       <p className="text-sm text-gray-500">以下操作不可逆，请谨慎操作。</p>
 
       {/* 注销账号 — Danger Zone 模式 */}
-      <div className="border-2 border-red-200 bg-red-50/30 rounded-xl overflow-hidden">
-        <div className="border-l-4 border-red-500 p-5">
+      <div className="profile-danger-card rounded-xl overflow-hidden">
+        <div className="p-5">
           <div className="flex items-start gap-3">
             <Trash2 size={20} className="text-red-500 shrink-0 mt-0.5" />
             <div>

@@ -132,17 +132,17 @@ export function Bills() {
   return (
     <div className="page-view space-y-4">
       {/* ── 筛选栏 ── */}
-      <div className="card dark:bg-gray-800 dark:border-gray-700 p-4 space-y-3">
+      <div className="card bill-filters p-4 space-y-3">
         {/* 快速时间段 */}
-        <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-700 rounded-lg p-1 w-fit">
+        <div className="bill-filter-periods flex items-center gap-1 rounded-lg p-1 w-fit">
           {PERIODS.map((p) => (
             <button
               key={p.key}
               onClick={() => handlePeriodClick(p.key)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`bill-filter-period px-3 py-1 rounded-md text-xs font-medium transition-colors ${
                 activePeriod === p.key
-                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'is-active'
+                  : ''
               }`}
             >
               {t(p.labelKey)}
@@ -160,7 +160,7 @@ export function Bills() {
               placeholder={t('搜索账单...')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 pl-8 text-sm"
+              className="input-field bill-filter-control pl-8 text-sm"
             />
           </div>
 
@@ -169,14 +169,14 @@ export function Bills() {
             type="month"
             value={filterMonth}
             onChange={(e) => setFilterMonth(e.target.value)}
-            className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-auto text-sm"
+            className="input-field bill-filter-control w-auto text-sm"
           />
 
           {/* 分类筛选 */}
           <select
             value={filterCategory1}
             onChange={(e) => setFilterCategory1(e.target.value)}
-            className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-auto text-sm min-w-[120px]"
+            className="input-field bill-filter-control w-auto text-sm min-w-[120px]"
           >
             <option value="">{t('全部分类')}</option>
             {(filterType === 'income' ? incomeCategories : expenseCategories).map((cat) => (
@@ -188,7 +188,7 @@ export function Bills() {
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
-            className="input-field dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-auto text-sm min-w-[100px]"
+            className="input-field bill-filter-control w-auto text-sm min-w-[100px]"
           >
             <option value="">{t('全部类型')}</option>
             <option value="expense">{t('支出')}</option>
@@ -197,7 +197,7 @@ export function Bills() {
 
           {/* 清除筛选 */}
           {hasFilters && (
-            <button onClick={clearFilters} className="btn-secondary dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1">
+            <button onClick={clearFilters} className="btn-secondary text-sm flex items-center gap-1">
               <FilterX size={14} />
               {t('清除')}
             </button>
@@ -225,7 +225,7 @@ export function Bills() {
       )}
 
       {/* 账单列表 */}
-      <div className="card dark:bg-gray-800 dark:border-gray-700 overflow-hidden">
+      <div className="card overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-gray-400 dark:text-gray-500 text-sm">
@@ -273,7 +273,7 @@ export function Bills() {
 
                 <button
                   onClick={() => openEditDialog(bill.id)}
-                  className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-0 group-hover:opacity-100 transition-all"
                   title={t('编辑')}
                 >
                   <Pencil size={14} />

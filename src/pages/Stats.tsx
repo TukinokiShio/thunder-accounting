@@ -19,7 +19,7 @@ import { useLanguage } from '@/i18n/LanguageContext'
 import type { StatsResult } from '@/types'
 
 const COLORS = [
-  '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+  'var(--accent)', 'var(--danger)', 'var(--success)', 'var(--warn)', 'var(--accent-h)',
   '#ec4899', '#06b6d4', '#f97316', '#64748b', '#84cc16'
 ]
 
@@ -169,7 +169,7 @@ export function Stats() {
     <div className="page-view w-full min-w-0 space-y-6">
       {/* ── 时间粒度选择器 + CSV 导出按钮 ── */}
       <div className="stats-toolbar flex flex-wrap items-center justify-between gap-3 min-w-0">
-        <div className="stats-periods flex flex-wrap items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 min-w-0">
+        <div className="stats-periods flex flex-wrap items-center gap-1 rounded-lg p-1 min-w-0">
           {([
             ['thisMonth', t('本月')],
             ['lastMonth', t('上月')],
@@ -178,10 +178,10 @@ export function Stats() {
             <button
               key={key}
               onClick={() => setPeriod(key)}
-              className={`shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+              className={`stats-period shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${period === key
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'is-active'
+                  : ''
                 }
               `}
             >
@@ -190,7 +190,7 @@ export function Stats() {
           ))}
         </div>
 
-        <button onClick={handleExport} className="btn-secondary shrink-0 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 text-sm flex items-center gap-1.5">
+        <button onClick={handleExport} className="btn-secondary stats-export shrink-0 text-sm flex items-center gap-1.5">
           <Download size={14} />
           {t('导出 CSV')}
         </button>
@@ -198,7 +198,7 @@ export function Stats() {
 
       {loading ? (
         <div className="flex items-center justify-center py-32">
-          <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
         </div>
       ) : error ? (
         <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
@@ -214,7 +214,7 @@ export function Stats() {
                 .catch(console.error)
                 .finally(() => setLoading(false))
             }}
-            className="mt-3 text-sm text-primary-500 hover:text-primary-600 font-medium"
+            className="mt-3 text-sm text-[var(--accent)] hover:text-[var(--accent-h)] font-medium"
           >
             {t('点击重试')}
           </button>
@@ -350,16 +350,16 @@ export function Stats() {
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('每日支出趋势')}</h3>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={lineData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 11, fill: '#9ca3af' }}
-                    axisLine={{ stroke: '#4b5563' }}
+                    tick={{ fontSize: 11, fill: 'var(--chart-axis)' }}
+                    axisLine={{ stroke: 'var(--chart-axis)' }}
                     tickLine={false}
                     interval="preserveStartEnd"
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: '#9ca3af' }}
+                    tick={{ fontSize: 11, fill: 'var(--chart-axis)' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v: number) => `¥${v}`}
@@ -369,20 +369,20 @@ export function Stats() {
                     formatter={(value: number) => [`¥${value.toFixed(2)}`, t('支出')]}
                     contentStyle={{
                       borderRadius: '8px',
-                      border: '1px solid #e5e7eb',
+                      border: '1px solid var(--chart-tooltip-border)',
                       fontSize: '13px',
-                      backgroundColor: '#1f2937',
-                      color: '#f9fafb'
+                      backgroundColor: 'var(--chart-tooltip-bg)',
+                      color: 'var(--chart-tooltip-text)'
                     }}
                   />
                   <Line
                     type="monotone"
                     dataKey="amount"
                     name={t('支出金额')}
-                    stroke="#3b82f6"
+                    stroke="var(--accent)"
                     strokeWidth={2}
-                    dot={{ r: 2, fill: '#3b82f6', strokeWidth: 0 }}
-                    activeDot={{ r: 4, fill: '#2563eb', strokeWidth: 2, stroke: '#fff' }}
+                    dot={{ r: 2, fill: 'var(--accent)', strokeWidth: 0 }}
+                    activeDot={{ r: 4, fill: 'var(--accent-h)', strokeWidth: 2, stroke: 'var(--bg-card)' }}
                   />
                 </LineChart>
               </ResponsiveContainer>

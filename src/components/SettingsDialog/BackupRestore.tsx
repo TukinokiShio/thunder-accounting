@@ -33,7 +33,7 @@ export function BackupRestore({
           disabled={exporting}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
         >
-          <Download size={16} className="text-blue-500 shrink-0" />
+          <Download size={16} className="text-[var(--accent)] shrink-0" />
           <div className="flex-1">
             <div className="font-medium">{t('导出备份')}</div>
             <div className="text-xs text-gray-400">{t('将所有账单和分类导出为 JSON 文件')}</div>

@@ -72,7 +72,7 @@ export function CategoryList({
             onClick={() => onSelect(idx)}
             className={`w-full flex items-center gap-1 px-3 py-2 rounded-lg text-sm text-left transition-colors cursor-pointer select-none group
               ${selectedId === idx
-                ? 'bg-primary-50 text-primary-700 font-medium'
+                ? 'bg-[var(--accent-dim)] text-[var(--accent-h)] font-medium'
                 : 'text-gray-700 hover:bg-gray-50'
               }
             `}
@@ -99,7 +99,7 @@ export function CategoryList({
         {/* Add new button */}
         <button
           onClick={onNew}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-primary-500 hover:bg-primary-50 transition-colors mt-1"
+          className="category-add-button w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-colors mt-1"
         >
           <Plus size={14} />
           {newLabel}

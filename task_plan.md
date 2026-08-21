@@ -1,33 +1,32 @@
-# 个人中心功能 — 实施计划
+# SACW Task Plan — Thunder Accounting restart to v1.15.0
 
-> 创建时间：2026-07-27 | 参考：shadcn-admin + Origin UI (MIT)
+## 执行形态：多 Agent 编排
 
-## DAG 拓扑
+本轮按 SACW 的可审计编排格式重启；由于当前 Codex 会话未暴露可用的
+`multi_agent_v1` 派生工具，执行降级为主执行者 + 外部规则门禁。降级范围仅限
+审查、修复和验证，不把主执行者的工作冒充为子代理回执；真实用户验收仍保持阻塞。
 
-```
-A(数据模型+账号补全) ─┐
-                      ├─→ C(IPC) → D(页面) → E(导航) → F(迁移) → G(收尾)
-B(CloudBase API)    ─┘
-```
+## 版本与基线决策
 
-## 执行顺序
+- 回滚基线：用户已安装并验证的雷霆记账 `v1.14.14`。
+- 作废版本：`v1.14.15`、`v1.14.16`，不作为交付版本或验收依据。
+- 下一交付版本：`v1.15.0`。
+- 需求台账：`PRD.md`。
+- 遗留问题来源：`E:/Code/shio-al-ecosystem/artifacts/sae-v16-2026-08-20/thunder-accounting-legacy-report.md`。
 
-| # | 阶段 | 内容 | 等级 | 状态 |
-|---|------|------|------|------|
-| A | 数据模型扩展与账号补全 | 扩展 CloudBaseUser + store；注册/登录返回 accountId；补全旧用户 | ⭐⭐ | pending |
-| B | CloudBase API | bindEmail/unbindEmail/deleteAccount/getUserStats；改造 bindPhone/unbindPhone 加验证码 | ⭐⭐⭐ | pending |
-| C | IPC 通道 | 为 B 新增 API 添加 IPC + preload 类型 | ⭐⭐ | pending |
-| D | 个人中心页面 | Profile.tsx：左侧标签导航+右侧内容区，5 个标签页 | ⭐⭐⭐ | pending |
-| E | 导航集成 | Sidebar 添加入口；App.tsx 路由；用户区跳转 | ⭐⭐ | pending |
-| F | 功能迁移 | 从 SettingsDialog 移除 AccountBinding 和账户管理 | ⭐ | pending |
-| G | 翻译与收尾 | i18n 词条；Final Verification | ⭐ | pending |
+## 执行阶段
 
-## 验证方法
+1. 重置旧 SAE/SACW 状态并建立版本决策、需求和证据台账。
+2. 审查 Aurora 合同、主题语义、组件状态和报告中的蓝色泄漏问题。
+3. 修复确认存在的问题，保留与 `v1.14.14` 基线无关的用户工作区改动。
+4. 执行单元测试、类型检查、Aurora lint、构建和 Windows 安装包校验。
+5. 更新 `exe` 交付产物到 `v1.15.0`；不自动启动安装程序，避免覆盖用户已安装的基线。
+6. 将真实 GUI 截图和用户验收作为最终收口门，不用 headless 结果替代。
 
-- **A**: 类型检查通过；旧用户登录后 store.user.accountId 有值
-- **B**: 每个 API 端到端手动测试：发送验证码→验证→执行操作→验证结果
-- **C**: preload.ts 类型编译通过；IPC 调用返回预期结果
-- **D**: 页面渲染正常；5 个标签切换正常；所有交互功能正常
-- **E**: 点击 Sidebar 和个人中心入口均能正确导航
-- **F**: 设置弹窗无 AccountBinding/账户管理组件；功能均可通过个人中心访问
-- **G**: 中英切换无遗漏；`npm run build` 通过；无 console.log/调试代码残留
+## 收口标准
+
+- `package.json`、`package-lock.json`、`scripts/thunder-setup.iss` 和 `app.asar` 均为 `1.15.0`。
+- 主题源码无旧 blue/primary 语义泄漏；图表和状态组件直接消费项目 token。
+- 测试、构建和打包结果有可复核命令与外部事实引用。
+- 未生成或弹出 `1.14.15`/`1.14.16` 安装包作为交付物。
+- 缺少真实 GUI 截图或用户验收时，状态不得进入 `DONE`。

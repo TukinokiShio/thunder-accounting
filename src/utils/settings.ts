@@ -22,9 +22,14 @@ export const TIMEZONE_OPTIONS: { label: string; value: string }[] = [
 
 const STORAGE_KEY = 'thunder_settings'
 
+function systemLanguage(): 'zh' | 'en' {
+  const value = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'zh'
+  return value.startsWith('zh') ? 'zh' : 'en'
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   timezone: 'Asia/Shanghai',
-  language: 'zh'
+  language: systemLanguage()
 }
 
 export function loadSettings(): AppSettings {

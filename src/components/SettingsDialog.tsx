@@ -152,7 +152,7 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
                     onClick={() => setLanguage('zh')}
                     className={`px-3 py-1.5 transition-colors ${
                       language === 'zh'
-                        ? 'bg-primary-500 text-white'
+                        ? 'bg-[var(--accent)] text-white'
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
@@ -162,7 +162,7 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
                     onClick={() => setLanguage('en')}
                     className={`px-3 py-1.5 transition-colors ${
                       language === 'en'
-                        ? 'bg-primary-500 text-white'
+                        ? 'bg-[var(--accent)] text-white'
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
@@ -174,13 +174,13 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
               {/* Timezone */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-gray-700">
-                  <Clock size={16} className="text-blue-500" />
+                  <Clock size={16} className="text-[var(--accent)]" />
                   <span>{t('时区')}</span>
                 </div>
                 <select
                   value={timezone}
                   onChange={(e) => handleTimezoneChange(e.target.value)}
-                  className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 max-w-[180px]"
+                  className="text-sm border border-[var(--border)] rounded-lg px-2 py-1.5 bg-[var(--bg-card)] text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] max-w-[180px]"
                 >
                   {TIMEZONE_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>

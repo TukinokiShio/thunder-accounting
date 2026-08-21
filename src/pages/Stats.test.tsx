@@ -122,12 +122,12 @@ describe('Stats', () => {
     // 点击"上月"按钮
     const lastMonthBtn = screen.getByText('上月');
     fireEvent.click(lastMonthBtn);
-    expect(lastMonthBtn.className).toContain('bg-white');
+    expect(lastMonthBtn.className).toContain('is-active');
 
     // 点击"近3个月"按钮
     const threeMonthBtn = screen.getByText('近3个月');
     fireEvent.click(threeMonthBtn);
-    expect(threeMonthBtn.className).toContain('bg-white');
+    expect(threeMonthBtn.className).toContain('is-active');
 
     // 原选中按钮应取消选中
     expect(lastMonthBtn.className).not.toContain('bg-white');

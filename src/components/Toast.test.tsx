@@ -87,7 +87,7 @@ describe('ToastContainer', () => {
 
     render(<ToastContainer />);
 
-    const toastElement = screen.getByText('成功').closest('.border-green-200');
+    const toastElement = screen.getByText('成功').closest('.aurora-toast-success');
     expect(toastElement).not.toBeNull();
   });
 
@@ -98,7 +98,7 @@ describe('ToastContainer', () => {
 
     render(<ToastContainer />);
 
-    const toastElement = screen.getByText('失败').closest('.border-red-200');
+    const toastElement = screen.getByText('失败').closest('.aurora-toast-error');
     expect(toastElement).not.toBeNull();
   });
 
@@ -109,7 +109,7 @@ describe('ToastContainer', () => {
 
     render(<ToastContainer />);
 
-    const toastElement = screen.getByText('提示').closest('.border-blue-200');
+    const toastElement = screen.getByText('提示').closest('.aurora-toast-info');
     expect(toastElement).not.toBeNull();
   });
 });

@@ -210,6 +210,14 @@ async function authFetch(
   return { ok: res.ok && !businessError, data, status: res.status }
 }
 
+/** 将 CloudBase 顶层/嵌套错误统一为稳定的机器可读 key，避免真实原因退化成模糊兜底。 */
+function authError(data: Record<string, unknown>, status: number, fallback: string): string {
+  const payload = authPayload(data)
+  const code = String(payload.error || payload.error_code || payload.code || `http_${status}`).trim()
+  const description = String(payload.error_description || payload.message || payload.error_message || '').trim()
+  return description && description !== code ? `${code}|${description}` : (code || fallback)
+}
+
 // ─── Auth Functions ───────────────────────────────
 
 // ─── Account ID Standard ──────────────────────────
@@ -297,6 +305,8 @@ export function generateDefaultNickname(email: string): string {
  * 支持：账号 ID → 查 accounts 集合；邮箱 → 直接返回；手机号 → 查 accounts 集合。
  */
 export async function resolveLoginIdentifier(identifier: string): Promise<string> {
+  // 管理员入口是产品保留别名，不能依赖 accounts 集合或 API Key 才能解析。
+  if (identifier.trim().toLowerCase() === 'admin' || identifier.trim() === ADMIN_ACCOUNT_ID.toLowerCase()) return ADMIN_EMAIL
   // CloudBase Auth 原生支持手机号登录；不应因本地 accounts 映射不可用而阻断。
   if (/^\d{11}$/.test(identifier)) return identifier
   // 邮箱格式 → 直接返回
@@ -330,6 +340,7 @@ export async function resolveLoginIdentifier(identifier: string): Promise<string
  * 返回 null 表示账号未找到。
  */
 export async function resolveVerificationTarget(identifier: string): Promise<{ type: 'phone' | 'email'; target: string } | null> {
+  if (identifier.trim().toLowerCase() === 'admin' || identifier.trim() === ADMIN_ACCOUNT_ID.toLowerCase()) return { type: 'email', target: ADMIN_EMAIL }
   // 手机号格式
   if (/^\d{11}$/.test(identifier)) return { type: 'phone', target: identifier }
   // 邮箱格式
@@ -376,6 +387,7 @@ export interface SendCodeResult {
   target: string
   verificationId: string
   isUser: boolean
+  expiresIn: number
 }
 
 /** 发送验证码到邮箱或手机号。返回实际接收方信息和 verification_id */
@@ -413,18 +425,20 @@ export async function sendVerificationCode(target: string, registeredUserOnly = 
     }
   }
 
-  const { ok, data } = await authFetch('/auth/v1/verification', body)
+  const { ok, data, status } = await authFetch('/auth/v1/verification', body)
   if (!ok) {
-    const e = data as { error_description?: string; error?: string }
-    throw new Error(e.error_description || e.error || 'verification_code_send_failed')
+    throw new Error(authError(data, status, 'verification_code_send_failed'))
   }
 
-  const d = authPayload(data) as { verification_id?: string; is_user?: boolean }
+  const d = authPayload(data) as { verification_id?: string; is_user?: boolean; expires_in?: number }
+  if (registeredUserOnly && d.is_user === false) throw new Error('account_not_found')
+  if (!d.verification_id) throw new Error('verification_code_missing_id')
   return {
     type: resolvedType || 'email',
     target: resolvedTarget || target,
     verificationId: d.verification_id || '',
-    isUser: !!d.is_user
+    isUser: !!d.is_user,
+    expiresIn: Number(d.expires_in) > 0 ? Number(d.expires_in) : 300
   }
 }
 
@@ -441,9 +455,9 @@ export async function registerWithEmail(email: string, password: string, code: s
   }
   const { ok, data, status } = await authFetch('/auth/v1/signup', body)
   if (!ok) {
-    const e = data as { error?: string; error_description?: string }
-    if (e.error === 'user_already_exists' || status === 409) throw new Error('user_already_exists')
-    throw new Error(e.error_description || e.error || 'signup_failed')
+    const error = authError(data, status, 'signup_failed')
+    if (/user_already_exists/i.test(error) || status === 409) throw new Error('user_already_exists')
+    throw new Error(error)
   }
   const u = authPayload(data) as { uid: string; email_verified?: boolean; sub?: string }
   const uid = u.uid || u.sub || ''
@@ -482,22 +496,22 @@ export async function registerWithPhone(phone: string, password: string, code: s
     return loginWithEmail(phone, password)
   }
 
-  const e = data as { error?: string; error_description?: string }
-  if (e.error === 'user_already_exists' || status === 409) throw new Error('user_already_exists')
+  const error = authError(data, status, 'signup_failed')
+  if (/user_already_exists/i.test(error) || status === 409) throw new Error('user_already_exists')
   // 绝不能把手机号悄悄降级注册为伪邮箱：这会造成真实手机号未绑定，随后登录、改密和注销都无法工作。
-  throw new Error(e.error_description || e.error || 'signup_failed')
+  throw new Error(error)
 }
 
 /** 登录 */
 export async function loginWithEmail(email: string, password: string): Promise<LoginResult> {
   const isPhone = /^\d{11}$/.test(email)
   const authIdentifier = isPhone ? '+86 ' + email : email
-  const { ok, data } = await authFetch('/auth/v1/signin', { username: authIdentifier, password })
+  const { ok, data, status } = await authFetch('/auth/v1/signin', { username: authIdentifier, password })
   if (!ok) {
-    const e = data as { error?: string; error_description?: string }
-    if (e.error === 'invalid_username_or_password') throw new Error('invalid_username_or_password')
-    if (e.error === 'email_not_verified') throw new Error('email_not_verified')
-    throw new Error(e.error_description || e.error || 'signin_failed')
+    const error = authError(data, status, 'signin_failed')
+    if (/invalid_username_or_password/i.test(error)) throw new Error('invalid_username_or_password')
+    if (/email_not_verified/i.test(error)) throw new Error('email_not_verified')
+    throw new Error(error)
   }
   const result = authPayload(data) as { sub?: string; access_token?: string; refresh_token?: string; expires_in?: number; email_verified?: boolean }
   const uid = result.sub || ''
@@ -573,22 +587,21 @@ export function isCloudSyncEnabled(): boolean {
   return !!(cloudApiKey && db && currentSession?.accessToken)
 }
 
-export async function verifyCode(verificationId: string, code: string): Promise<string> {
+export async function verifyCode(verificationId: string, code: string, useCurrentSession = false): Promise<string> {
   if (!verificationId) throw new Error('verification_id_required')
 
   // CloudBase REST API：/auth/v1/verification/verify
-  // access_token 可选——已登录用户的绑定/解绑传 token，登录场景不传
-  const accessToken = currentSession?.accessToken || ''
+  // 登录、注册、找回密码不携带旧会话 token；仅已登录用户的绑定/解绑流程传 token。
+  const accessToken = useCurrentSession ? (currentSession?.accessToken || '') : ''
   const { ok, data, status } = await authFetch('/auth/v1/verification/verify', {
     verification_id: verificationId,
     verification_code: code
   }, accessToken)
   if (!ok) {
-    const e = data as { error?: string; error_description?: string }
-    const errorCode = e.error || `http_${status}` || 'verification_code_invalid'
+    const errorCode = authError(data, status, 'verification_code_invalid')
     if (errorCode.includes('expired')) throw new Error('verification_code_expired')
     if (errorCode.includes('invalid') || errorCode.includes('incorrect')) throw new Error('verification_code_invalid')
-    throw new Error(e.error_description || errorCode)
+    throw new Error(errorCode)
   }
   const result = authPayload(data) as { verification_token?: string; ticket?: string }
   const token = result.verification_token || result.ticket
@@ -615,10 +628,7 @@ export async function loginWithVerificationCode(identifier: string, code: string
 
   const { ok, data, status } = await authFetch('/auth/v1/signin', body)
   if (!ok) {
-    const e = data as { error?: string; error_description?: string; error_reason?: string }
-    const desc = e.error_description || ''
-    const code = e.error || `http_${status}`
-    throw new Error(desc ? `${code}|${desc}` : code)
+    throw new Error(authError(data, status, 'verification_signin_failed'))
   }
   const result = authPayload(data) as { sub?: string; access_token?: string; refresh_token?: string; expires_in?: number; email_verified?: boolean }
   const uid = result.sub || ''
@@ -1106,7 +1116,7 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
  * 发送绑定用验证码。对指定邮箱/手机号发送验证码，返回 verificationId。
  * 与 sendVerificationCode 的区别：此函数不检查 isUser 状态，始终发送。
  */
-export async function sendBindVerificationCode(target: string): Promise<{ verificationId: string; type: 'email' | 'phone' }> {
+export async function sendBindVerificationCode(target: string): Promise<{ verificationId: string; type: 'email' | 'phone'; expiresIn: number }> {
   const isPhone = /^\d{11}$/.test(target)
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)
   if (!isPhone && !isEmail) throw new Error('invalid_target')
@@ -1119,36 +1129,59 @@ export async function sendBindVerificationCode(target: string): Promise<{ verifi
   }
   body.target = 'ANY'
 
-  // 云端服务未配置（缺 CLOUDBASE_API_KEY 或 .env 不存在）
   if (!currentSession?.accessToken) {
     throw new Error('reauth_not_logged_in')
   }
 
-  // 需要 access_token 才能发送到当前登录用户的目标
-  const accessToken = currentSession.accessToken
-  const { ok, data } = await authFetch('/auth/v1/verification', body, accessToken)
+  // 验证码发送接口本身按 CloudBase Auth 契约不需要携带旧会话；
+  // 当前会话只用于确认这是已登录用户的绑定操作。
+  const { ok, data, status } = await authFetch('/auth/v1/verification', body)
   if (!ok) {
-    const e = data as { error_description?: string; error?: string }
-    throw new Error(e.error_description || e.error || 'verification_code_send_failed')
+    throw new Error(authError(data, status, 'verification_code_send_failed'))
   }
 
-  const d = authPayload(data) as { verification_id?: string }
-  return { verificationId: d.verification_id || '', type: isPhone ? 'phone' : 'email' }
+  const d = authPayload(data) as { verification_id?: string; expires_in?: number }
+  if (!d.verification_id) throw new Error('verification_code_missing_id')
+  return { verificationId: d.verification_id, type: isPhone ? 'phone' : 'email', expiresIn: Number(d.expires_in) || 600 }
+}
+
+/** 获取已有绑定渠道的验证码，用于账户关联前换取 sudo_token。 */
+export async function sendBindingReauthCode(): Promise<{ verificationId: string; type: 'email' | 'phone'; expiresIn: number }> {
+  if (!currentSession?.accessToken) throw new Error('reauth_not_logged_in')
+  const binding = await readAuthBindings()
+  const phone = binding?.phone && !isPlaceholderPhone(binding.phone) ? binding.phone.replace(/\s/g, '').replace(/^\+86/, '') : ''
+  const email = binding?.email && !isPlaceholderEmail(binding.email) ? binding.email : ''
+  const isPhone = !!phone
+  if (!isPhone && !email) throw new Error('binding_reauth_target_missing')
+  const body: Record<string, string> = { target: 'USER' }
+  if (isPhone) body.phone_number = '+86 ' + phone
+  else body.email = email
+  const { ok, data, status } = await authFetch('/auth/v1/verification', body)
+  if (!ok) throw new Error(authError(data, status, 'binding_reauth_code_send_failed'))
+  const d = authPayload(data) as { verification_id?: string; expires_in?: number }
+  if (!d.verification_id) throw new Error('verification_code_missing_id')
+  return { verificationId: d.verification_id, type: isPhone ? 'phone' : 'email', expiresIn: Number(d.expires_in) || 600 }
 }
 
 /**
  * 绑定邮箱（验证码确认）。
  * 发送验证码到新邮箱 → 用户输入验证码 → 调用此函数验证并绑定。
  */
-export async function bindEmail(newEmail: string, code: string, verificationId: string): Promise<void> {
+export async function bindEmail(newEmail: string, code: string, verificationId: string, reauthCode: string, reauthVerificationId: string): Promise<void> {
   const userId = getUserId()
   if (!userId) throw new Error('未登录')
 
-  // 验证验证码
+  if (!reauthCode || !reauthVerificationId) throw new Error('binding_reauth_required')
+  // 必须先用已有绑定渠道的验证码换取 sudo_token，再验证新邮箱验证码。
+  const existingToken = await verifyCode(reauthVerificationId, reauthCode)
+  const sudo = await authFetch('/auth/v1/user/sudo', { verification_token: existingToken }, currentSession!.accessToken)
+  if (!sudo.ok) throw new Error(authError(sudo.data, sudo.status, 'auth_binding_sudo_failed'))
+  const sudoToken = (authPayload(sudo.data) as { sudo_token?: string }).sudo_token
+  if (!sudoToken) throw new Error('auth_binding_sudo_missing')
   const verificationToken = await verifyCode(verificationId, code)
 
   // Auth 是绑定的权威来源，不能因本地 accounts 映射不可用而跳过真实绑定。
-  await updateAuthBasicInfo({ email: newEmail }, verificationToken)
+  await updateAuthContact({ email: newEmail }, verificationToken, sudoToken)
   cacheAuthBinding({ email: newEmail })
   await persistAccountBinding(userId, { email: newEmail })
 }
@@ -1267,21 +1300,33 @@ function makeUnboundPhone(userId: string): string {
 }
 
 /**
- * 同步更新 CloudBase Auth 的真实身份绑定。
- * accounts 只是应用侧映射表，不能替代 Auth 的 email/phone 字段。
+ * 按 CloudBase Auth 账户关联契约更新真实身份绑定。
+ * 账户关联不是普通 basic/edit：需要 verification_token 换取 sudo_token，
+ * 再调用 /user/contact 携带两个 token；accounts 只是应用侧映射表。
  */
 async function updateAuthBasicInfo(binding: { email?: string; phone?: string }, verificationToken: string): Promise<void> {
   if (!currentSession?.accessToken) throw new Error('reauth_not_logged_in')
-  // verificationToken 已由 verifyCode 校验；basic/edit 官方契约只接收
-  // email/phone 等基础字段，不把 verification_token 当作编辑字段发送。
-  void verificationToken
-  const { ok, data, status } = await authFetch('/auth/v1/user/basic/edit', {
-    ...binding
-  }, currentSession.accessToken)
-  if (!ok) {
-    const e = data as { error_description?: string; error?: string }
-    throw new Error(e.error_description || e.error || `auth_binding_update_failed_${status}`)
-  }
+  const sudo = await authFetch('/auth/v1/user/sudo', { verification_token: verificationToken }, currentSession.accessToken)
+  if (!sudo.ok) throw new Error(authError(sudo.data, sudo.status, 'auth_binding_sudo_failed'))
+  const sudoPayload = authPayload(sudo.data) as { sudo_token?: string }
+  if (!sudoPayload.sudo_token) throw new Error('auth_binding_sudo_missing')
+
+  const result = await authFetch('/auth/v1/user/contact', {
+    ...binding,
+    verification_token: verificationToken,
+    sudo_token: sudoPayload.sudo_token
+  }, currentSession.accessToken, 'PATCH')
+  if (!result.ok) throw new Error(authError(result.data, result.status, 'auth_binding_update_failed'))
+}
+
+async function updateAuthContact(binding: { email?: string; phone?: string }, verificationToken: string, sudoToken: string): Promise<void> {
+  if (!currentSession?.accessToken) throw new Error('reauth_not_logged_in')
+  const result = await authFetch('/auth/v1/user/contact', {
+    ...binding,
+    verification_token: verificationToken,
+    sudo_token: sudoToken
+  }, currentSession.accessToken, 'PATCH')
+  if (!result.ok) throw new Error(authError(result.data, result.status, 'auth_binding_update_failed'))
 }
 
 // ─── Account Deletion ──────────────────────────────
