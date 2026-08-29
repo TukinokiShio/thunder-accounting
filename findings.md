@@ -119,6 +119,16 @@ TASK_CLASSIFY/KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇�
 
 KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇总；EXEC：Supervisor 分发互不重叠的 Worker；REVIEW：独立 Reviewer + UIUX Reviewer 辩论；EVAL：独立 Judge/规则闸收敛。
 
+## v1.16.0 实施与验证事实
+
+- UI Worker 已完成：`src/index.css` token/focus/文本选择收敛；AddBill/Settings/Confirm 对话框语义、焦点和账户入口修复；Stats/Bills/Profile 状态、操作可见性和语义颜色修复。
+- 交付脚本已完成：`scripts/deploy.cjs` 默认复制到项目根 `exe`；`scripts/thunder-setup.iss` 默认安装到 `E:\Code\CodeProduct\thunder-accounting\exe`。
+- 版本已统一为 `1.16.0`：`package.json`、`package-lock.json`、Inno 脚本和已安装 `exe\resources\app.asar`。
+- 验证通过：`npm test`（24 个文件/220 个用例）、`npx tsc --noEmit`、`npm run build`、隔离目录 `verify-release`、electron-builder `--dir`、Inno Setup 6.7.1 编译、静默安装退出码 0。
+- 安装 receipt：`artifacts/inno/inno-receipt.json`；安装包已复制为 `exe\雷霆记账_Inno_v1.16.0.exe`，SHA-256 已记录。
+- 视觉证据：`artifacts/visual-v1.16.0/` 含浅色/深色登录页三档截图；Aurora assess 仍标记 partial，缺业务页六态和 contrast/heading-order/landmarks 证据，最终用户验收未冒充完成。
+- 清理状态：未删除任何旧安装包、release、node_modules 或审计证据；依照用户要求，必须等 GitHub push 成功后再处理清理清单。
+
 ## Explore 回执（Hypatia，只读）
 
 - 技术栈确认：Electron + React + TypeScript；主链为 `src/main.tsx → src/App.tsx → Layout/Sidebar/页面/弹窗`，数据经 Zustand、preload IPC、SQL.js/CloudBase。

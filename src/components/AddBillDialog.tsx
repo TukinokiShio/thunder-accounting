@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -39,6 +39,8 @@ export function AddBillDialog() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [futureWarning, setFutureWarning] = useState(false)
+  const amountInputRef = useRef<HTMLInputElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   const isEditMode = editBillId !== null
 
@@ -60,6 +62,20 @@ export function AddBillDialog() {
       resetForm()
     }
   }, [isEditMode, editBillId])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    amountInputRef.current?.focus()
+
+    return () => {
+      returnFocusRef.current?.focus()
+      returnFocusRef.current = null
+    }
+  }, [isOpen])
 
   const resetForm = useCallback(() => {
     setForm({
@@ -154,13 +170,35 @@ export function AddBillDialog() {
     }
   }
 
-  /** 键盘快捷键：Enter 提交表单，Escape 关闭弹窗 */
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !submitting) {
-      handleSubmit()
-    }
+  /** 键盘语义：表单负责 Enter 提交，弹窗负责 Escape 关闭和 Tab 循环。 */
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
       handleClose()
+      return
+    }
+
+    if (e.key === 'Tab') {
+      const focusable = Array.from(
+        e.currentTarget.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      )
+      if (focusable.length === 0) {
+        e.preventDefault()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
   }
 
@@ -169,31 +207,41 @@ export function AddBillDialog() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* 半透明背景遮罩，点击关闭 */}
-      <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={handleClose} />
+      <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={handleClose} aria-hidden="true" />
 
       {/* 弹窗主体 */}
       <div
-        className="relative bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-bill-dialog-title"
+        aria-describedby={error ? 'add-bill-dialog-error' : undefined}
+        tabIndex={-1}
+        className="relative rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up aurora-dialog"
         onKeyDown={handleKeyDown}
       >
         {/* 弹窗标题栏 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">
+          <h2 id="add-bill-dialog-title" className="text-lg font-bold text-gray-900">
             {isEditMode ? t('编辑账单') : t('记一笔')}
           </h2>
           <button
+            type="button"
             onClick={handleClose}
+            aria-label={t('关闭')}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* 表单内容区 */}
-        <div className="px-6 py-4 space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); if (!submitting) void handleSubmit() }}>
+          {/* 表单内容区 */}
+          <div className="px-6 py-4 space-y-4">
           {/* 支出/收入类型切换 */}
           <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
             <button
+              type="button"
+              aria-pressed={form.type === 'expense'}
               onClick={() => setForm(prev => ({ ...prev, type: 'expense', category1: '', category2: '' }))}
               className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${form.type === 'expense'
@@ -204,6 +252,8 @@ export function AddBillDialog() {
               {t('支出')}
             </button>
             <button
+              type="button"
+              aria-pressed={form.type === 'income'}
               onClick={() => setForm(prev => ({ ...prev, type: 'income', category1: '', category2: '' }))}
               className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${form.type === 'income'
@@ -217,11 +267,13 @@ export function AddBillDialog() {
 
           {/* 金额输入 */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('金额 (¥)')}</label>
+            <label htmlFor="add-bill-amount" className="block text-sm font-medium text-gray-700 mb-1">{t('金额 (¥)')}</label>
             <div className="relative">
               <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-lg font-medium
                 ${form.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>¥</span>
               <input
+                ref={amountInputRef}
+                id="add-bill-amount"
                 type="number"
                 step="0.01"
                 min="0.01"
@@ -230,27 +282,29 @@ export function AddBillDialog() {
                 value={form.amount}
                 onChange={(e) => setForm(prev => ({ ...prev, amount: e.target.value }))}
                 className="input-field pl-8 text-lg font-mono font-medium"
-                autoFocus
               />
             </div>
           </div>
 
           {/* 分类选择器 */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('分类')}</label>
-            <CategorySelect
-              category1={form.category1}
-              category2={form.category2}
-              type={form.type}
-              onCategory1Change={(cat) => setForm(prev => ({ ...prev, category1: cat, category2: '' }))}
-              onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
-            />
+            <span id="add-bill-category-label" className="block text-sm font-medium text-gray-700 mb-1">{t('分类')}</span>
+            <div role="group" aria-labelledby="add-bill-category-label">
+              <CategorySelect
+                category1={form.category1}
+                category2={form.category2}
+                type={form.type}
+                onCategory1Change={(cat) => setForm(prev => ({ ...prev, category1: cat, category2: '' }))}
+                onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
+              />
+            </div>
           </div>
 
           {/* 日期选择 */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t('日期')}</label>
+            <label htmlFor="add-bill-date" className="block text-sm font-medium text-gray-700 mb-1">{t('日期')}</label>
             <input
+              id="add-bill-date"
               type="date"
               value={form.date}
               onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value }))}
@@ -260,10 +314,11 @@ export function AddBillDialog() {
 
           {/* 备注输入（可选） */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="add-bill-note" className="block text-sm font-medium text-gray-700 mb-1">
               {t('备注')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
             </label>
             <input
+              id="add-bill-note"
               type="text"
               maxLength={200}
               placeholder={t('添加备注...')}
@@ -275,7 +330,7 @@ export function AddBillDialog() {
 
           {/* 错误提示 / 警告信息 */}
           {error && (
-            <p className={`text-sm rounded-lg px-3 py-2 ${
+            <p id="add-bill-dialog-error" role="alert" aria-live="assertive" className={`text-sm rounded-lg px-3 py-2 ${
               futureWarning
                 ? 'text-amber-600 bg-amber-50 border border-amber-200'
                 : 'text-red-500 bg-red-50'
@@ -283,21 +338,22 @@ export function AddBillDialog() {
               {error}
             </p>
           )}
-        </div>
+          </div>
 
-        {/* 底部操作栏：取消 + 保存 */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
-          <button onClick={handleClose} className="btn-secondary text-sm">
-            {t('取消')}
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="btn-primary text-sm min-w-[80px]"
-          >
-            {submitting ? t('保存中...') : isEditMode ? t('更新') : t('保存')}
-          </button>
-        </div>
+          {/* 底部操作栏：取消 + 保存 */}
+          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
+            <button type="button" onClick={handleClose} className="btn-secondary text-sm">
+              {t('取消')}
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn-primary text-sm min-w-[80px]"
+            >
+              {submitting ? t('保存中...') : isEditMode ? t('更新') : t('保存')}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )

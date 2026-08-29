@@ -34,7 +34,7 @@ const force = args.includes('--force')
 const outputArgIndex = args.indexOf('--output')
 const OUTPUT_DIR = outputArgIndex >= 0 && args[outputArgIndex + 1]
   ? path.resolve(ROOT, args[outputArgIndex + 1])
-  : path.join(ROOT, '雷霆记账app_exe')
+  : path.join(ROOT, 'exe')
 
 function assertSafeWorkspace() {
   if (allowDirty) return
@@ -110,12 +110,7 @@ if (!fs.existsSync(RELEASE_DIR)) {
   process.exit(1)
 }
 
-// 确保输出目录存在
-if (!fs.existsSync(OUTPUT_DIR)) {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true })
-}
-
-const destDir = path.join(OUTPUT_DIR, 'win-unpacked')
+const destDir = OUTPUT_DIR
 // 默认拒绝覆盖既有产物；只有显式 --force 才允许清理目标目录。
 if (fs.existsSync(destDir) && !force) {
   console.error(`❌ 输出目录已存在：${destDir}。为避免覆盖，请换用 --output 或显式传入 --force。`)
@@ -123,6 +118,9 @@ if (fs.existsSync(destDir) && !force) {
 }
 if (fs.existsSync(destDir) && force) {
   fs.rmSync(destDir, { recursive: true, force: true })
+}
+if (!fs.existsSync(destDir)) {
+  fs.mkdirSync(destDir, { recursive: true })
 }
 
 // 复制（使用 robocopy 或 cp -r）

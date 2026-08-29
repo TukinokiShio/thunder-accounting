@@ -54,7 +54,7 @@ export function Bills() {
   const addToast = useStore((s) => s.addToast)
   const expenseCategories = useStore((s) => s.expenseCategories)
   const incomeCategories = useStore((s) => s.incomeCategories)
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
 
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null)
@@ -95,7 +95,7 @@ export function Bills() {
     return b.type === filterType
   })
 
-  const hasFilters = filterCategory1 || filterMonth || filterDateRange || filterType
+  const hasFilters = Boolean(search || filterCategory1 || filterMonth || filterDateRange || filterType)
   const clearFilters = () => {
     setFilterCategory1('')
     setFilterMonth('')
@@ -139,6 +139,8 @@ export function Bills() {
             <button
               key={p.key}
               onClick={() => handlePeriodClick(p.key)}
+              type="button"
+              aria-pressed={activePeriod === p.key}
               className={`bill-filter-period px-3 py-1 rounded-md text-xs font-medium transition-colors ${
                 activePeriod === p.key
                   ? 'is-active'
@@ -154,8 +156,12 @@ export function Bills() {
         <div className="flex flex-wrap items-center gap-3">
           {/* 搜索框 */}
           <div className="relative flex-1 min-w-[180px]">
+            <label htmlFor="bill-search" className="sr-only">
+              {language === 'zh' ? '搜索账单' : 'Search bills'}
+            </label>
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
+              id="bill-search"
               type="text"
               placeholder={t('搜索账单...')}
               value={search}
@@ -165,15 +171,26 @@ export function Bills() {
           </div>
 
           {/* 月份筛选（精确到月） */}
+          <label htmlFor="bill-month" className="sr-only">
+            {language === 'zh' ? '按月份筛选' : 'Filter by month'}
+          </label>
           <input
+            id="bill-month"
             type="month"
             value={filterMonth}
-            onChange={(e) => setFilterMonth(e.target.value)}
+            onChange={(e) => {
+              setActivePeriod(null)
+              setFilterMonth(e.target.value)
+            }}
             className="input-field bill-filter-control w-auto text-sm"
           />
 
           {/* 分类筛选 */}
+          <label htmlFor="bill-category" className="sr-only">
+            {language === 'zh' ? '按分类筛选' : 'Filter by category'}
+          </label>
           <select
+            id="bill-category"
             value={filterCategory1}
             onChange={(e) => setFilterCategory1(e.target.value)}
             className="input-field bill-filter-control w-auto text-sm min-w-[120px]"
@@ -185,7 +202,11 @@ export function Bills() {
           </select>
 
           {/* 类型筛选 */}
+          <label htmlFor="bill-type" className="sr-only">
+            {language === 'zh' ? '按类型筛选' : 'Filter by type'}
+          </label>
           <select
+            id="bill-type"
             value={filterType}
             onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
             className="input-field bill-filter-control w-auto text-sm min-w-[100px]"
@@ -210,13 +231,13 @@ export function Bills() {
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 px-1">
           <span>{t('共 {n} 条记录').replace('{n}', String(filtered.length))}</span>
           <span>·</span>
-          <span className="text-red-500 dark:text-red-400 font-medium">
+          <span className="font-medium" style={{ color: 'var(--danger)' }}>
             {t('支出合计')} ¥{filtered.filter(b => b.type === 'expense').reduce((s, b) => s + b.amount, 0).toFixed(2)}
           </span>
           {filtered.some(b => b.type === 'income') && (
             <>
               <span>·</span>
-              <span className="text-green-500 dark:text-green-400 font-medium">
+              <span className="font-medium" style={{ color: 'var(--success)' }}>
                 {t('收入合计')} ¥{filtered.filter(b => b.type === 'income').reduce((s, b) => s + b.amount, 0).toFixed(2)}
               </span>
             </>
@@ -240,9 +261,9 @@ export function Bills() {
             {filtered.map((bill) => (
               <div
                 key={bill.id}
-                className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50/50 dark:hover:bg-gray-750 transition-colors group"
+                className="flex items-center gap-4 px-5 py-3 hover:bg-[var(--accent-dim)] transition-colors group"
               >
-                <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-[var(--bg2)] flex items-center justify-center text-lg shrink-0">
                   {catIcon(bill.category1)}
                 </div>
 
@@ -263,25 +284,28 @@ export function Bills() {
                   </div>
                 </div>
 
-                <span className={`text-sm font-semibold shrink-0 ${
-                  bill.type === 'income'
-                    ? 'text-green-500 dark:text-green-400'
-                    : 'text-red-500 dark:text-red-400'
-                }`}>
+                <span
+                  className="text-sm font-semibold shrink-0"
+                  style={{ color: bill.type === 'income' ? 'var(--success)' : 'var(--danger)' }}
+                >
                   {bill.type === 'income' ? '+' : '-'}¥{bill.amount.toFixed(2)}
                 </span>
 
                 <button
+                  type="button"
                   onClick={() => openEditDialog(bill.id)}
-                  className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-0 group-hover:opacity-100 transition-all"
+                  aria-label={t('编辑')}
+                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
                   title={t('编辑')}
                 >
                   <Pencil size={14} />
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => setDeleteTarget(bill)}
-                  className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                  aria-label={t('删除')}
+                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--danger)] hover:bg-[var(--danger-dim)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
                   title={t('删除')}
                 >
                   <Trash2 size={14} />

@@ -20,7 +20,7 @@ import type { StatsResult } from '@/types'
 
 const COLORS = [
   'var(--accent)', 'var(--danger)', 'var(--success)', 'var(--warn)', 'var(--accent-h)',
-  '#ec4899', '#06b6d4', '#f97316', '#64748b', '#84cc16'
+  'var(--text3)', 'var(--chart-axis)', 'var(--text2)', 'var(--border-h)', 'var(--text)'
 ]
 
 /** 计算总金额的百分比 */
@@ -65,10 +65,10 @@ const renderTooltip = (
     ? byCategory2.filter(c => c.category2 === name).reduce((s, c) => s + c.count, 0)
     : null
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-3 py-2 text-sm">
-      <p className="font-medium text-gray-900 dark:text-gray-100">{name}</p>
-      <p className="text-gray-600 dark:text-gray-400">¥{value.toFixed(2)}</p>
-      <p className="text-gray-400 dark:text-gray-500 text-xs">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg px-3 py-2 text-sm text-[var(--text)]">
+      <p className="font-medium">{name}</p>
+      <p className="text-[var(--text2)]">¥{value.toFixed(2)}</p>
+      <p className="text-[var(--text3)] text-xs">
         {pct(value, total)} · {count !== null ? `${count} 笔` : ''}
       </p>
     </div>
@@ -113,17 +113,27 @@ export function Stats() {
     }
   })()
 
-  useEffect(() => {
+  const loadStats = useCallback(async () => {
     setLoading(true)
     setError(false)
-    Promise.all([
+    try {
+      const [exp, inc] = await Promise.all([
       window.electronAPI.getStats(dateRange.start, dateRange.end, 'expense'),
       window.electronAPI.getStats(dateRange.start, dateRange.end, 'income')
-    ])
-      .then(([exp, inc]) => { setStats(exp); setIncomeStats(inc); setError(false) })
-      .catch((e) => { console.error(e); setError(true) })
-      .finally(() => setLoading(false))
+      ])
+      setStats(exp)
+      setIncomeStats(inc)
+    } catch (e) {
+      console.error(e)
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
   }, [dateRange.start, dateRange.end])
+
+  useEffect(() => {
+    void loadStats()
+  }, [loadStats])
 
   const handleExport = async () => {
     try {
@@ -205,15 +215,7 @@ export function Stats() {
           <AlertTriangle size={32} className="mx-auto mb-3 text-amber-500" />
           <p className="text-gray-500 dark:text-gray-400">{t('统计数据加载失败')}</p>
           <button
-            onClick={() => {
-              Promise.all([
-                window.electronAPI.getStats(dateRange.start, dateRange.end, 'expense'),
-                window.electronAPI.getStats(dateRange.start, dateRange.end, 'income')
-              ])
-                .then(([exp, inc]) => { setStats(exp); setIncomeStats(inc) })
-                .catch(console.error)
-                .finally(() => setLoading(false))
-            }}
+            onClick={() => void loadStats()}
             className="mt-3 text-sm text-[var(--accent)] hover:text-[var(--accent-h)] font-medium"
           >
             {t('点击重试')}
@@ -229,11 +231,11 @@ export function Stats() {
           <div className="stats-summary-grid grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总支出')}</p>
-              <p className="text-xl font-bold text-red-500">¥{totalAmount.toFixed(2)}</p>
+              <p className="text-xl font-bold" style={{ color: 'var(--danger)' }}>¥{totalAmount.toFixed(2)}</p>
             </div>
             <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总收入')}</p>
-              <p className="text-xl font-bold text-green-500">¥{incomeTotal.toFixed(2)}</p>
+              <p className="text-xl font-bold" style={{ color: 'var(--success)' }}>¥{incomeTotal.toFixed(2)}</p>
             </div>
             <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总笔数')}</p>
@@ -241,7 +243,10 @@ export function Stats() {
             </div>
             <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('结余')}</p>
-              <p className={`text-xl font-bold ${incomeTotal - totalAmount >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              <p
+                className="text-xl font-bold"
+                style={{ color: incomeTotal - totalAmount >= 0 ? 'var(--success)' : 'var(--danger)' }}
+              >
                 ¥{(incomeTotal - totalAmount).toFixed(2)}
               </p>
             </div>

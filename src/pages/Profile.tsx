@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 
 type Tab = 'info' | 'security' | 'binding' | 'stats' | 'danger'
+type LoadState = 'loading' | 'ready' | 'error'
 
 interface AccountInfo {
   accountId: string
@@ -36,6 +37,10 @@ interface UserStats {
   categoryCount: number
   totalExpense: number
   totalIncome: number
+}
+
+function hasUserStats(stats: UserStats): boolean {
+  return stats.billCount > 0 || stats.categoryCount > 0 || stats.totalExpense !== 0 || stats.totalIncome !== 0
 }
 
 function isInternalEmail(email: string): boolean {
@@ -71,25 +76,37 @@ export default function ProfilePage() {
   // ── 账号信息 ──
   const [account, setAccount] = useState<AccountInfo | null>(null)
   const [copied, setCopied] = useState(false)
+  const [accountStatus, setAccountStatus] = useState<LoadState>('loading')
   // 云端服务可用性：null = 检测中, true = 可用, false = 未配置
   const [cloudAvailable, setCloudAvailable] = useState<boolean | null>(null)
 
   // ── 数据概览 ──
   const [stats, setStats] = useState<UserStats | null>(null)
+  const [statsStatus, setStatsStatus] = useState<LoadState>('loading')
 
   // ── 加载账号信息 ──
   const loadAccount = useCallback(async () => {
+    setAccountStatus('loading')
     try {
       const info = await window.electronAPI.getAccountBindings()
       setAccount(info)
-    } catch { /* ignore */ }
+      setAccountStatus('ready')
+    } catch (e) {
+      console.error('Failed to load account bindings:', e)
+      setAccountStatus('error')
+    }
   }, [])
 
   const loadStats = useCallback(async () => {
+    setStatsStatus('loading')
     try {
       const s = await window.electronAPI.getUserStats()
       setStats(s)
-    } catch { /* ignore */ }
+      setStatsStatus('ready')
+    } catch (e) {
+      console.error('Failed to load user stats:', e)
+      setStatsStatus('error')
+    }
   }, [])
 
   const checkCloud = useCallback(async () => {
@@ -177,6 +194,10 @@ export default function ProfilePage() {
             copied={copied}
             onCopy={copyAccountId}
             onLogout={handleLogout}
+            accountStatus={accountStatus}
+            onRetry={loadAccount}
+            language={lang}
+            retryLabel={lang === 'zh' ? '点击重试' : 'Retry'}
           />
         )}
         {activeTab === 'security' && (
@@ -194,8 +215,30 @@ export default function ProfilePage() {
             onChange={loadAccount}
           />
         )}
-        {activeTab === 'stats' && stats && (
+        {activeTab === 'stats' && statsStatus === 'loading' && (
+          <ProfileStatus
+            kind="loading"
+            message={lang === 'zh' ? '正在加载数据概览…' : 'Loading data overview…'}
+          />
+        )}
+        {activeTab === 'stats' && statsStatus === 'error' && (
+          <ProfileStatus
+            kind="error"
+            message={lang === 'zh' ? '数据概览加载失败' : 'Failed to load data overview'}
+            detail={lang === 'zh' ? '请检查本地账本状态后重试。' : 'Check the local ledger and try again.'}
+            onRetry={loadStats}
+            retryLabel={lang === 'zh' ? '点击重试' : 'Retry'}
+          />
+        )}
+        {activeTab === 'stats' && statsStatus === 'ready' && stats && hasUserStats(stats) && (
           <StatsTab stats={stats} />
+        )}
+        {activeTab === 'stats' && statsStatus === 'ready' && (!stats || !hasUserStats(stats)) && (
+          <ProfileStatus
+            kind="empty"
+            message={lang === 'zh' ? '暂无数据概览' : 'No data overview yet'}
+            detail={lang === 'zh' ? '记录账单后，这里会显示你的累计收支。' : 'Record a bill to see your totals here.'}
+          />
         )}
         {activeTab === 'danger' && (
           <DangerTab
@@ -206,6 +249,53 @@ export default function ProfilePage() {
             cloudAvailable={cloudAvailable === true}
             onDeleted={() => setTimeout(() => appLogout(), 500)}
           />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ProfileStatus({
+  kind,
+  message,
+  detail,
+  onRetry,
+  retryLabel
+}: {
+  kind: 'loading' | 'error' | 'empty'
+  message: string
+  detail?: string
+  onRetry?: () => void | Promise<void>
+  retryLabel?: string
+}) {
+  const isError = kind === 'error'
+  return (
+    <div
+      role={isError ? 'alert' : 'status'}
+      className="profile-surface flex items-start gap-3 rounded-xl p-4"
+      aria-live={isError ? 'assertive' : 'polite'}
+    >
+      {kind === 'loading' ? (
+        <Loader2 size={18} className="profile-accent-icon motion-safe:animate-spin shrink-0 mt-0.5" aria-hidden="true" />
+      ) : (
+        <AlertCircle
+          size={18}
+          className="shrink-0 mt-0.5"
+          style={{ color: isError ? 'var(--danger)' : 'var(--text2)' }}
+          aria-hidden="true"
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium" style={{ color: isError ? 'var(--danger)' : 'var(--text)' }}>{message}</p>
+        {detail && <p className="text-xs mt-1" style={{ color: 'var(--text2)' }}>{detail}</p>}
+        {onRetry && (
+          <button
+            type="button"
+            onClick={() => void onRetry()}
+            className="profile-action mt-3 inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-sm"
+          >
+            {retryLabel}
+          </button>
         )}
       </div>
     </div>
@@ -239,7 +329,7 @@ function CloudUnavailableNotice() {
 // ═════════════════════════════════════════════════════════════════
 
 function InfoTab({
-  nickname, email, accountId, copied, onCopy, onLogout
+  nickname, email, accountId, copied, onCopy, onLogout, accountStatus, onRetry, language, retryLabel
 }: {
   nickname: string
   email: string
@@ -247,9 +337,35 @@ function InfoTab({
   copied: boolean
   onCopy: () => void
   onLogout: () => void
+  accountStatus: LoadState
+  onRetry: () => void | Promise<void>
+  language: 'zh' | 'en'
+  retryLabel: string
 }) {
   return (
     <div className="max-w-2xl space-y-6">
+      {accountStatus === 'loading' && (
+        <ProfileStatus
+          kind="loading"
+          message={language === 'zh' ? '正在加载账号信息…' : 'Loading account information…'}
+        />
+      )}
+      {accountStatus === 'error' && (
+        <ProfileStatus
+          kind="error"
+          message={language === 'zh' ? '账号信息加载失败' : 'Failed to load account information'}
+          detail={language === 'zh' ? '现有登录账号仍可使用；恢复连接后可重试。' : 'Your current session is still available; retry when the connection recovers.'}
+          onRetry={onRetry}
+          retryLabel={retryLabel}
+        />
+      )}
+      {accountStatus === 'ready' && !email && !accountId && (
+        <ProfileStatus
+          kind="empty"
+          message={language === 'zh' ? '暂无账号绑定信息' : 'No account binding information yet'}
+          detail={language === 'zh' ? '可以在“绑定管理”中添加邮箱或手机号。' : 'Add an email or phone number in Bindings.'}
+        />
+      )}
       <div className="flex items-center gap-4">
         <div className="profile-avatar w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold">
           {nickname?.charAt(0).toUpperCase() || '?'}
