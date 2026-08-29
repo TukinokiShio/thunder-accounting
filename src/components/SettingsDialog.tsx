@@ -181,11 +181,11 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
         aria-modal="true"
         aria-labelledby="settings-dialog-title"
         tabIndex={-1}
-        className="relative rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up max-h-[85vh] overflow-y-auto aurora-dialog"
+        className="relative w-full max-w-md mx-4 animate-slide-up max-h-[85vh] overflow-y-auto settings-dialog aurora-dialog"
         onKeyDown={handleKeyDown}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 z-10 aurora-dialog aurora-border">
+        <div className="settings-dialog-header flex items-center justify-between px-6 py-4 sticky top-0 z-10">
           <h2 id="settings-dialog-title" className="text-lg font-bold text-gray-900">{t('设置')}</h2>
           <button
             ref={closeButtonRef}

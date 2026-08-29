@@ -132,7 +132,7 @@ export function Home() {
         {statCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4">
+            <div key={card.label} className="card home-dashboard-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4">
               <div className="flex items-center gap-2 mb-2">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${card.color}`}>
                   <Icon size={16} />
@@ -148,7 +148,7 @@ export function Home() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent bills */}
-        <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+        <div className="card home-dashboard-card dark:bg-gray-800 dark:border-gray-700 p-5">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('最近记录')}</h3>
           {recentBills.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">{t('暂无记录，点击右上角"记一笔"开始记账')}</p>
@@ -181,7 +181,7 @@ export function Home() {
         </div>
 
         {/* Top categories */}
-        <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+        <div className="card home-dashboard-card dark:bg-gray-800 dark:border-gray-700 p-5">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('本月支出分类 Top 5')}</h3>
           {topCategories.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">{t('暂无数据')}</p>

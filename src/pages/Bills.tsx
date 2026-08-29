@@ -132,7 +132,7 @@ export function Bills() {
   return (
     <div className="page-view space-y-4">
       {/* ── 筛选栏 ── */}
-      <div className="card bill-filters p-4 space-y-3">
+      <div className="card bill-filter-card bill-filters p-4 space-y-3">
         {/* 快速时间段 */}
         <div className="bill-filter-periods flex items-center gap-1 rounded-lg p-1 w-fit">
           {PERIODS.map((p) => (
@@ -246,7 +246,7 @@ export function Bills() {
       )}
 
       {/* 账单列表 */}
-      <div className="card overflow-hidden">
+      <div className="card bill-list-card overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-gray-400 dark:text-gray-500 text-sm">

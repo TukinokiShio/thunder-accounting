@@ -20,6 +20,6 @@
 
 ## 交付约定
 
-- 版本按兼容性 UI/交付增量使用 `1.16.1`，同步 `package.json`、`package-lock.json`、`scripts/thunder-setup.iss` 和安装包内 `app.asar`。
+- 当前发布版本为 `1.6.2`，同步 `package.json`、`package-lock.json` 与 `scripts/thunder-setup.iss`；后续安装包内 `app.asar` 版本也必须与该版本一致。
 - 清理遵循用户确认的 cleanup manifest；源码、Git 历史、审计证据、当前回滚包和用户数据不自动删除。
 - 安装验收目录固定为 `E:\Code\CodeProduct\thunder-accounting\exe`；安装后必须验证 `exe\resources\app.asar` 版本和应用可启动性。

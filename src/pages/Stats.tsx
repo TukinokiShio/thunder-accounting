@@ -211,7 +211,7 @@ export function Stats() {
           <div className="w-6 h-6 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
         </div>
       ) : error ? (
-        <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
+        <div className="card stats-card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
           <AlertTriangle size={32} className="mx-auto mb-3 text-amber-500" />
           <p className="text-gray-500 dark:text-gray-400">{t('统计数据加载失败')}</p>
           <button
@@ -222,26 +222,26 @@ export function Stats() {
           </button>
         </div>
       ) : !stats || stats.count === 0 && (!incomeStats || incomeStats.count === 0) ? (
-        <div className="card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
+        <div className="card stats-card dark:bg-gray-800 dark:border-gray-700 py-16 text-center">
           <p className="text-gray-400 dark:text-gray-500">{t('该时间段暂无数据')}</p>
         </div>
       ) : (
         <>
           {/* ── 汇总卡片 ── */}
           <div className="stats-summary-grid grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总支出')}</p>
               <p className="text-xl font-bold" style={{ color: 'var(--danger)' }}>¥{totalAmount.toFixed(2)}</p>
             </div>
-            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总收入')}</p>
               <p className="text-xl font-bold" style={{ color: 'var(--success)' }}>¥{incomeTotal.toFixed(2)}</p>
             </div>
-            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('总笔数')}</p>
               <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{stats.count + (incomeStats?.count ?? 0)}</p>
             </div>
-            <div className="card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
+            <div className="card stats-card stats-summary-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4 text-center">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('结余')}</p>
               <p
                 className="text-xl font-bold"
@@ -255,7 +255,7 @@ export function Stats() {
           {/* ── 图表区 ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 环形图 1：支出分类占比（Legend + 明细表替代 inline label） */}
-            <div className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
+            <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('支出分类占比')}</h3>
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
@@ -298,7 +298,7 @@ export function Stats() {
             </div>
 
             {/* 环形图 2：二级分类下钻 */}
-            <div className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
+            <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
                 {topCategory1 ? `「${topCategory1}」${t('二级分类')}` : t('二级分类明细')}
               </h3>
@@ -351,7 +351,7 @@ export function Stats() {
             </div>
 
             {/* 折线图 */}
-            <div className="card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
+            <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('每日支出趋势')}</h3>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={lineData}>
@@ -395,7 +395,7 @@ export function Stats() {
           </div>
 
           {/* ── 全量分类明细表 ── */}
-          <div className="card dark:bg-gray-800 dark:border-gray-700 p-5">
+          <div className="card stats-card dark:bg-gray-800 dark:border-gray-700 p-5">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('分类明细')}</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

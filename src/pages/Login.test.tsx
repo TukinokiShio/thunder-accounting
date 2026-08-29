@@ -112,6 +112,8 @@ describe('LoginPage', () => {
     const registerButton = screen.getByRole('button', { name: '注册' })
     expect(screen.getByText('还没有账号？')).toBeInTheDocument()
     expect(forgotButton).toHaveClass('min-h-8', 'text-[var(--accent)]')
+    expect(forgotButton).toHaveClass('text-sm')
+    expect(screen.getByText('记住账号').closest('label')).toHaveClass('text-sm')
     expect(registerButton).toHaveClass('min-h-8', 'text-[var(--accent)]')
     expect(registerButton).toHaveClass(...forgotButton.className.split(' '))
 

@@ -49,4 +49,23 @@ describe('semantic theme contract', () => {
     expect(stats).toContain('stats-export')
     expect(stats).not.toContain('dark:bg-gray-700 dark:text-gray-200')
   })
+
+  it('keeps bill card hover limited to the semantic border state', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+
+    expect(css).toMatch(
+      /\.aurora-shell \.bill-filter-card:hover,\s*\.aurora-shell \.bill-list-card:hover\s*\{[\s\S]*?transform:\s*none;[\s\S]*?box-shadow:\s*none;/
+    )
+    expect(css).toContain('.card:hover { border-color: var(--accent);')
+  })
+
+  it('keeps profile binding fields on one focus-within boundary', () => {
+    const profile = readFileSync(resolve(process.cwd(), 'src/pages/Profile.tsx'), 'utf8')
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+
+    expect(profile.match(/className="profile-field-shell"/g)).toHaveLength(7)
+    expect(profile.match(/className="profile-code-field flex items-center"/g)).toHaveLength(4)
+    expect(profile).not.toContain('profile-input min-w-0 flex-1 rounded-lg rounded-r-none')
+    expect(css).toMatch(/\.profile-code-field:focus-within\s*\{[\s\S]*outline:\s*var\(--focus-width\) solid var\(--accent\)/)
+  })
 })

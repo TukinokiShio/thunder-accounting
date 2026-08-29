@@ -68,7 +68,7 @@ export function LoginPage() {
     return friendlyError(e, lang)
   }
   const input = 'login-control h-12 w-full rounded-[10px] border px-11 pr-10 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-[#98a2b3]'
-  const textButton = 'min-h-8 text-[var(--accent)] hover:text-[var(--accent-h)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]'
+  const textButton = 'min-h-8 text-sm text-[var(--accent)] hover:text-[var(--accent-h)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]'
 
   async function sendCode() {
     if (!idOk) return idError()

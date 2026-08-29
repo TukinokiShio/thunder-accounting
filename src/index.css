@@ -151,6 +151,8 @@
     transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
   }
   .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px var(--accent-dim); }
+  .aurora-shell .bill-filter-card:hover,
+  .aurora-shell .bill-list-card:hover { transform: none; box-shadow: none; }
 
   .btn-primary, .btn-secondary {
     min-height: 44px; padding: 9px 18px; border-radius: var(--radius-sm); font-weight: 600;
@@ -216,10 +218,15 @@
 
   .profile-code-field {
     display: flex; min-height: 42px; overflow: hidden; border: 1px solid var(--border);
-    border-radius: var(--radius-sm); background: var(--bg-card);
+    border-radius: var(--radius-sm); background: var(--bg-card); outline: none;
+    transition: border-color .18s ease, outline-color .18s ease, background-color .18s ease;
   }
-  .profile-code-field:focus-within { border-color: var(--accent); }
-  .profile-code-field .profile-input { min-width: 0; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; }
+  .profile-code-field:focus-within {
+    border-color: var(--accent);
+    outline: var(--focus-width) solid var(--accent);
+    outline-offset: 2px;
+  }
+  .profile-code-field .profile-input { min-width: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
   .profile-code-action { border: 0; background: transparent; color: var(--accent); cursor: pointer; }
   .profile-code-action:hover { color: var(--accent-h); }
 
@@ -229,9 +236,15 @@
   .aurora-shell .bill-filter-period, .aurora-shell .stats-period { border: 1px solid transparent; background: transparent; color: var(--text2); }
   .aurora-shell .bill-filter-period:hover, .aurora-shell .stats-period:hover, .aurora-shell .bill-filter-period.is-active, .aurora-shell .stats-period.is-active { background: var(--accent-dim); color: var(--accent); }
   .aurora-shell .bill-filter-period.is-active, .aurora-shell .stats-period.is-active { border-color: var(--border-h); box-shadow: none; }
+  .aurora-shell .bill-filter-periods { background: var(--bg-card); border-color: var(--border); }
+  .aurora-shell .bill-filter-periods,
+  .aurora-shell .bill-filter-periods .bill-filter-period,
+  .aurora-shell .bill-filters .bill-filter-control { transition: none; }
+  .aurora-shell .bill-filter-period.is-active { background: color-mix(in srgb, var(--accent) 18%, var(--bg-card)); border-color: var(--border-h); }
   .aurora-shell .bill-filter-control { background: var(--bg-card); border-color: var(--border); color: var(--text); }
   .aurora-shell .bill-filter-control::placeholder { color: var(--text3); }
-  .aurora-shell .bill-filter-control:focus { border-color: var(--border); box-shadow: none; }
+  .aurora-shell .bill-filter-control:focus { border-color: var(--accent); box-shadow: none; }
+  .aurora-shell .bill-filters :where(label, div):has(> .input-field, > .bill-filter-control):focus-within { outline: none; }
   .aurora-shell .stats-export { background: var(--bg-card); border-color: var(--border); color: var(--text); }
   .aurora-shell .stats-export:hover { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
@@ -368,6 +381,7 @@
   .aurora-toast button { color: var(--text2); }
   .aurora-shell .category-add-button { background: color-mix(in srgb, var(--accent) 72%, transparent) !important; border: 1px solid color-mix(in srgb, var(--accent) 85%, transparent); }
   .aurora-shell .home-stats-grid .w-8.h-8 { background: var(--accent-dim) !important; color: var(--accent) !important; }
+  .settings-dialog-header { background: var(--bg-card); border-bottom: 0; }
 }
 
 @media (max-width: 1024px) {
@@ -422,6 +436,14 @@
 .aurora-shell:is(.dark, [data-theme='dark']) .profile-surface,
 .aurora-shell:is(.dark, [data-theme='dark']) .profile-stat { box-shadow: none; }
 .aurora-shell:is(.dark, [data-theme='dark']) .profile-danger-card { background: color-mix(in srgb, var(--danger) 8%, var(--bg-card)); }
+
+/* Dashboard and statistics use the product gold as their dark-theme card edge. */
+:where(.dark, [data-theme='dark']) .aurora-shell .home-dashboard-card,
+:where(.dark, [data-theme='dark']) .aurora-shell .stats-card,
+.aurora-shell:is(.dark, [data-theme='dark']) .home-dashboard-card,
+.aurora-shell:is(.dark, [data-theme='dark']) .stats-card {
+  border-color: var(--accent) !important;
+}
 
 .dark.login-shell, .login-shell:is(.dark, [data-theme='dark']) {
   --login-paper: var(--charcoal); --login-card: #191b1e; --login-ink: var(--night-text);

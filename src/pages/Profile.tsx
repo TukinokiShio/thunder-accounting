@@ -863,13 +863,15 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       {unbindStep === 'code-sent' && (
         <div className="profile-danger-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="text-xs text-red-700">验证码已发送到：{boundEmail}</p>
-          <input
-            value={unbindCode}
-            onChange={e => setUnbindCode(e.target.value)}
-            placeholder="输入验证码"
-            maxLength={6}
-            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-          />
+          <div className="profile-field-shell">
+            <input
+              value={unbindCode}
+              onChange={e => setUnbindCode(e.target.value)}
+              placeholder="输入验证码"
+              maxLength={6}
+              className="profile-input w-full px-3 py-2 rounded-lg text-sm"
+            />
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={confirmUnbind}
@@ -893,15 +895,17 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       {/* 绑定新邮箱 */}
       {!boundEmail && expanded && step === 'idle' && (
         <div className="mt-4 pl-11 space-y-3">
-          <input
-            type="email"
-            value={target}
-            onChange={e => setTarget(e.target.value)}
-            placeholder="输入要绑定的邮箱"
-            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-          />
-          <div className="profile-code-field flex items-center rounded-lg">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+          <div className="profile-field-shell">
+            <input
+              type="email"
+              value={target}
+              onChange={e => setTarget(e.target.value)}
+              placeholder="输入要绑定的邮箱"
+              className="profile-input w-full px-3 py-2 rounded-lg text-sm"
+            />
+          </div>
+          <div className="profile-code-field flex items-center">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={!target || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
         </div>
@@ -910,7 +914,9 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       {!boundEmail && expanded && step === 'reauth-sent' && (
         <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="profile-accent-text text-xs">验证码已发送到当前绑定渠道，请先验证身份（有效期10分钟）</p>
-          <input value={reauthCode} onChange={e => setReauthCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入当前渠道验证码" maxLength={6} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          <div className="profile-field-shell">
+            <input value={reauthCode} onChange={e => setReauthCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入当前渠道验证码" maxLength={6} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={() => void confirmBind()} disabled={!reauthCode || sending} className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50">
               {sending && <Loader2 size={14} className="animate-spin" />} 验证身份并绑定邮箱
@@ -923,9 +929,11 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       {!boundEmail && expanded && step === 'code-sent' && (
         <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="profile-accent-text text-xs">验证码已发送到：{target}</p>
-          <input type="email" value={target} onChange={e => setTarget(e.target.value)} placeholder="输入要绑定的邮箱" className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
-          <div className="profile-code-field flex items-center rounded-lg">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+          <div className="profile-field-shell">
+            <input type="email" value={target} onChange={e => setTarget(e.target.value)} placeholder="输入要绑定的邮箱" className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          </div>
+          <div className="profile-code-field flex items-center">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
           <div className="flex items-center gap-2">
@@ -1070,12 +1078,14 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
       {unbindStep === 'code-sent' && (
         <div className="profile-danger-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="text-xs text-red-700">验证码已发送到：{boundPhone}</p>
-          <input
-            value={unbindCode}
-            onChange={e => setUnbindCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="输入验证码"
-            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-          />
+          <div className="profile-field-shell">
+            <input
+              value={unbindCode}
+              onChange={e => setUnbindCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="输入验证码"
+              className="profile-input w-full px-3 py-2 rounded-lg text-sm"
+            />
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={confirmUnbind}
@@ -1099,15 +1109,17 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
       {/* 绑定新手机号 */}
       {!boundPhone && expanded && step === 'idle' && (
         <div className="mt-4 pl-11 space-y-3">
-          <input
-            value={target}
-            onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))}
-            placeholder="输入11位手机号"
-            maxLength={11}
-            className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-          />
-          <div className="profile-code-field flex items-center rounded-lg">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+          <div className="profile-field-shell">
+            <input
+              value={target}
+              onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              placeholder="输入11位手机号"
+              maxLength={11}
+              className="profile-input w-full px-3 py-2 rounded-lg text-sm"
+            />
+          </div>
+          <div className="profile-code-field flex items-center">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={target.length !== 11 || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
         </div>
@@ -1116,9 +1128,11 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
       {!boundPhone && expanded && step === 'code-sent' && (
         <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
           <p className="profile-accent-text text-xs">验证码已发送到：{target}</p>
-          <input value={target} onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="输入11位手机号" maxLength={11} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
-          <div className="profile-code-field flex items-center rounded-lg">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 rounded-lg rounded-r-none text-sm" />
+          <div className="profile-field-shell">
+            <input value={target} onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="输入11位手机号" maxLength={11} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+          </div>
+          <div className="profile-code-field flex items-center">
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
           <div className="flex items-center gap-2">
