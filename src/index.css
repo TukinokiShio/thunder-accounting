@@ -336,8 +336,19 @@
   .login-shell .login-lang-active { background: var(--login-gold); color: var(--accent-contrast); }
   .login-shell .login-lang-idle { background: transparent; color: var(--login-muted); }
   .login-shell .login-lang-idle:hover { background: var(--accent-dim); color: var(--login-ink); }
-  .login-shell form + p button, .login-shell [class*='flex gap-[10px]'] button { border-color: var(--login-line); border-radius: 8px; background: var(--login-card); color: var(--login-ink); }
-  .login-shell form + p button:hover, .login-shell [class*='flex gap-[10px]'] button:hover { background: var(--accent-dim); border-color: var(--login-gold); color: var(--login-gold); }
+  .login-shell form + p button {
+    min-height: 32px; padding: 0; border: 0 !important; border-radius: 0;
+    background: transparent !important; color: var(--login-gold); box-shadow: none;
+    transition: color .18s ease, outline-color .18s ease;
+  }
+  .login-shell form + p button:hover {
+    border: 0 !important; background: transparent !important; color: var(--gold-dark); box-shadow: none;
+  }
+  .login-shell form + p button:focus-visible {
+    border: 0 !important; background: transparent !important; outline: var(--focus-width) solid var(--login-gold); outline-offset: 3px;
+  }
+  .login-shell [class*='flex gap-[10px]'] button { border-color: var(--login-line); border-radius: 8px; background: var(--login-card); color: var(--login-ink); }
+  .login-shell [class*='flex gap-[10px]'] button:hover { background: var(--accent-dim); border-color: var(--login-gold); color: var(--login-gold); }
   .login-shell .login-panel > form + p + div > span:nth-child(2) { color: var(--login-gold); }
   .login-shell .login-panel h1, .login-shell .login-panel h2 { color: var(--login-ink); }
   .login-shell .login-panel p, .login-shell .login-panel label, .login-shell .login-panel .text-gray-700, .login-shell .login-panel .text-gray-800 { color: var(--login-muted); }
