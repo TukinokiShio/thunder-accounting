@@ -1,5 +1,11 @@
 # Thunder Accounting v1.16.0 Task Plan
 
+## v1.16.1 增量收口
+
+- 登录页焦点边界、忘记密码/创建账号文字按钮和金棕色“其他登录方式”已按用户截图修复。
+- Inno 安装包输出 `release`，默认安装并验收 `exe`，同时启用自定义安装目录页。
+- 本轮清理仍须在本轮提交成功 push 后执行；历史安装包、回滚包和审计证据按清单保护。
+
 ## 执行形态：多 Agent 编排（KNOWLEDGE_GATE→Explore；PLAN→黑板式方案汇总；EXEC→Supervisor Worker 流水线；REVIEW→独立 Reviewer/UIUX Reviewer 辩论；EVAL→独立 Judge + 规则闸）——选型依据：遗留 Electron 项目、多页面 UI、清理与 Windows 交付存在不同风险面，需要职责分离与可核验证据。
 
 ## 版本与范围

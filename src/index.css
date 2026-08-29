@@ -325,8 +325,8 @@
   .login-shell input:not([type='checkbox']):not([type='radio']), .login-shell select, .login-shell textarea { color: var(--login-ink); caret-color: var(--login-gold); }
   .login-shell input::placeholder, .login-shell textarea::placeholder { color: var(--login-muted); }
   .login-shell .login-control { min-height: 48px; border-color: var(--login-line); border-radius: 8px; background: var(--login-card); color: var(--login-ink); box-shadow: none; }
-  .login-shell .login-control:focus, .login-shell .login-control:focus-visible { border-color: var(--login-line); box-shadow: none; }
-  .login-shell form > div:has(.login-control):focus-within { outline: var(--focus-width) solid var(--login-gold); outline-offset: 2px; border-radius: 10px; }
+  /* Login fields own their single focus boundary; labels stay outside the decoration. */
+  .login-shell .login-control:focus, .login-shell .login-control:focus-visible { border-color: var(--login-gold); box-shadow: none; }
   .login-shell [class*='h-12'][class*='overflow-hidden'][class*='border'] { border: 1px solid var(--login-line) !important; border-radius: 10px; background: var(--login-card) !important; box-shadow: none !important; }
   .login-shell [class*='h-12'][class*='overflow-hidden'][class*='border']:focus-within { border-color: var(--login-gold) !important; }
   .login-shell [class*='h-12'][class*='overflow-hidden'][class*='border'] > input { min-height: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--login-ink); }
@@ -338,6 +338,7 @@
   .login-shell .login-lang-idle:hover { background: var(--accent-dim); color: var(--login-ink); }
   .login-shell form + p button, .login-shell [class*='flex gap-[10px]'] button { border-color: var(--login-line); border-radius: 8px; background: var(--login-card); color: var(--login-ink); }
   .login-shell form + p button:hover, .login-shell [class*='flex gap-[10px]'] button:hover { background: var(--accent-dim); border-color: var(--login-gold); color: var(--login-gold); }
+  .login-shell .login-panel > form + p + div > span:nth-child(2) { color: var(--login-gold); }
   .login-shell .login-panel h1, .login-shell .login-panel h2 { color: var(--login-ink); }
   .login-shell .login-panel p, .login-shell .login-panel label, .login-shell .login-panel .text-gray-700, .login-shell .login-panel .text-gray-800 { color: var(--login-muted); }
   .login-shell .login-panel .text-black { color: var(--login-ink) !important; }

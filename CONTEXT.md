@@ -6,7 +6,7 @@
 - **renderer**：Electron 渲染进程，包含 React 页面、组件、主题和交互。
 - **main-process**：Electron 主进程，负责窗口、认证、数据库和 IPC。
 - **app-out**：electron-vite 构建输出，供 Electron Builder 收集，不是源码。
-- **release**：electron-builder 的 Windows 构建输出，包含解压目录和安装包。
+- **release**：Windows 构建与 Inno 安装包输出目录；交付安装包放在这里。
 - **exe**：本项目约定的最终安装验收目录；每次打包验证后应安装到 `E:\Code\CodeProduct\thunder-accounting\exe`。
 - **Aurora tokens**：从项目上下文编译的语义色彩、间距、圆角、排版和组件状态变量。
 - **真实 GUI 验收**：用户在 Windows 上启动安装后的应用，确认视觉、焦点、交互和主题；不能由 headless 测试替代。
@@ -20,6 +20,6 @@
 
 ## 交付约定
 
-- 版本按兼容性 UI/交付增量使用 `1.16.0`，同步 `package.json`、`package-lock.json`、`scripts/thunder-setup.iss` 和安装包内 `app.asar`。
+- 版本按兼容性 UI/交付增量使用 `1.16.1`，同步 `package.json`、`package-lock.json`、`scripts/thunder-setup.iss` 和安装包内 `app.asar`。
 - 清理遵循用户确认的 cleanup manifest；源码、Git 历史、审计证据、当前回滚包和用户数据不自动删除。
 - 安装验收目录固定为 `E:\Code\CodeProduct\thunder-accounting\exe`；安装后必须验证 `exe\resources\app.asar` 版本和应用可启动性。

@@ -1,5 +1,5 @@
 project: thunder-accounting
-task: 接手 thunder-accounting，清理工作空间、优化多页面 UI，并将 v1.16.0 安装验收到 exe
+task: 接手 thunder-accounting，清理工作空间、优化多页面 UI，并将 v1.16.1 安装验收到 exe
 task_class:
   ui_task: true
 state: REVIEW
@@ -21,10 +21,11 @@ reflow_reason:
   - 重启后重新执行测试、构建、Inno 打包和隔离安装；更新状态机以记录真实产物时间线
   - 用户反馈登录默认尺寸裁切、输入框焦点光、验证码竖线、账号残留和模糊 CloudBase 错误
   - 用户验收补充文字链接交互、错误自动消失、邮箱通道图标、真实手机号注册/登录和旧产物清理
+  - v1.16.1 登录页焦点边界、文字按钮、金棕色标题与 Inno 自定义安装目录；安装包改放 release
   - 新增统一 Toast、验证码五分钟有效期提示、参考模板文字链接 hover 反馈、codex 管理员账号创建请求
 last_reflect:
   action: 用户批准继续，并明确要求清理前先完成 commit 和 push；已完成基线 commit，push 因 GitHub 443 网络不可达失败
-  verify_result: UI/交付改动已实现；npm test 24/220 全通过；tsc/build/隔离 verify/Inno/静默安装均通过；Aurora 仅剩业务六态与部分 a11y 证据待补
+  verify_result: v1.16.1 npm test 24/220、tsc/build、隔离 verify、Inno 编译、exe 与自定义目录静默安装均通过；Aurora 仍缺业务六态与部分 a11y 证据
   decision: review_then_commit_push_before_cleanup
   next: EVAL
 token_used: "未统计(由 Codex 宿主不提供精确 token 计数)"
@@ -121,7 +122,7 @@ verification:
   isolated_release_verify: pass
   inno_compile: pass
   silent_install_exit_code: 0
-  installed_app_asar_version: 1.16.0
+  installed_app_asar_version: 1.16.1
   aurora_visual_evidence: partial
   cleanup_status: frozen_until_push
 context_vars:

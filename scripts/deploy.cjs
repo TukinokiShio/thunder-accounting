@@ -23,6 +23,8 @@ const { execSync } = require('child_process')
 
 const ROOT = path.resolve(__dirname, '..')
 const PKG_PATH = path.join(ROOT, 'package.json')
+const PACKAGE_LOCK_PATH = path.join(ROOT, 'package-lock.json')
+const SETUP_PATH = path.join(ROOT, 'scripts', 'thunder-setup.iss')
 const SIDEBAR_PATH = path.join(ROOT, 'src', 'components', 'Sidebar.tsx')
 const RELEASE_DIR = path.join(ROOT, 'release', 'win-unpacked')
 const DESKTOP_DIR = path.join(require('os').homedir(), 'Desktop')
@@ -79,6 +81,18 @@ pkg.version = newVersion
 fs.writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n', 'utf-8')
 console.log('✅ package.json 已更新')
 
+// 同步 package-lock.json 和安装脚本版本号
+const packageLock = JSON.parse(fs.readFileSync(PACKAGE_LOCK_PATH, 'utf-8'))
+packageLock.version = newVersion
+packageLock.packages[''].version = newVersion
+fs.writeFileSync(PACKAGE_LOCK_PATH, JSON.stringify(packageLock, null, 2) + '\n', 'utf-8')
+console.log('✅ package-lock.json 已更新')
+
+let setupContent = fs.readFileSync(SETUP_PATH, 'utf-8')
+setupContent = setupContent.replace(/^(#define\s+AppVersion\s+").*(")$/m, `$1${newVersion}$2`)
+fs.writeFileSync(SETUP_PATH, setupContent, 'utf-8')
+console.log('✅ thunder-setup.iss 版本号已同步')
+
 // ─── 2. 同步版本号到 Sidebar.tsx ────────────────
 
 let sidebarContent = fs.readFileSync(SIDEBAR_PATH, 'utf-8')
@@ -116,9 +130,8 @@ if (fs.existsSync(destDir) && !force) {
   console.error(`❌ 输出目录已存在：${destDir}。为避免覆盖，请换用 --output 或显式传入 --force。`)
   process.exit(1)
 }
-if (fs.existsSync(destDir) && force) {
-  fs.rmSync(destDir, { recursive: true, force: true })
-}
+// --force 只允许覆盖同名应用文件；不要递归删除整个 exe，避免误删
+// 安装目录中的用户文件、其他应用文件或历史安装证据。
 if (!fs.existsSync(destDir)) {
   fs.mkdirSync(destDir, { recursive: true })
 }

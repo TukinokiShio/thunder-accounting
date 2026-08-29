@@ -129,6 +129,14 @@ KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇总；EXEC：Su
 - 视觉证据：`artifacts/visual-v1.16.0/` 含浅色/深色登录页三档截图；Aurora assess 仍标记 partial，缺业务页六态和 contrast/heading-order/landmarks 证据，最终用户验收未冒充完成。
 - 清理状态：未删除任何旧安装包、release、node_modules 或审计证据；依照用户要求，必须等 GitHub push 成功后再处理清理清单。
 
+## v1.16.1 登录页与安装交付增量（2026-08-29）
+
+- 登录页焦点规则移除包住 `label + input` 的外层光圈，输入框自身使用金色焦点边框；“其他登录方式”标题消费 `var(--login-gold)`。
+- 默认登录底部改为“忘记密码？”文字按钮，并保留“创建账号”文字入口；Login 测试覆盖注册/找回流程。
+- 版本同步为 `1.16.1`；Inno 使用 `DisableDirPage=no` 开启自定义安装目录，安装包输出到 `release`，静默安装目标为 `exe`。
+- 验证：24 个测试文件 / 220 个测试通过；TypeScript、生产构建、electron-builder 隔离构建、Inno 6.7.1 编译、`exe` 安装和自定义目录安装均通过；两个安装位置的 `app.asar` 版本均为 `1.16.1`。
+- GitHub：HTTPS 443 连接被重置；本机 SSH key 已认证 GitHub，后续使用 SSH URL push。清理仍待 push 成功后执行。
+
 ## Explore 回执（Hypatia，只读）
 
 - 技术栈确认：Electron + React + TypeScript；主链为 `src/main.tsx → src/App.tsx → Layout/Sidebar/页面/弹窗`，数据经 Zustand、preload IPC、SQL.js/CloudBase。

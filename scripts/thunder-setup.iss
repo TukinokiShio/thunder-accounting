@@ -3,7 +3,7 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "1.16.0"
+#define AppVersion "1.16.1"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"
@@ -26,6 +26,8 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 ; 默认安装到项目固定验收目录；BuildOutputDir/InstallerOutputDir 仍可通过 ISCC.exe /D 覆盖
 DefaultDirName=E:\Code\CodeProduct\thunder-accounting\exe
+; Inno Setup uses DisableDirPage=no to show the custom installation directory page.
+DisableDirPage=no
 DisableProgramGroupPage=yes
 OutputDir={#InstallerOutputDir}
 OutputBaseFilename={#InstallerFileName}

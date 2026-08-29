@@ -4,12 +4,13 @@
 
 - 每次 Windows 打包验证完成后，最终安装目标固定为 `E:\Code\CodeProduct\thunder-accounting\exe`。
 - 必须验证 `exe\resources\app.asar` 内的 `package.json` 版本与源代码一致，并记录安装结果；不得只保留 `release` 产物而跳过 `exe` 安装验收。
+- 安装包统一输出到 `E:\Code\CodeProduct\thunder-accounting\release`；`exe` 只保留静默安装后的可运行程序和安装生成文件。
 
 ## 版本与安装包
 
 - 每次完成代码、配置或云端行为更新后，按 Semantic Versioning 判定升级级别：兼容性修复用 PATCH，兼容新增功能用 MINOR，不兼容公开接口变更用 MAJOR。
 - 同步更新 `package.json`、`package-lock.json` 与 `scripts/thunder-setup.iss` 的版本号。
-- 完成测试后执行干净的 Windows 构建和 Inno Setup 打包；将生成的安装包与静默安装后的应用文件更新至 `E:\Code\CodeProduct\thunder-accounting\exe`。
+- 完成测试后执行干净的 Windows 构建和 Inno Setup 打包；安装包写入 `release`，再将其静默安装到 `E:\Code\CodeProduct\thunder-accounting\exe`。
 - 交付前验证 `exe\resources\app.asar` 中的 `package.json` 版本与源代码一致。
 
 ## 发布后 Git 与工作区纪律
