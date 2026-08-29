@@ -108,12 +108,19 @@ describe('LoginPage', () => {
 
   it('keeps registration and password recovery flows', async () => {
     await renderPage()
-    fireEvent.click(screen.getByText('创建账号'))
+    const forgotButton = screen.getByRole('button', { name: '忘记密码？' })
+    const registerButton = screen.getByRole('button', { name: '注册' })
+    expect(screen.getByText('还没有账号？')).toBeInTheDocument()
+    expect(forgotButton).toHaveClass('min-h-8', 'text-[var(--accent)]')
+    expect(registerButton).toHaveClass('min-h-8', 'text-[var(--accent)]')
+    expect(registerButton).toHaveClass(...forgotButton.className.split(' '))
+
+    fireEvent.click(registerButton)
     expect(screen.getByLabelText('设置密码')).toBeInTheDocument()
     expect(screen.getByLabelText('确认密码')).toBeInTheDocument()
     expect(screen.getByLabelText('验证码')).toBeInTheDocument()
     fireEvent.click(screen.getByText('登录'))
-    fireEvent.click(screen.getByText('忘记密码？'))
+    fireEvent.click(screen.getByRole('button', { name: '忘记密码？' }))
     expect(screen.getByLabelText('新密码')).toBeInTheDocument()
     expect(screen.getByLabelText('确认新密码')).toBeInTheDocument()
   })
@@ -147,7 +154,7 @@ describe('LoginPage', () => {
   it('sends an unrestricted registration code for a valid account', async () => {
     mockSendCode.mockResolvedValue({ type: 'email', target: 'new@example.com', verificationId: 'registration-id', isUser: false })
     await renderPage()
-    fireEvent.click(screen.getByText('创建账号'))
+    fireEvent.click(screen.getByRole('button', { name: '注册' }))
     enter(screen.getByLabelText('账号'), 'new@example.com')
     fireEvent.click(screen.getByRole('button', { name: '获取验证码' }))
     await waitFor(() => expect(mockSendCode).toHaveBeenCalledWith('new@example.com', false))
@@ -156,7 +163,7 @@ describe('LoginPage', () => {
   it('supports phone registration as an explicit channel', async () => {
     mockSendCode.mockResolvedValue({ type: 'phone', target: '13800138000', verificationId: 'phone-registration-id', isUser: false })
     await renderPage()
-    fireEvent.click(screen.getByText('创建账号'))
+    fireEvent.click(screen.getByRole('button', { name: '注册' }))
     fireEvent.click(screen.getByRole('button', { name: '手机号注册' }))
     enter(screen.getByLabelText('账号'), '13800138000')
     fireEvent.click(screen.getByRole('button', { name: '获取验证码' }))
