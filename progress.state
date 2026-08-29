@@ -1,14 +1,19 @@
 project: thunder-accounting
-task: 从 v1.14.14 基线重启 SACW，修复遗留报告问题并交付 v1.15.0
+task: 接手 thunder-accounting，清理工作空间、优化多页面 UI，并将 v1.16.0 安装验收到 exe
 task_class:
   ui_task: true
-state: TASK_CLASSIFY
+state: PLAN
 round: 1
 max_rounds: 12
 step_chain:
   - TASK_CLASSIFY
   - KNOWLEDGE_GATE
   - PRD_GATE
+  - HOOK_REF
+  - HOOK_UI
+  - HOOK_ERR
+  - PLAN
+plan_status: awaiting_user_confirmation
 reflow_counts:
   EXEC: 1
   REVIEW: 0
@@ -18,10 +23,10 @@ reflow_reason:
   - 用户验收补充文字链接交互、错误自动消失、邮箱通道图标、真实手机号注册/登录和旧产物清理
   - 新增统一 Toast、验证码五分钟有效期提示、参考模板文字链接 hover 反馈、codex 管理员账号创建请求
 last_reflect:
-  action: 以用户已安装的 v1.14.14 为回滚基线，作废 v1.14.15/v1.14.16，重启 SACW 并建立 v1.15.0 需求台账
-  verify_result: 已核验默认安装目录 resources/app.asar 版本为 1.14.14；本轮尚未完成 v1.15.0 构建、截图和用户验收
-  decision: next_state
-  next: KNOWLEDGE_GATE
+  action: 完成 v1.16.0 接手审计、运行时锁、知识门禁、参考模板门禁和 Aurora 路由，生成清理 manifest
+  verify_result: 已确认源码与现有 app.asar 为 1.15.2；未删除、未改业务源码、未构建或安装
+  decision: wait_user_plan_confirmation
+  next: EXEC
 token_used: "未统计(由 Codex 宿主不提供精确 token 计数)"
 elapsed: 0
 budget:
@@ -42,8 +47,8 @@ acceptance_evidence:
   evidence_paths: []
 executor_llm: gpt-5
 metrics:
-  eval_score: 55
-  quality_score: 65
+  eval_score: null
+  quality_score: null
   violation_rate: 0.0
   reflow_total: 2
   budget_hit_rate: null
@@ -52,22 +57,31 @@ metrics:
     eval_samples: 1
     quality_samples: 1
     gap_note: 门通过不等于用户验收通过
-  rag_tier: SPARSE_ONLY
+  rag_tier: FULL
   final_waiver: null
   closeout: null
   integration_exit: null
 subagent_usage:
-  degradation:
-    reason: 当前 Codex 会话未暴露可用的 multi_agent_v1 派生工具，本轮不伪造子代理调用回执
-    scope: 主执行者完成审查、修复、自动化验证；真实 GUI 验收仍由用户完成
-  rounds: 0
-  subagent_count: 0
-  roles: []
-  spec_id: []
-  depth: 0
-  modes: [degraded_main_executor]
-  last_used: 0
-orchestration_form: 主从
+  degradation: null
+  rounds: 1
+  subagent_count: 1
+  roles:
+    - role: Explore
+      agent: Hypatia
+      status: completed
+      scope: tech-stack、UI 入口、构建/打包链、清理候选的只读扫描
+  spec_id: [sacw-agent-specs/explore]
+  depth: 1
+  modes: [multi_agent_v1]
+  last_used: 1
+orchestration_form: 多 Agent 编排
+requirement_ledger:
+  REQ-001: cleanup manifest + user confirmation before deletion
+  REQ-002: final installer and silent install target fixed to exe
+  REQ-003: multi-page UI token/focus/dialog/state/accessibility remediation
+  REQ-004: light default, dark support, 640/1024/1440 and real visual acceptance
+  REQ-005: tests, build, Inno, app.asar/package version and receipt verification
+  REQ-006: project memory update, cleanup closeout, commit and push
 context_vars:
   index_path: .sacw/context-index.json
   keys_retrieved: [PRODUCT.md, DESIGN.md, docs/login-demos/round-3/round-3.css]
