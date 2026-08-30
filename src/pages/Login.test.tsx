@@ -187,9 +187,14 @@ describe('LoginPage', () => {
 
   it('toggles password visibility', async () => {
     await renderPage()
+    const showButton = screen.getByRole('button', { name: '显示密码' })
     expect(password()).toHaveAttribute('type', 'password')
-    fireEvent.click(screen.getByRole('button', { name: '显示密码' }))
+    expect(showButton).toHaveAttribute('aria-pressed', 'false')
+    expect(showButton).toHaveClass('h-11', 'w-11', 'appearance-none', 'rounded-none', 'border-0', 'bg-transparent', 'shadow-none', 'hover:bg-transparent', 'active:bg-transparent')
+    expect(showButton).not.toHaveClass('rounded-lg', 'rounded-md', 'rounded')
+    fireEvent.click(showButton)
     expect(password()).toHaveAttribute('type', 'text')
+    expect(screen.getByRole('button', { name: '隐藏密码' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: '隐藏密码' }))
     expect(password()).toHaveAttribute('type', 'password')
   })

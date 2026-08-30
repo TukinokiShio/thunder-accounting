@@ -3,7 +3,7 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "1.6.3"
+#define AppVersion "1.6.4"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"
@@ -22,6 +22,7 @@
 AppId={{ThunderBooks-78A1-4F3C-B2D9-E5F6C7A8B9D0}
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 ; 默认安装到项目固定验收目录；BuildOutputDir/InstallerOutputDir 仍可通过 ISCC.exe /D 覆盖

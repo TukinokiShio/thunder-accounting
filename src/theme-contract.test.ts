@@ -64,12 +64,23 @@ describe('semantic theme contract', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 
     expect(bills).toContain('bill-filter-date')
-    expect(bills.match(/bill-filter-select/g)).toHaveLength(4)
+    expect(bills.match(/bill-filter-select/g)).toHaveLength(2)
+    expect(bills).not.toContain('bill-filter-select-shell')
     expect(css).toMatch(/\.aurora-shell \.bill-filter-control[\s\S]*accent-color:\s*var\(--accent\)/)
-    expect(css).toMatch(/\.aurora-shell \.bill-filter-control:focus-visible[\s\S]*outline:\s*var\(--focus-width\) solid var\(--accent\)/)
-    expect(css).toMatch(/\.aurora-shell \.bill-filter-select[\s\S]*appearance:\s*none/)
+    expect(css).toMatch(/\.aurora-shell \.bill-filter-control:focus, \.aurora-shell \.bill-filter-control:focus-visible[\s\S]*border-color:\s*var\(--accent\)/)
+    expect(css).toMatch(/\.aurora-shell \.bill-filters :where\(label, div\):has\(> \.input-field, > \.bill-filter-control\):focus-within \{ outline: none; \}/)
     expect(css).toMatch(/\.aurora-shell \.bill-filter-select option:checked[\s\S]*background:\s*var\(--accent\)/)
     expect(css).not.toMatch(/bill-filter-control[\s\S]{0,500}#(?:2196f3|3b82f6|2563eb)/i)
+  })
+
+  it('keeps security tips and dark dashboard cards on semantic surfaces', () => {
+    const profile = readFileSync(resolve(process.cwd(), 'src/pages/Profile.tsx'), 'utf8')
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+
+    expect(profile).toContain('profile-security-tip')
+    expect(css).toMatch(/\.aurora-shell \.profile-security-tip\s*\{[\s\S]*background:\s*color-mix\([\s\S]*var\(--bg-card\)/)
+    expect(css).toMatch(/\.aurora-shell:is\(\.dark, \[data-theme='dark'\]\) \.home-dashboard-card[\s\S]*border-color:\s*var\(--border\)/)
+    expect(css).toMatch(/\.aurora-shell:is\(\.dark, \[data-theme='dark'\]\) \.stats-card[\s\S]*border-color:\s*var\(--border\)/)
   })
 
   it('keeps toast icon styling lightweight and status-aware', () => {
@@ -90,7 +101,8 @@ describe('semantic theme contract', () => {
 
     expect(profile.match(/className="profile-field-shell"/g)).toHaveLength(7)
     expect(profile.match(/className="profile-code-field flex items-center"/g)).toHaveLength(4)
+    expect(profile.match(/className="profile-input min-w-0 flex-1 px-3 text-sm"/g)).toHaveLength(4)
     expect(profile).not.toContain('profile-input min-w-0 flex-1 rounded-lg rounded-r-none')
-    expect(css).toMatch(/\.profile-code-field:focus-within\s*\{[\s\S]*outline:\s*var\(--focus-width\) solid var\(--accent\)/)
+    expect(css).toMatch(/\.profile-field-shell:focus-within\s*, \.profile-code-field:focus-within\s*\{[\s\S]*outline:\s*var\(--focus-width\) solid var\(--accent\)/)
   })
 })

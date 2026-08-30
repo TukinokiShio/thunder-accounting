@@ -684,12 +684,12 @@ function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email:
       </div>
 
       {/* 安全提示 */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-        <p className="font-medium mb-1 flex items-center gap-2">
+      <div className="profile-security-tip rounded-xl p-4 text-sm">
+        <p className="profile-security-tip-title font-medium mb-1 flex items-center gap-2">
           <Shield size={14} />
           安全提示
         </p>
-        <ul className="list-disc list-inside space-y-1 text-amber-700">
+        <ul className="profile-security-tip-list list-disc list-inside space-y-1">
           <li>密码应包含字母、数字和特殊字符</li>
           <li>不要在多个平台使用相同密码</li>
           <li>如发现异常登录，请立即修改密码</li>
@@ -905,7 +905,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
             />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={!target || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
         </div>
@@ -933,7 +933,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
             <input type="email" value={target} onChange={e => setTarget(e.target.value)} placeholder="输入要绑定的邮箱" className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
           <div className="flex items-center gap-2">
@@ -1119,7 +1119,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={target.length !== 11 || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
         </div>
@@ -1132,7 +1132,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             <input value={target} onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="输入11位手机号" maxLength={11} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 text-sm" />
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
             <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
           </div>
           <div className="flex items-center gap-2">
