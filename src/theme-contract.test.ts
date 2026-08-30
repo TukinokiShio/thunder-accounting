@@ -59,6 +59,31 @@ describe('semantic theme contract', () => {
     expect(css).toContain('.card:hover { border-color: var(--accent);')
   })
 
+  it('keeps bill filter focus and native affordances on the gold accent', () => {
+    const bills = readFileSync(resolve(process.cwd(), 'src/pages/Bills.tsx'), 'utf8')
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+
+    expect(bills).toContain('bill-filter-date')
+    expect(bills.match(/bill-filter-select/g)).toHaveLength(4)
+    expect(css).toMatch(/\.aurora-shell \.bill-filter-control[\s\S]*accent-color:\s*var\(--accent\)/)
+    expect(css).toMatch(/\.aurora-shell \.bill-filter-control:focus-visible[\s\S]*outline:\s*var\(--focus-width\) solid var\(--accent\)/)
+    expect(css).toMatch(/\.aurora-shell \.bill-filter-select[\s\S]*appearance:\s*none/)
+    expect(css).toMatch(/\.aurora-shell \.bill-filter-select option:checked[\s\S]*background:\s*var\(--accent\)/)
+    expect(css).not.toMatch(/bill-filter-control[\s\S]{0,500}#(?:2196f3|3b82f6|2563eb)/i)
+  })
+
+  it('keeps toast icon styling lightweight and status-aware', () => {
+    const toast = readFileSync(resolve(process.cwd(), 'src/components/Toast.tsx'), 'utf8')
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+
+    expect(toast).toContain('aurora-toast-icon')
+    expect(toast).toContain('aria-label="关闭通知"')
+    expect(css).toMatch(/\.aurora-toast-icon[\s\S]*border-radius:\s*8px[\s\S]*var\(--toast-accent\)/)
+    expect(css).toMatch(/\.aurora-toast-success\s*\{\s*--toast-accent:\s*var\(--success\)/)
+    expect(css).toMatch(/\.aurora-toast-error\s*\{\s*--toast-accent:\s*var\(--danger\)/)
+    expect(css).not.toMatch(/\.aurora-toast-(?:success|error|info)\s*\{\s*border-left:/)
+  })
+
   it('keeps profile binding fields on one focus-within boundary', () => {
     const profile = readFileSync(resolve(process.cwd(), 'src/pages/Profile.tsx'), 'utf8')
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')

@@ -45,6 +45,7 @@ describe('LoginPage', () => {
     render(<LoginPage />)
     expect(screen.getByRole('heading', { level: 1, name: '雷霆记账' })).toBeInTheDocument()
     expect(account()).toHaveAttribute('placeholder', '邮箱或手机号')
+    expect(account().parentElement?.querySelector('svg.lucide-user-round')).toBeTruthy()
     expect(password()).toBeInTheDocument()
     expect(screen.getByText('账号密码')).toBeInTheDocument()
     expect(screen.getByText('手机验证码')).toBeInTheDocument()
@@ -78,6 +79,7 @@ describe('LoginPage', () => {
     await renderPage()
     fireEvent.click(screen.getByText('手机验证码'))
     expect(screen.getByLabelText('手机号')).toBeInTheDocument()
+    expect(screen.getByLabelText('手机号').parentElement?.querySelector('svg.lucide-smartphone')).toBeTruthy()
     enter(screen.getByLabelText('手机号'), 'test@example.com')
     expect(screen.getByRole('button', { name: '获取验证码' })).toBeDisabled()
     enter(screen.getByLabelText('手机号'), '13800138000')
@@ -96,6 +98,7 @@ describe('LoginPage', () => {
     await renderPage()
     fireEvent.click(screen.getByText('邮箱验证码'))
     expect(screen.getByLabelText('邮箱')).toBeInTheDocument()
+    expect(screen.getByLabelText('邮箱').parentElement?.querySelector('svg.lucide-mail')).toBeTruthy()
     enter(screen.getByLabelText('邮箱'), '13800138000')
     expect(screen.getByRole('button', { name: '获取验证码' })).toBeDisabled()
     enter(screen.getByLabelText('邮箱'), 'test@example.com')
@@ -144,13 +147,15 @@ describe('LoginPage', () => {
     expect(mockAddToast).toHaveBeenLastCalledWith('error', '请输入有效的邮箱或手机号')
   })
 
-  it('rejects a short password before making a login request', async () => {
+  it('does not validate password while typing and submits it to the login API', async () => {
+    mockLogin.mockResolvedValue({ user: { uid: 'u1', email: 'test@example.com' } })
     await renderPage()
     enter(account(), 'test@example.com')
     enter(password(), '123')
+    expect(password().parentElement?.querySelector('svg.lucide-check, svg.lucide-x')).toBeNull()
     fireEvent.click(screen.getAllByRole('button', { name: '登录' }).at(-1)!)
-    expect(mockAddToast).toHaveBeenCalledWith('error', '密码至少 6 位')
-    expect(mockLogin).not.toHaveBeenCalled()
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledWith('test@example.com', '123'))
+    expect(mockAddToast).not.toHaveBeenCalledWith('error', '密码至少 6 位')
   })
 
   it('sends an unrestricted registration code for a valid account', async () => {

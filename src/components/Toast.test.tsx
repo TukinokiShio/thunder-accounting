@@ -112,4 +112,32 @@ describe('ToastContainer', () => {
     const toastElement = screen.getByText('提示').closest('.aurora-toast-info');
     expect(toastElement).not.toBeNull();
   });
+
+  it.each([
+    ['success', '成功'],
+    ['error', '失败'],
+    ['info', '提示'],
+  ] as const)('should render a lightweight semantic icon for %s toasts', (type, message) => {
+    useStore.setState({
+      toasts: [{ id: `toast-${type}`, type, message }],
+    });
+
+    render(<ToastContainer />);
+
+    const toastElement = screen.getByText(message).closest('.aurora-toast');
+    const icon = toastElement?.querySelector('.aurora-toast-icon');
+    expect(icon).toBeInTheDocument();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(toastElement).not.toHaveClass('aurora-toast-mark');
+  });
+
+  it('should keep the close action accessible', () => {
+    useStore.setState({
+      toasts: [{ id: 'toast-1', type: 'info', message: '提示' }],
+    });
+
+    render(<ToastContainer />);
+
+    expect(screen.getByRole('button', { name: '关闭通知' })).toBeInTheDocument();
+  });
 });

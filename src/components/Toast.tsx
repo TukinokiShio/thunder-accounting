@@ -26,13 +26,17 @@ export function ToastContainer() {
         return (
           <div
             key={toast.id}
+            role={toast.type === 'error' ? 'alert' : 'status'}
             className={`aurora-toast aurora-toast-${toast.type} pointer-events-auto flex w-full max-w-md items-center gap-3 px-4 py-3 rounded-xl border shadow-lg animate-slide-up`}
           >
-            <Icon size={16} className="shrink-0" />
+            <span className="aurora-toast-icon shrink-0" aria-hidden="true">
+              <Icon size={15} strokeWidth={2} />
+            </span>
             <span className="text-sm flex-1">{toast.message}</span>
             <button
               onClick={() => removeToast(toast.id)}
-              className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+              aria-label="关闭通知"
+              className="shrink-0 rounded-md p-1 opacity-50 hover:opacity-100 transition-opacity"
             >
               <X size={14} />
             </button>

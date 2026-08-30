@@ -182,39 +182,43 @@ export function Bills() {
               setActivePeriod(null)
               setFilterMonth(e.target.value)
             }}
-            className="input-field bill-filter-control w-auto text-sm"
+            className="input-field bill-filter-control bill-filter-date w-auto text-sm"
           />
 
           {/* 分类筛选 */}
           <label htmlFor="bill-category" className="sr-only">
             {language === 'zh' ? '按分类筛选' : 'Filter by category'}
           </label>
-          <select
-            id="bill-category"
-            value={filterCategory1}
-            onChange={(e) => setFilterCategory1(e.target.value)}
-            className="input-field bill-filter-control w-auto text-sm min-w-[120px]"
-          >
-            <option value="">{t('全部分类')}</option>
-            {(filterType === 'income' ? incomeCategories : expenseCategories).map((cat) => (
-              <option key={cat.name} value={cat.name}>{cat.icon} {cat.name}</option>
-            ))}
-          </select>
+          <div className="bill-filter-select-shell">
+            <select
+              id="bill-category"
+              value={filterCategory1}
+              onChange={(e) => setFilterCategory1(e.target.value)}
+              className="input-field bill-filter-control bill-filter-select w-auto text-sm min-w-[120px]"
+            >
+              <option value="">{t('全部分类')}</option>
+              {(filterType === 'income' ? incomeCategories : expenseCategories).map((cat) => (
+                <option key={cat.name} value={cat.name}>{cat.icon} {cat.name}</option>
+              ))}
+            </select>
+          </div>
 
           {/* 类型筛选 */}
           <label htmlFor="bill-type" className="sr-only">
             {language === 'zh' ? '按类型筛选' : 'Filter by type'}
           </label>
-          <select
-            id="bill-type"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
-            className="input-field bill-filter-control w-auto text-sm min-w-[100px]"
-          >
-            <option value="">{t('全部类型')}</option>
-            <option value="expense">{t('支出')}</option>
-            <option value="income">{t('收入')}</option>
-          </select>
+          <div className="bill-filter-select-shell">
+            <select
+              id="bill-type"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
+              className="input-field bill-filter-control bill-filter-select w-auto text-sm min-w-[100px]"
+            >
+              <option value="">{t('全部类型')}</option>
+              <option value="expense">{t('支出')}</option>
+              <option value="income">{t('收入')}</option>
+            </select>
+          </div>
 
           {/* 清除筛选 */}
           {hasFilters && (
