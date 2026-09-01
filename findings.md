@@ -164,3 +164,25 @@ KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇总；EXEC：Su
 - Worker-1（逻辑）：main-process/database/index.ts 时序修复（runStmt + addCategory：先取 rowid 再 saveDb）+ 复现测试转正为回归测试 + 清理 debug 测试
 - Worker-2（UI）：CategoryForm.tsx 加 category-editor 命名空间 class + index.css 分类管理焦点规范（对齐 bills/login 模式）+ category-add-button 配色 + CategoryList.tsx 按钮文字色
 - 契约落盘：contracts/orchestration/defect-round2-worker1.json、defect-round2-worker2.json
+
+## REVIEW 回执（独立 Reviewer，commit f04eb8a）
+
+- verdict: conditional → 整改后放行
+- Spec 轴 4/4 通过：焦点光圈特异性 (0,4,0) 稳定覆盖全局 (0,3,0)；分类管理无 .aurora-input 残留；按钮配色与 btn-primary 逐项一致；addCategory/addBill 行为级验证通过（Reviewer 独立 esbuild+node 直跑）
+- Standards 轴：无越界、无 forbidden 触碰；回归风险轴：dialog/page 两模式共用 CategoryList 天然一致，category-editor 命名空间无误伤面
+- P2 已整改：补连续两次 addCategory + saveDb 持久化一致性用例（5/5 绿）；P3-4 注释统一中文
+- P1「测试套件全灭」**事实核查不成立**：Reviewer 临时探针配置（vitest.review-temp.config.mts）不继承项目 vitest.config.ts/setup；项目配置下两次全量实跑 25 文件/232 测试与 25 文件/234 测试均全绿（23:02 与 23:15），无需版本变更
+- Reviewer 身份独立（agent-fb3a28e8 ≠ 执行者）
+
+## EVAL（缺陷轮 round2，规则闸降级）
+
+- eval_score（流程合规）：项目无 golden eval 集 → 降级规则闸 + checklist：状态链完整（DEFECT_TRIAGE→EXEC→REVIEW→EVAL）、编排三证齐全、契约文件存在、回归测试 5/5、全量 234/234、tsc PASS、Clean Build bundle 版本唯一 1.16.2 → **降级：eval 集不可用，仅规则闸**（合规性确认，非质量分数）
+- 环境验证档：真实链路集成测试（node + 真实 sql.js + mkdtemp 临时目录）替代 mock；Inno 编译 + 静默安装 ExitCode 0 + 安装目录 asar=1.16.2 实证
+- 行为声称证据：新建分类「能建成」由 database-addcategory.test.ts 行为断言（id>0 + 回查一致 + 持久化重载）承载；UI 焦点/配色为纯 CSS 声称，最终由用户本机截图验收（USER_ACCEPT_FINAL）
+
+## 打包与安装事实（v1.16.2）
+
+- 版本线漂移发现：package.json/iss 曾被降回 1.6.4（上轮遗留），用户实际安装线为 1.16.x → 本轮升 **1.16.2**（PATCH），避免版本倒退显示；1.6.4 重发属既有违例，本轮纠正
+- Clean Build（app-out/dist/.vite/win-unpacked 清空）→ bundle 版本唯一（1.16.2）→ electron-builder --dir → ISCC 103.5s 编译成功（release/雷霆记账_Inno_v1.16.2.exe, 96,361,328 bytes）
+- 静默安装 ExitCode 0；**实际安装目录 = E:\Code\CodeProduct\thunder-accounting\雷霆记账app\_exe**（UsePreviousAppDir 沿用历史目录，非 iss DefaultDirName 的 exe/）；安装日志 release/setup-v1.16.2.log；asar=1.16.2 实证；桌面快捷方式 D:\Users\d8502\Desktop\雷霆记账.lnk 已刷新（23:22:19）
+- 遗留事实：exe/ 目录 asar 停留 1.6.4（8-30 产物，陈旧验收目录，未被用户快捷方式引用）；iss DefaultDirName 与用户实际目录不一致属既有漂移，未在本轮修改
