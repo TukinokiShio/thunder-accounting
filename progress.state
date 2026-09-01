@@ -2,7 +2,7 @@ project: thunder-accounting
 task: 接手 thunder-accounting，清理工作空间、优化多页面 UI，并将 v1.16.1 安装验收到 exe
 task_class:
   ui_task: true
-state: DEFECT_TRIAGE
+state: USER_ACCEPT_FINAL
 round: 2
 defect_round: 1
 max_rounds: 12
@@ -16,7 +16,10 @@ step_chain:
   - PLAN
   - DEFECT_TRIAGE
   - EXEC
-plan_status: defect_round2_in_progress
+  - REVIEW
+  - EVAL
+  - USER_ACCEPT_FINAL
+plan_status: awaiting_user_signoff_v1.16.2
 reflow_counts:
   EXEC: 1
   REVIEW: 0
@@ -28,10 +31,10 @@ reflow_reason:
   - 新增统一 Toast、验证码五分钟有效期提示、参考模板文字链接 hover 反馈、codex 管理员账号创建请求
   - round2 缺陷轮：用户实测分类管理 3 bug（输入框焦点光越界、新增分类按钮配色、新建分类报错）；上一轮假设 v1.16.1 修复完成不成立——分类管理表单未纳入焦点规范且 addCategory rowid 时序回归
 last_reflect:
-  action: 集成复现测试实锤 addCategory 根因（saveDb 内 db.export() 重开连接致 last_insert_rowid=0），runStmt 同模式中招（addBill 受影响）；定位 bug1/2 CSS 根因
-  verify_result: repro-addcategory.test.ts 3/3 复现线上报错；debug2-saveDb.test.ts 证实 saveDb 后 rowid=0
-  decision: defect_round2_dual_worker_parallel
-  next: EXEC
+  action: 完成三缺陷修复（rowid 时序 + addBill 命名参数 + category-editor 焦点规范 + btn-primary 配色）、独立 REVIEW（conditional→整改放行）、EVAL 规则闸降级记录、Clean Build + ISCC + 静默安装 v1.16.2
+  verify_result: 回归 5/5、全量 234/234、tsc PASS、bundle 版本唯一、安装目录 asar=1.16.2、桌面 lnk 已刷新
+  decision: awaiting_user_signoff
+  next: FINAL
 token_used: "未统计(由 Codex 宿主不提供精确 token 计数)"
 elapsed: 0
 budget:
