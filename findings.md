@@ -186,3 +186,41 @@ KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇总；EXEC：Su
 - Clean Build（app-out/dist/.vite/win-unpacked 清空）→ bundle 版本唯一（1.16.2）→ electron-builder --dir → ISCC 103.5s 编译成功（release/雷霆记账_Inno_v1.16.2.exe, 96,361,328 bytes）
 - 静默安装 ExitCode 0；**实际安装目录 = E:\Code\CodeProduct\thunder-accounting\雷霆记账app\_exe**（UsePreviousAppDir 沿用历史目录，非 iss DefaultDirName 的 exe/）；安装日志 release/setup-v1.16.2.log；asar=1.16.2 实证；桌面快捷方式 D:\Users\d8502\Desktop\雷霆记账.lnk 已刷新（23:22:19）
 - 遗留事实：exe/ 目录 asar 停留 1.6.4（8-30 产物，陈旧验收目录，未被用户快捷方式引用）；iss DefaultDirName 与用户实际目录不一致属既有漂移，未在本轮修改
+
+## v1.16.3 缺陷轮 round2-2（2026-09-02 00:10，用户实测新增 bug）
+
+### 用户反馈
+1. 原 3 个 bug（焦点光圈/按钮配色/新建分类）实测通过 ✅
+2. **新 bug：分类删除操作执行失败** ❌（打开分类管理直接点 × 删除报「删除失败，请重试」）
+
+### 根因（实锤）
+- CategoryManager 的 name→id 映射（nameToIdRef）仅在 selectCategory/handleTabChange/handleDragEnd 时更新，
+  **组件挂载时从未初始化**。用户打开分类管理后不选中任何分类直接点列表项 × 删除 → Map 为空
+  → get(name) 返回 undefined → 误报「删除失败，请重试」。数据库层 deleteCategory 本身无 bug
+  （集成测试 4/4 验证：删除后列表移除、连续删除、幂等、持久化）。
+
+### 修复（commit 74d6341）
+- CategoryManager.tsx：引入 useEffect，挂载/切换 tab 时预加载 nameToIdRef（依赖 loadMeta）
+- handleListItemDelete 加兜底：映射未就绪时先 await loadMeta() 再查一次（对齐 handleDragEnd 模式）
+- 回归测试：CategoryManager.test.tsx +2 用例（直接点 × 弹确认框、确认后以正确 id 调 deleteCategory）；
+  database-deletecategory.test.ts 4 用例
+- 版本 1.16.2 → 1.16.3（PATCH）；.gitignore 补 release163/
+
+### 验证
+- 全量 vitest 26 文件 / 240 用例全绿；tsc PASS；Clean Build bundle 版本唯一 1.16.3
+- ISCC 编译 release/雷霆记账_Inno_v1.16.3.exe（96MB，SHA-256 5BDACE75...）
+- **Inno 静默安装 3 次均回滚**：app.asar 被系统进程（杀软/索引）以「允许读写、禁止删除」模式占用，
+  Inno「先删后写」DeleteFile code 32 失败。绕过：Node 直接以写模式覆盖 app.asar + 全量同步 100 文件
+  到安装目录 → 安装目录 asar=1.16.3（SHA 与构建产物一致）；注册表 DisplayVersion 手动同步 1.16.3
+- 桌面快捷方式指向未变（雷霆记账app/_exe）
+
+### 清理（用户确认范围）
+- 已删：release/ 旧安装包 5 个（1.15.2+blockmap、1.16.1、1.6.2、1.6.3、1.6.4，约 480MB）
+- 已删：exe/ 与 release/win-unpacked 内除 app.asar 外全部文件（约 570MB 空间已释放）
+- 待删（被占用）：exe/resources/app.asar + exe/resources/resources/app.asar + release/win-unpacked/resources/app.asar
+  （约 293MB，系统进程独占锁，建议重启后手动删除或稍后重试）
+- 保留：release/雷霆记账_Inno_v1.16.2.exe + v1.16.3.exe（当前版安装包）
+
+### 提交
+- 74d6341 fix(category): 分类删除失败 — 挂载时预加载 name→id 映射 + 删除兜底重试
+- 已 push（0390038..74d6341 → master，SSH）
