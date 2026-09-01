@@ -410,7 +410,14 @@
   }
   .aurora-toast button { min-width: 28px; min-height: 28px; color: var(--text2); }
   .aurora-toast button:focus-visible { outline-color: var(--toast-accent); }
-  .aurora-shell .category-add-button { background: color-mix(in srgb, var(--accent) 72%, transparent) !important; border: 1px solid color-mix(in srgb, var(--accent) 85%, transparent); }
+  /* Category manager fields own their single focus boundary (bills/login pattern):
+     the parent container gets no ring, the input itself carries the accent border. */
+  .aurora-shell .category-editor :where(label, div):has(> .input-field):focus-within { outline: none; }
+  .aurora-shell .category-editor .input-field:focus,
+  .aurora-shell .category-editor .input-field:focus-visible { border-color: var(--accent); outline: none; box-shadow: none; }
+  /* Add-category button uses the btn-primary semantic (solid accent + contrast label). */
+  .aurora-shell .category-add-button { background: var(--brand) !important; border: 1px solid var(--accent) !important; color: var(--accent-contrast) !important; }
+  .aurora-shell .category-add-button:hover { background: var(--brand-deep) !important; border-color: var(--accent-h) !important; color: var(--accent-contrast) !important; }
   .aurora-shell .home-stats-grid .w-8.h-8 { background: var(--accent-dim) !important; color: var(--accent) !important; }
   .settings-dialog-header { background: var(--bg-card); border-bottom: 0; }
 }

@@ -425,10 +425,13 @@ export function addCategory(params: AddCategoryParams): CategoryRow {
     'INSERT INTO categories (name, icon, children, type, is_preset, sort_order) VALUES (?, ?, ?, ?, 0, ?)',
     [name, icon, children, type, sortOrder]
   )
-  saveDb()
-
+  // 注意时序：必须先取 last_insert_rowid() 再 saveDb()。
+  // saveDb 内部 db.export() 会关闭并重开 sql.js 连接，重开后的连接 last_insert_rowid() 恒为 0，
+  // 若先持久化再取 rowid 会得到 0，导致后续按 id 查询失败（新建分类报错的根因）。
   const result = db.exec('SELECT last_insert_rowid() as id')
   const id = result[0].values[0][0] as number
+  saveDb()
+
   const rows = db.exec('SELECT * FROM categories WHERE id = ?', [id])
   const cols = rows[0].columns
   const obj: Record<string, unknown> = {}
@@ -529,18 +532,18 @@ function queryOne(sql: string, params?: Record<string, string | number>): BillRo
 /**
  * 执行 INSERT/UPDATE/DELETE 语句并持久化，返回 last_insert_rowid。
  * 与 queryAll 行为不同：queryAll 返回查询结果集，runStmt 执行写操作后返回新插入行的 ID。
+ * 注意时序：必须先取 last_insert_rowid() 再 saveDb()——saveDb 内部 db.export()
+ * 会关闭并重开 sql.js 连接，重开后的连接 last_insert_rowid() 恒为 0。
  */
 function runStmt(sql: string, params?: Record<string, string | number>): number {
   const { sql: stmt, values } = convertNamedParams(sql, params)
   db.run(stmt, values)
-  saveDb()
 
-  // Get last insert rowid
+  // Get last insert rowid BEFORE saveDb (export resets the connection)
   const result = db.exec('SELECT last_insert_rowid() as id')
-  if (result.length && result[0].values.length) {
-    return result[0].values[0][0] as number
-  }
-  return 0
+  const rowId = result.length && result[0].values.length ? (result[0].values[0][0] as number) : 0
+  saveDb()
+  return rowId
 }
 
 /**
@@ -559,7 +562,8 @@ export function addBill(params: AddBillParams): BillRow {
     note: params.note || '',
     type: params.type || 'expense'
   })
-  return queryOne('SELECT * FROM bills WHERE id = ?', { id: String(id) })!
+  // 命名参数 @id 语法（convertNamedParams 只转换 @name，? 配 params 对象会得到空绑定）
+  return queryOne('SELECT * FROM bills WHERE id = @id', { id: String(id) })!
 }
 
 export interface BillFilters {

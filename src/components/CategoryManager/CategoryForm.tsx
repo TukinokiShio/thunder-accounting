@@ -63,7 +63,7 @@ export function CategoryForm({
   namePlaceholder,
 }: Props) {
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-4">
+    <div className="category-editor flex-1 overflow-y-auto p-5 space-y-4">
       {!hasSelection ? (
         <div className="flex items-center justify-center h-full text-sm text-gray-400">
           {emptyMessage}

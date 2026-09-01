@@ -1,0 +1,43 @@
+{
+  "contract_id": "defect-round2-worker2",
+  "round": 2,
+  "defect_round": 1,
+  "worker": "Lovelace",
+  "mode": "supervisor_pipeline",
+  "input_files": [
+    "E:/Code/CodeProduct/thunder-accounting/src/components/CategoryManager/CategoryForm.tsx",
+    "E:/Code/CodeProduct/thunder-accounting/src/components/CategoryManager/CategoryList.tsx",
+    "E:/Code/CodeProduct/thunder-accounting/src/index.css"
+  ],
+  "task": "修复分类管理焦点光圈越界（bug1）与新增分类按钮配色（bug2），对齐既有输入框规范（bills/login 模式：父容器无 ring，input 自身 border-color accent）",
+  "required_changes": [
+    {
+      "file": "src/components/CategoryManager/CategoryForm.tsx",
+      "change": "根容器 div（flex-1 overflow-y-auto p-5 space-y-4）追加 category-editor class 作为 CSS 命名空间"
+    },
+    {
+      "file": "src/index.css",
+      "change": [
+        "在 category-add-button 规则附近新增分类管理焦点规范：.aurora-shell .category-editor :where(label, div):has(> .input-field):focus-within { outline: none; }（父容器无 ring）",
+        "input 自身焦点：.aurora-shell .category-editor .input-field:focus, .aurora-shell .category-editor .input-field:focus-visible { border-color: var(--accent); }（对齐 bills 254-256 行模式）",
+        "category-add-button（413 行区域）改 btn-primary 语义：background var(--brand) 实底、border var(--accent)、color var(--accent-contrast)；hover 对齐 .btn-primary:hover（background var(--brand-deep)）"
+      ]
+    },
+    {
+      "file": "src/components/CategoryManager/CategoryList.tsx",
+      "change": "新增分类按钮（约 102 行）text-[var(--accent)] 改 text-[var(--accent-contrast)]；hover 类与 CSS 实底保持协调（不再用 hover:bg-[var(--accent-dim)]，交给 CSS hover 规则或改为无额外 hover 背景）"
+    }
+  ],
+  "acceptance": [
+    "焦点光只出现在输入框本身（一级分类名称、二级分类输入框），不覆盖 label 与添加按钮",
+    "新增分类按钮：浅色主题金色实底白字、深色主题金色实底深字（var(--accent-contrast)），与「创建分类」「记一笔」一致",
+    "npx tsc --noEmit 通过",
+    "npx vitest run src/components/CategoryManager.test.tsx 全绿",
+    "npx vitest run src/theme-contract.test.ts 全绿（CSS 契约不回归）"
+  ],
+  "forbidden": [
+    "不得改动 main-process/ 下任何文件（Worker-1 领地）",
+    "不得改动全局 :has(> .input-field):focus-within 规则本体（只加分类管理命名空间覆盖，防影响其他页面）",
+    "不得新增渐变/阴影/衬线字体（aurora L1 约束）"
+  ]
+}

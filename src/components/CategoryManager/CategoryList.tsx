@@ -99,7 +99,7 @@ export function CategoryList({
         {/* Add new button */}
         <button
           onClick={onNew}
-          className="category-add-button w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--accent)] hover:bg-[var(--accent-dim)] transition-colors mt-1"
+          className="category-add-button w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--accent-contrast)] transition-colors mt-1"
         >
           <Plus size={14} />
           {newLabel}

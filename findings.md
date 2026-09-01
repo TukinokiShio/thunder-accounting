@@ -146,3 +146,21 @@ KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇总；EXEC：Su
 - UI 中优先级：拆分或整理超长 `Profile.tsx`，整理压缩的一行式 `Login.tsx` JSX，恢复普通文本可选择性，清理遗留硬编码 token。
 - 清理风险：`release`、`exe`、`雷霆记账app/_exe` 具有回滚/验证价值，`node_modules` 可重建但成本高，均列入需确认范围；CodeGraph/codebase-memory 未索引该项目，依赖图采用静态 import/IPC 扫描。
 - 额外发现：`release/latest.yml` 引用的安装包名与目录实际中文安装包名不一致，打包阶段需复核自动更新元数据。
+
+## DEFECT_TRIAGE 缺陷轮 round2（2026-09-01，用户实测反馈 3 个分类管理 bug）
+
+### 用户反馈（原样转验收标准）
+1. 图一：二级分类输入框焦点边框覆盖整个「输入框+添加按钮」容器 → 验收：焦点光只覆盖输入框本身，使用既有规范输入框动效（input 自身 border-color accent，父容器无 ring）
+2. 图二：一级分类「分类名称」label+input 整体被焦点光圈包住 → 验收：同上，父容器 outline: none
+3. 「+ 新增分类」按钮字体颜色不对 → 验收：与「创建分类」「记一笔」一致（浅色主题白字、深色主题黑字，即 var(--accent-contrast) + 金色实底）
+4. 新建分类报错，不能新建分类 → 验收：新建分类成功落库并出现在列表；防回归测试覆盖
+
+### 根因定位（已实锤，集成复现测试验证）
+- **bug3（新建分类报错）**：`main-process/database/index.ts` `addCategory` 在 INSERT 后先调 `saveDb()`，其内部 `db.export()` 会 close+reopen sql.js 连接 → 之后 `SELECT last_insert_rowid()` 返回 0 → `SELECT * FROM categories WHERE id = 0` 空结果 → `rows[0]` undefined TypeError（index.ts:433）→ IPC `category:add` reject → 前端 toast「保存失败，请重试」。**同模式 `runStmt`（addBill/updateBill/deleteBill 走此路径）同样中招——添加账单同样会失败（用户尚未测到）**。复现测试：`src/repro-addcategory.test.ts`（3/3 失败，报错点与线上一致）+ `src/debug2-saveDb.test.ts`（saveDb 后 rowid=0 实锤）。调试文件 debug-rowid/debug2 待清理。
+- **bug1（焦点光圈越界）**：全局规则 `index.css:205` `.aurora-shell :where(label, div):has(> .input-field):focus-within` 命中 CategoryForm 的二级分类 `flex gap-2` 容器（含添加按钮）与一级分类外层 div（含 label）。既有规范参照：bills（index.css:257-258 父 ring 关闭 + input 自身 border accent）与 login（v1.16.1 移除外层光圈、input 自身金色边框）。
+- **bug2（新增分类按钮配色）**：CategoryList.tsx:102 `text-[var(--accent)]` 金色文字 + index.css:413 `category-add-button` 72% 金色透明背景；应对齐 btn-primary（`--brand` 实底 + `--accent-contrast` 文字）。
+
+### 执行形态：多 Agent 编排（DEFECT_TRIAGE→EXEC=Supervisor 流水线双 Worker 并行；REVIEW=单 Reviewer 独立子代理；EVAL=规则闸+独立 Judge）——选型依据：缺陷修复方案唯一清晰（黑板降级单方案），两 Worker 文件集互不重叠可并行
+- Worker-1（逻辑）：main-process/database/index.ts 时序修复（runStmt + addCategory：先取 rowid 再 saveDb）+ 复现测试转正为回归测试 + 清理 debug 测试
+- Worker-2（UI）：CategoryForm.tsx 加 category-editor 命名空间 class + index.css 分类管理焦点规范（对齐 bills/login 模式）+ category-add-button 配色 + CategoryList.tsx 按钮文字色
+- 契约落盘：contracts/orchestration/defect-round2-worker1.json、defect-round2-worker2.json

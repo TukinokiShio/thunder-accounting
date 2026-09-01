@@ -1,0 +1,46 @@
+{
+  "contract_id": "defect-round2-worker1",
+  "round": 2,
+  "defect_round": 1,
+  "worker": "Knuth",
+  "mode": "supervisor_pipeline",
+  "input_files": [
+    "E:/Code/CodeProduct/thunder-accounting/main-process/database/index.ts",
+    "E:/Code/CodeProduct/thunder-accounting/src/repro-addcategory.test.ts",
+    "E:/Code/CodeProduct/thunder-accounting/src/debug-rowid.test.ts",
+    "E:/Code/CodeProduct/thunder-accounting/src/debug2-saveDb.test.ts"
+  ],
+  "task": "修复 addCategory/runStmt 的 last_insert_rowid 时序 bug（saveDb 内 db.export() 重开 sql.js 连接导致 rowid=0）",
+  "required_changes": [
+    {
+      "file": "main-process/database/index.ts",
+      "symbol": "runStmt",
+      "change": "调整为 db.run → 先取 last_insert_rowid → 再 saveDb → 返回 id；保持函数签名不变"
+    },
+    {
+      "file": "main-process/database/index.ts",
+      "symbol": "addCategory",
+      "change": "调整为 INSERT → 先取 last_insert_rowid → 再 saveDb → SELECT * FROM categories WHERE id = ?；修复后 rows[0] 必然存在"
+    }
+  ],
+  "tests": [
+    {
+      "file": "src/repro-addcategory.test.ts",
+      "action": "转正为回归测试：重命名为 src/database-addcategory.test.ts，describe 改为正式回归描述，断言 addCategory 返回有效行（含自增 id>0）且 getCategories 可查到；补 runStmt 路径（addBill）回归用例：addBill 返回的行 id>0 且与 getBills 查询一致"
+    },
+    {
+      "file": "src/debug-rowid.test.ts 与 src/debug2-saveDb.test.ts",
+      "action": "删除（临时调试文件）"
+    }
+  ],
+  "acceptance": [
+    "npx vitest run src/database-addcategory.test.ts 全绿",
+    "npx vitest run src/components/CategoryManager.test.tsx 全绿（无回归）",
+    "npx tsc --noEmit 通过"
+  ],
+  "forbidden": [
+    "不得改动 src/index.css、CategoryForm.tsx、CategoryList.tsx（Worker-2 领地）",
+    "不得改 saveDb/export 语义（写盘行为保持）",
+    "不得引入新依赖"
+  ]
+}
