@@ -69,4 +69,48 @@ describe('CategoryManager', () => {
     fireEvent.click(screen.getByText('收入分类'));
     expect(screen.getByText(/暂无分类/)).toBeInTheDocument();
   });
+
+  it('should open delete confirm when clicking list × without selecting a category first (regression)', async () => {
+    // 模拟真实数据库返回带 id 的分类行；用户打开分类管理后不选中任何分类直接点 × 删除
+    const getCategories = vi.fn().mockResolvedValue([
+      { id: 7, name: '餐饮食品', icon: '🍜', children: '["午餐"]', type: 'expense', is_preset: 1 },
+    ]);
+    (window as unknown as { electronAPI: { getCategories: ReturnType<typeof vi.fn> } }).electronAPI = {
+      getCategories,
+      addCategory: vi.fn().mockResolvedValue(undefined),
+    };
+
+    render(<CategoryManager isOpen={true} onClose={() => {}} />);
+
+    // 点击列表项的 ×（删除按钮）
+    fireEvent.click(screen.getByTitle('删除此分类'));
+
+    // 不得报「删除失败」；应弹出确认删除弹窗
+    expect(screen.queryByText(/删除失败，请重试/)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('确认删除')).toBeInTheDocument();
+    });
+  });
+
+  it('should call deleteCategory with the mapped id after confirm (regression)', async () => {
+    const getCategories = vi.fn().mockResolvedValue([
+      { id: 7, name: '餐饮食品', icon: '🍜', children: '["午餐"]', type: 'expense', is_preset: 1 },
+    ]);
+    const deleteCategory = vi.fn().mockResolvedValue(undefined);
+    (window as unknown as { electronAPI: { getCategories: ReturnType<typeof vi.fn>; deleteCategory: ReturnType<typeof vi.fn>; addCategory: ReturnType<typeof vi.fn> } }).electronAPI = {
+      getCategories,
+      deleteCategory,
+      addCategory: vi.fn().mockResolvedValue(undefined),
+    };
+
+    render(<CategoryManager isOpen={true} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByTitle('删除此分类'));
+    await waitFor(() => expect(screen.getByText('确认删除')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('删除'));
+    await waitFor(() => {
+      expect(deleteCategory).toHaveBeenCalledWith(7);
+    });
+  });
 });

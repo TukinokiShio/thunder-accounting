@@ -3,7 +3,7 @@
  * 左侧为可拖拽排序的分类列表（支出/收入切换），右侧为编辑器：名称、图标、二级分类的增删。
  * 预设分类的名称不可修改，但图标和子分类可调整。
  */
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { X, Settings } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -52,6 +52,14 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
       console.error('Failed to load category meta:', e)
     }
   }, [tab])
+
+  // 挂载/切换 tab 时预加载 name→id 映射。
+  // 此前仅在 selectCategory/handleTabChange/handleDragEnd 中更新：若用户打开分类管理
+  // 后未选中任何分类直接点列表项 × 删除，nameToIdRef 为空 → get(name) 返回 undefined
+  // → 误报「删除失败，请重试」（分类删除操作失败 bug）。
+  useEffect(() => {
+    loadMeta()
+  }, [loadMeta])
 
   const selectCategory = async (idx: number) => {
     setSelectedId(idx)
@@ -143,11 +151,16 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   }
 
   /** 列表项 × 点击：按名称查找 ID，弹出确认框 */
-  const handleListItemDelete = (idx: number) => {
+  const handleListItemDelete = async (idx: number) => {
     const cat = categories[idx]
     if (!cat) return
-    const id = nameToIdRef.current.get(cat.name)
-    if (!id) {
+    let id = nameToIdRef.current.get(cat.name)
+    // 兜底：映射未就绪（首次打开未选中分类直接删除）时重新加载再查一次
+    if (id === undefined) {
+      await loadMeta()
+      id = nameToIdRef.current.get(cat.name)
+    }
+    if (id === undefined) {
       addToast('error', t('删除失败，请重试'))
       return
     }

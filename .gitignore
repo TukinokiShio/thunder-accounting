@@ -5,6 +5,7 @@ node_modules/
 dist/
 app-out/
 release/
+release163/
 exe/
 artifacts/
 out/
