@@ -48,6 +48,25 @@ describe('database: addCategory/addBill rowid 时序回归（saveDb 后 last_ins
     expect(getCategories('income').some((c) => c.id === cat.id)).toBe(true)
   })
 
+  it('连续两次 addCategory 的 rowid 均正确（用户连续新建分类场景）', () => {
+    const c1 = addCategory({ name: '连续分类甲', icon: '🅰️', children: ['子1'], type: 'expense' })
+    const c2 = addCategory({ name: '连续分类乙', icon: '🅱️', children: ['子2'], type: 'expense' })
+    expect(c1.id).toBeGreaterThan(0)
+    expect(c2.id).toBeGreaterThan(0)
+    expect(c2.id).toBeGreaterThan(c1.id)
+    const names = getCategories('expense').map((c) => c.name)
+    expect(names).toContain('连续分类甲')
+    expect(names).toContain('连续分类乙')
+  })
+
+  it('saveDb 持久化一致性：重新 initDatabase 加载后数据仍在', async () => {
+    const cat = addCategory({ name: '持久化验证', icon: '💾', children: ['落盘'], type: 'expense' })
+    await initDatabase() // 重新从磁盘加载
+    const found = getCategories('expense').find((c) => c.name === '持久化验证')
+    expect(found).toBeDefined()
+    expect(found?.id).toBe(cat.id)
+  })
+
   it('runStmt 路径回归：addBill 返回行 id > 0 且 getBills 可查到', () => {
     const bill = addBill({
       amount: 12.5,

@@ -539,7 +539,7 @@ function runStmt(sql: string, params?: Record<string, string | number>): number 
   const { sql: stmt, values } = convertNamedParams(sql, params)
   db.run(stmt, values)
 
-  // Get last insert rowid BEFORE saveDb (export resets the connection)
+  // 时序：先取 last_insert_rowid() 再 saveDb（export 会重置连接状态）
   const result = db.exec('SELECT last_insert_rowid() as id')
   const rowId = result.length && result[0].values.length ? (result[0].values[0][0] as number) : 0
   saveDb()
