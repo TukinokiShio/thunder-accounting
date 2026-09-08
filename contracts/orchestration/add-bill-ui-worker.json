@@ -1,0 +1,36 @@
+{
+  "schema": "sacw-worker-contract/v1",
+  "role": "Worker",
+  "agent_id": "01a07f4c-b353-72a1-9253-0d1d0f7d2b76",
+  "work_item": "add-bill-ui",
+  "write_set": [
+    "src/components/AddBillDialog.tsx",
+    "src/components/CategorySelect.tsx",
+    "src/components/CategorySelect.test.tsx",
+    "src/index.css",
+    "package.json",
+    "package-lock.json",
+    "scripts/thunder-setup.iss"
+  ],
+  "required_changes": [
+    "仅为记一笔弹窗添加命名空间与金棕色 react-select 样式",
+    "让金额/日期/备注实际输入框承担唯一焦点边界，标签不在焦点装饰范围内",
+    "保持分类联动、键盘操作、提交/关闭及其他页面行为不变",
+    "补充可执行的分类聚焦与禁用态回归断言",
+    "兼容性 PATCH 版本同步到 1.16.4"
+  ],
+  "verification": [
+    "定向 CategorySelect 测试",
+    "npm test",
+    "npx tsc -p tsconfig.web.json --noEmit",
+    "npm run build",
+    "Aurora assess/visual evidence"
+  ],
+  "forbidden": [
+    "不得修改数据库、IPC、Zustand、提交逻辑或其他页面",
+    "不得触碰 main-process/database、CloudBase、resources、Electron app.getPath('userData') 或任何真实用户数据；不得对真实用户数据库执行测试、迁移、清空、覆盖或删除",
+    "不得新增依赖",
+    "不得引入蓝色硬编码、渐变、发光动画或第二层焦点环"
+  ],
+  "status": "planned"
+}

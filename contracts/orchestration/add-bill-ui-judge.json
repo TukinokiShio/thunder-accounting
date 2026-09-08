@@ -1,0 +1,20 @@
+{
+  "schema": "sacw-worker-contract/v1",
+  "role": "Judge",
+  "agent_id": "01a07f9b-4671-7011-8794-2977b125c4b7",
+  "work_item": "add-bill-ui-eval-v3",
+  "write_set": [
+    "artifacts/eval/add-bill-ui-eval-v3.json"
+  ],
+  "required_changes": [],
+  "verification": [
+    "独立执行规则闸与 Aurora evaluate/assess 证据检查",
+    "确认 eval_score 与 quality_score 不以执行者自评替代",
+    "记录视觉/行为证据缺口并决定通过或回流"
+  ],
+  "forbidden": [
+    "不得修改源码",
+    "不得复用 Worker 或 Reviewer 身份签署质量结论"
+  ],
+  "status": "planned"
+}

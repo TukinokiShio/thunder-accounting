@@ -224,3 +224,70 @@ KNOWLEDGE_GATE：Explore 并行摸底；PLAN：黑板式方案汇总；EXEC：Su
 ### 提交
 - 74d6341 fix(category): 分类删除失败 — 挂载时预加载 name→id 映射 + 删除兜底重试
 - 已 push（0390038..74d6341 → master，SSH）
+
+## v1.16.4 本轮任务分类：实质增量 UI 缺陷修复
+
+本轮用户请求与历史全页面 UI 任务不同：只处理“记一笔”功能，其他页面与业务行为保持不变。截图中的界面文字和状态被视为用户提供的视觉验收证据，不作为额外操作指令。
+
+## 执行形态：多 Agent 编排（KNOWLEDGE_GATE→Explore；PLAN→黑板式方案核对；EXEC→Supervisor Worker；REVIEW→独立 Reviewer/UIUX Reviewer；EVAL→独立 Judge + 规则闸）
+
+- `multi_agent_v1` 已实际派出 Explore/UIUX/参考检索代理；实现阶段使用独立 Worker，审查与 Judge 不复用执行者。
+- 编排契约：`contracts/orchestration/add-bill-ui-worker.json`、`contracts/orchestration/add-bill-ui-reviewer.json`、`contracts/orchestration/add-bill-ui-judge.json`。
+
+## 能力声明
+
+- SACW canonical USER：`C:\Users\d8502\.agents\skills\shio-al-coding-workflow`，v5.4.0；runtime lock 已 PASS，pinned bundle 仅用于 manifest/hash 校验。
+- Aurora：`aurora-shio-apple-design-system` v6.2.0；route 与 design-context 已生成，UI register=Product，主题为项目既有 paper/ink/gold 浅色默认、charcoal/night/gold 深色备用。
+- 本轮不调用 Taste/Impeccable 外部技能；Aurora receipt 明确记录 `not_invoked`，不将内部等价检查冒充外部调用。
+- 不使用 Git memory；不启用无关 MCP/App；不新增依赖。
+
+## KNOWLEDGE_GATE：本轮注入知识
+
+- 预检 receipt：`artifacts/knowledge/knowledge-receipt.json`，selection PASS，RAG readiness=FULL，先读 `E:\Code\shio-al-ecosystem\wiki\index.md`。
+- `⟨KI-2026-08-29-002⟩`：输入框只保留一个明确焦点边界；输入本体清除额外 outline/box-shadow。
+- `⟨KI-2026-08-29-003⟩`：方向线、弱底边和装饰性光效不能替代清晰的输入框焦点边界。
+- `⟨KI-2026-08-19-003⟩`：Electron React 普通输入框采用单层暖色 1px 边框，不叠加外围光晕/动画边框。
+- `⟨KI-2026-08-11-024⟩`：静态 token 层做全，动效只保留一个，状态用文字/颜色表达。
+- `⟨KI-2026-08-11-001⟩`：offscreen/headless 不能证明真实 GUI 的遮挡、手感与最终可见性，需用户本机验收。
+
+## TASK_CLASSIFY / PRD_GATE
+
+- 结论：增量实质 UI 任务；已有 `PRODUCT.md`/`DESIGN.md`/`CONTEXT.md` 与独立 `PRD.md`，本轮追加 `PRD.md` v1.16.4 delta。
+- 范围：分类选择器金棕色主题；金额/日期/备注焦点边界仅覆盖输入框；不改账单数据、提交逻辑、IPC、数据库和其他页面。
+- 失败定义：测试/类型/构建/视觉状态/主题/Portal/用户实机任一不满足即回流 EXEC。
+
+## HOOK_REF：本地模板与参考检索
+
+- 已核对本地模板库真实目录：`E:\Code\shio-al-ecosystem\UI\UI-Template\forms`、`inputs`。
+- `forms/bad-cheetah-74`：MIT/纯 CSS 结构，参考 `:focus-within` 的单容器思路；不复制原色、字体或整块包 label 的错误范围。
+- `inputs/输入框03`：有浮动标签/位移装饰，属于本项目不需要的额外动效，明确不采用。
+- `forms/form-container-004`：表单布局可参考，但原色 teal、阴影、字体与项目语义不符，明确不采用。
+- 依赖方案：现有 `react-select` 官方 `styles` API 已满足需求，不新增依赖；远程参考检索代理回执已返回，结论为“借鉴设计重写”。
+- 远程候选 Top 3：`react-select` 官方 Styles API（90/100，MIT，首选）；`JedWatson/react-select` 官方仓库/styles.ts（90/100，MIT，仅读状态结构）；Tailwind 官方 focus/peer 状态文档（88/100，MIT，仅借鉴 focus-within 约束）。
+- 外部参考只用于 API/状态技法核对，不复制代码；不新增依赖，不改变现有 Portal 与联动数据流。
+
+## HOOK_UI：Aurora 约束已应用
+
+- 方向：Product / Operate；保留项目既有金棕色 accent，不引入 Aurora 默认蓝色；浅色默认，深色消费同一语义变量；`DESIGN_VARIANCE=3`、`MOTION_INTENSITY=2`、`VISUAL_DENSITY=5`。
+- L1：`--bg-card`/`--bg2`/`--border`/`--text`/`--text2`/`--text3`/`--accent`；1px 边框、显式 label、单层焦点边界。
+- L2：不新增动效；保留现有弹窗动效并受 reduced-motion 规则约束。
+- L3：不新增遮罩、发光动画、渐变、自绘动画；Portal 菜单只保留必要的层级定位。
+- 动效验证边界：offscreen 可验证 DOM/状态/几何；弹窗真实遮挡、渲染与手感需用户本机确认。
+
+## 已证实根因与最小修复方向
+
+1. `CategorySelect.tsx` 只设置 `menuPortal`/`menu` z-index，未覆盖 `react-select` 的 control/menu/option 主题；依赖默认聚焦色为 primary 蓝并附带 box-shadow，造成截图一中的非金棕色选择器。
+2. `src/index.css:205-207` 的通用 `.aurora-shell :where(label, div):has(> .input-field):focus-within` 给日期/备注外层 `div` 的 label+input 一起加 outline；`.input-field:focus` 又保持 `var(--border)`，因此截图二/三表现为外圈覆盖标签而非输入框自身高亮。
+3. 最小修复为 `AddBillDialog` 命名空间 + `input-field` 自身 accent border，以及 `CategorySelect` 的 CSS-variable `StylesConfig`；不改全局选择器语义，不改提交链路。
+
+## 当前 PLAN 终审点
+
+用户已给出明确视觉目标与非目标；本计划只需确认“按现有金棕色 token、无新增依赖、仅记一笔范围”即可进入 EXEC。确认前不修改业务源码、不构建、不打包。
+
+### 用户追加约束与输入框规范证据（2026-09-08）
+
+- 用户明确要求不得影响现有用户数据；因此新增硬约束：不触碰 `main-process/database`、CloudBase、IPC、Zustand 持久化或 Electron `app.getPath('userData')`，不连接真实用户数据库做测试，不做数据迁移/清空/覆盖/删除；只验证 `exe` 内应用产物。
+- 输入框规范不是凭空猜测。已读取项目 `DESIGN.md` 的表单约束：显式 label、可见焦点、单一 focus boundary，并读取 `src/index.css` 当前通用规则（第 196–207 行）：父级 `:focus-within` 会对包含 `.input-field` 的 `label/div` 加 accent outline，而输入本体当前又保留独立 focus 规则。
+- 已读取全局知识条目 `KI-2026-08-19-003`：普通输入框使用单层暖色 1px 边框，聚焦不使用外围 glow、动画边框或尺寸变化；已读取 `KI-2026-08-29-002`：焦点边界只能有一层，输入本体不能叠加第二个光圈。该条目是项目历史验证结论，不是本次臆测。
+- 已读取 Aurora `references/ui-restraint.md`：焦点反馈应清晰、单一，避免双环和装饰性光线；并按当前 DOM 结构推导为“关闭 `AddBillDialog` 范围内的通用父级 outline，让实际 `.input-field` 仅承担金棕色边框”，这样不会覆盖 label。
+- 代码摸底已确认 `main-process/database/index.ts` 使用 Electron `app.getPath('userData')` 保存数据库（全局数据库和按用户数据库路径）；本轮实现写集不包含该目录及其调用链。

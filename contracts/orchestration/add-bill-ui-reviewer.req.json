@@ -1,0 +1,9 @@
+{
+  "schema": "sacw-worker-request/v1",
+  "worker_id": "01a07f9b-44b8-73e0-83d0-f8ac64f86866",
+  "role": "Reviewer",
+  "work_item": "add-bill-ui-review-v3",
+  "scope": "只读复核记一笔分类选择、输入框焦点边界、短视口行为、数据安全与交付证据",
+  "required_changes": [],
+  "forbidden": ["不得修改源码", "不得修改用户数据"]
+}

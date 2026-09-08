@@ -16,8 +16,8 @@ const mockIncomeCategories: Category[] = [
 
 /**
  * CategorySelect v1.7.21 已迁移到 react-select。
- * 本测试只验证与 AddBillDialog 的 API 契约，
- * 不测试 react-select 内部行为（由其官方测试覆盖）。
+ * 本测试验证与 AddBillDialog 的 API 契约和本次 UI 状态约束，
+ * 不复制 react-select 的内部实现测试。
  */
 describe('CategorySelect (react-select)', () => {
   beforeEach(() => {
@@ -28,8 +28,11 @@ describe('CategorySelect (react-select)', () => {
   })
 
   it('renders two selects (level 1 and level 2)', () => {
-    // Verified manually: react-select renders both comboboxes; both placeholders visible
-    expect(true).toBe(true)
+    render(
+      <CategorySelect category1="" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    expect(document.querySelectorAll('.rs__control')).toHaveLength(2)
   })
 
   it('shows level 1 placeholder when empty', () => {
@@ -43,6 +46,17 @@ describe('CategorySelect (react-select)', () => {
       />
     )
     expect(screen.getByText('选择一级分类')).toBeInTheDocument()
+  })
+
+  it('gives each category combobox an accessible name', () => {
+    render(
+      <CategorySelect category1="" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    const comboboxes = document.querySelectorAll('input[role="combobox"]')
+    expect(comboboxes).toHaveLength(2)
+    expect(comboboxes[0]).toHaveAttribute('aria-label', '一级分类')
+    expect(comboboxes[1]).toHaveAttribute('aria-label', '二级分类')
   })
 
   it('shows level 2 placeholder when empty', () => {
@@ -59,14 +73,46 @@ describe('CategorySelect (react-select)', () => {
   })
 
   it('disables level 2 select when no level 1 selected', () => {
-    // Verified manually: react-select v5 + isDisabled prop works correctly
-    // DOM-level assertion is brittle; trust the library
-    expect(true).toBe(true)
+    render(
+      <CategorySelect category1="" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    expect(document.querySelectorAll('.rs__control--is-disabled')).toHaveLength(1)
   })
 
   it('enables level 2 select when level 1 selected', () => {
-    // Verified manually: react-select v5 + isDisabled prop works correctly
-    expect(true).toBe(true)
+    render(
+      <CategorySelect category1="餐饮食品" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    expect(document.querySelectorAll('.rs__control--is-disabled')).toHaveLength(0)
+  })
+
+  it('applies a single gold focus state to the active control', async () => {
+    const user = userEvent.setup()
+    render(
+      <CategorySelect category1="" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    const comboboxes = screen.getAllByRole('combobox')
+    await user.click(comboboxes[0])
+    const controls = document.querySelectorAll('.rs__control')
+    expect(controls).toHaveLength(2)
+    expect(controls[0]).toHaveClass('rs__control--is-focused')
+    expect(controls[1]).not.toHaveClass('rs__control--is-focused')
+  })
+
+  it('uses high-contrast ink for selected gold options', async () => {
+    const user = userEvent.setup()
+    render(
+      <CategorySelect category1="餐饮食品" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    await user.click(screen.getAllByRole('combobox')[0])
+    expect(screen.getByRole('option', { name: '🍽️ 餐饮食品' })).toHaveStyle({
+      color: 'var(--accent-ink)',
+      backgroundColor: 'var(--accent)'
+    })
   })
 
   it('shows selected level 1 category with emoji prefix', () => {

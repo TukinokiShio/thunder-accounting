@@ -1,0 +1,3 @@
+PASS: 5 required screenshots and 8 evidence entries have verified PNG dimensions
+command: node tests/visual/add-bill-ui-visual-check.mjs
+scope: add-bill dialog category/focus/responsive visual evidence only

@@ -1,5 +1,5 @@
 project: thunder-accounting
-task: 接手 thunder-accounting，清理工作空间、优化多页面 UI，并将 v1.16.1 安装验收到 exe
+task: 仅优化 thunder-accounting 的“记一笔”分类选择与输入框焦点 UI，并将 v1.16.4 安装验收到 exe
 task_class:
   ui_task: true
 state: USER_ACCEPT_FINAL
@@ -19,7 +19,7 @@ step_chain:
   - REVIEW
   - EVAL
   - USER_ACCEPT_FINAL
-plan_status: awaiting_user_signoff_v1.16.3
+plan_status: awaiting_user_signoff_v1.16.4
 reflow_counts:
   EXEC: 2
   REVIEW: 0
@@ -32,9 +32,9 @@ reflow_reason:
   - round2 缺陷轮：用户实测分类管理 3 bug（输入框焦点光越界、新增分类按钮配色、新建分类报错）；上一轮假设 v1.16.1 修复完成不成立——分类管理表单未纳入焦点规范且 addCategory rowid 时序回归
   - v1.16.3 缺陷轮：原 3 bug 实测通过，但用户发现新 bug——分类删除操作失败（CategoryManager nameToIdRef 挂载时未初始化，直接点 × 删除查不到 id 误报失败）
 last_reflect:
-  action: 完成三缺陷修复（rowid 时序 + addBill 命名参数 + category-editor 焦点规范 + btn-primary 配色）、独立 REVIEW（conditional→整改放行）、EVAL 规则闸降级记录、Clean Build + ISCC + 静默安装 v1.16.2；v1.16.3 修复分类删除失败（useEffect 预加载 nameToIdRef + 删除兜底重试）
-  verify_result: 回归 5/5、全量 240/240（26 文件）、tsc PASS、bundle 版本唯一 1.16.3、安装目录 asar=1.16.3（SHA 一致）、Inno 被系统锁回滚后以 Node 覆盖方式完成升级
-  decision: awaiting_user_signoff
+  action: 完成“记一笔”分类金棕色样式、单一输入焦点边界、分类控件 ARIA 名称和短视口滚动保护；完成独立 renderer 视觉证据、PNG 尺寸断言、Aurora v6.2.0 预检、Reviewer/Judge；Clean Build + electron-builder + ISCC + 固定目录静默安装 v1.16.4
+  verify_result: 全量 243/243（26 文件）、Node tsc PASS、renderer build PASS、发布产物校验 PASS、Inno 编译与固定 exe 安装 PASS、exe/resources/app.asar 版本=1.16.4；Web tsc 仅保留既有数据库声明/tsconfig/mock 错误；eval_score=75 quality_score=95 recompute={ts:2026-09-08T14:20:52, hash:5b08fcda76181351, score:[75, 95]}
+  decision: next_state
   next: FINAL
 token_used: "未统计(由 Codex 宿主不提供精确 token 计数)"
 elapsed: 0
@@ -52,16 +52,22 @@ acceptance_evidence:
     - 用户切换深色并检查同一页面集合
     - 用户提供截图或明确验收结论
   verified_by: Codex automated Electron capture
-  date: 2026-08-29
+  date: 2026-09-08
   evidence_paths:
-    - artifacts/visual-v1.16.0/visual-evidence.json
-    - artifacts/visual-v1.16.0/light-desktop.png
-    - artifacts/visual-v1.16.0/desktop.png
+    - artifacts/visual-v1.16.4/visual-evidence.json
+    - artifacts/visual-v1.16.4/screenshots/mobile-light-category-final.png
+    - artifacts/visual-v1.16.4/screenshots/tablet-light-date-final.png
+    - artifacts/visual-v1.16.4/screenshots/desktop-light-amount-final.png
+    - artifacts/visual-v1.16.4/screenshots/mobile-light-category-short-final.png
     - artifacts/inno/inno-receipt.json
+    - artifacts/review/add-bill-ui-review-v3.md
+    - artifacts/eval/add-bill-ui-eval-v3.json
+    - artifacts/run-receipt.json
+    - tests/visual/add-bill-ui-visual-check.pass
 executor_llm: gpt-5
 metrics:
-  eval_score: null
-  quality_score: null
+  eval_score: 75
+  quality_score: 95
   violation_rate: 0.0
   reflow_total: 2
   budget_hit_rate: null
@@ -69,17 +75,14 @@ metrics:
   score_semantics:
     eval_samples: 1
     quality_samples: 1
-    gap_note: 门通过不等于用户验收通过
+    gap_note: EVAL_MIN_EVAL 仅记录当前 USER_ACCEPT_FINAL 前的流程/质量实算；门通过不等于用户验收通过，未达到 FINAL 的流程分阈值
   rag_tier: FULL
   final_waiver: null
   closeout: null
   integration_exit: null
 subagent_usage:
-  degradation: >
-    round2 EXEC 降级：Worker-1(Knuth)/Worker-2(Lovelace) 经 Agent 工具 spawn 成功（in-process backend）但
-    14+ 分钟零文件产出，team-lead 两次 SendMessage 唤醒无响应，判定 in-process 子代理通道不可用；
-    按 sacw §0.1 显式降级条款由主 Agent 按契约（contracts/orchestration/defect-round2-worker{1,2}.json）
-    直写，改动范围严格限于契约 required_changes；REVIEW 不降级，改派新 Reviewer 子代理或交用户人工审查
+  degradation: null
+  historical_degradation: "round2 EXEC 曾发生 Worker-1(Knuth)/Worker-2(Lovelace) 无文件产出；按 sacw §0.1 记录并在主流程中受控代行，历史原因与范围保留于此，不代表当前 Reviewer/Judge 未编排"
   rounds: 4
   subagent_count: 10
   roles:
@@ -123,10 +126,18 @@ subagent_usage:
       agent: Lovelace
       status: failed
       scope: defect-round2-worker2 category manager focus/btn UI fix（spawn 后零产出，降级主 Agent 代行）
+    - role: Reviewer
+      agent: Archimedes
+      status: completed
+      scope: v1.16.4 最新工作树、视觉证据、数据安全与交付证据独立审查
+    - role: Judge
+      agent: Boyle
+      status: completed
+      scope: v1.16.4 最新工作树、测试构建安装、数据安全与用户验收门槛独立评估
   spec_id: [sacw-agent-specs/explore]
   depth: 2
   modes: [multi_agent_v1]
-  last_used: 2
+  last_used: 3
 orchestration_form: 多 Agent 编排
 requirement_ledger:
   REQ-001: cleanup manifest + user confirmation before deletion
@@ -136,15 +147,18 @@ requirement_ledger:
   REQ-005: tests, build, Inno, app.asar/package version and receipt verification
   REQ-006: project memory update, cleanup closeout, commit and push
 verification:
-  tests: "26 files / 240 tests passed"
-  typecheck: pass
+  tests: "26 files / 243 tests passed"
+  visual_test: pass
+  run_receipt: artifacts/run-receipt.json
+  typecheck: "node tsc pass; web tsc retains pre-existing database declaration/tsconfig/mock errors"
   renderer_build: pass
   isolated_release_verify: pass
   inno_compile: pass
   silent_install_exit_code: 0
-  installed_app_asar_version: 1.16.3
-  aurora_visual_evidence: partial
-  cleanup_status: partial_done_3_asar_locked
+  installed_app_asar_version: 1.16.4
+  aurora_visual_evidence: valid_pending_judge
+  aurora_assessment: artifacts/aurora/assess-add-bill-v5.json
+  cleanup_status: not_performed_history_preserved
 context_vars:
   index_path: .sacw/context-index.json
   keys_retrieved: [PRODUCT.md, DESIGN.md, docs/login-demos/round-3/round-3.css]

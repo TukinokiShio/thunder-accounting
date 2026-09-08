@@ -22,6 +22,7 @@
   --text3: #a09383;
   --accent: #d59b25;
   --accent-h: #b98218;
+  --accent-ink: #211d18;
   --accent-dim: rgba(213, 155, 37, .13);
   --accent-contrast: #fffaf2;
   --success: #059669;
@@ -204,6 +205,35 @@
   .input-field:focus, .aurora-input:focus, .aurora-shell input:focus, .aurora-shell select:focus, .aurora-shell textarea:focus { border-color: var(--border); box-shadow: none; }
   .aurora-shell :where(label, div):not(.profile-code-field, .profile-field-shell):has(> .input-field, > .aurora-input, > .profile-input):focus-within {
     outline: var(--focus-width) solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm);
+  }
+
+  /* 记一笔：局部覆盖通用父级规则，焦点边界只保留在实际 input 上。 */
+  .aurora-shell .add-bill-dialog :where(label, div):has(> .input-field):focus-within { outline: none; }
+  .aurora-shell .add-bill-dialog .input-field:focus,
+  .aurora-shell .add-bill-dialog .input-field:focus-visible {
+    border-color: var(--accent); outline: none; box-shadow: none;
+  }
+  .aurora-shell .add-bill-dialog {
+    width: min(28rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    min-width: 0;
+    margin-inline: 1rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 2rem);
+    overflow: hidden;
+  }
+  .aurora-shell .add-bill-dialog-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
+  .aurora-shell .add-bill-dialog-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .aurora-shell .add-bill-dialog-footer { flex-shrink: 0; }
+  @media (min-width: 640px) {
+    .aurora-shell .add-bill-dialog { width: 28rem; max-width: 28rem; margin-inline: auto; }
+  }
+  .aurora-shell .add-bill-category-select { min-width: 0; }
+  .aurora-shell .add-bill-category-select > * { width: 100%; min-width: 0; }
+  @media (min-width: 640px) {
+    .aurora-shell .add-bill-category-select > * { width: auto; }
   }
 
   .profile-input, .profile-input-danger {

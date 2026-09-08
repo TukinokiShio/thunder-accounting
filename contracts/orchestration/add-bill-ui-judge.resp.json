@@ -1,0 +1,18 @@
+{
+  "schema": "sacw-worker-response/v1",
+  "worker_id": "01a07f9b-4671-7011-8794-2977b125c4b7",
+  "role": "Judge",
+  "work_item": "add-bill-ui-eval-v3",
+  "status": "completed",
+  "artifacts": ["artifacts/eval/add-bill-ui-eval-v3.json"],
+  "summary": {
+    "diff_summary": "代码、测试、构建、Inno 安装与数据安全检查通过；用户 GUI 验收仍待完成。",
+    "evidence_paths": ["artifacts/eval/add-bill-ui-eval-v3.json", "artifacts/inno/inno-receipt.json"],
+    "open_risks": ["无真实 Electron 用户 sign-off；视觉证据为隔离 renderer/CDP 范围"]
+  },
+  "review_verdict": {
+    "p0_p3_findings": ["P1 用户验收证据缺口；P2 视觉尺寸覆盖不完整"],
+    "release_recommendation": "暂不最终放行，保持 PENDING_GUI_ACCEPTANCE",
+    "rebuttal_refs": ["artifacts/visual-v1.16.4/visual-evidence.json"]
+  }
+}

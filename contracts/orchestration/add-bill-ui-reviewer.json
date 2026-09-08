@@ -1,0 +1,20 @@
+{
+  "schema": "sacw-worker-contract/v1",
+  "role": "Reviewer",
+  "agent_id": "01a07f9b-44b8-73e0-83d0-f8ac64f86866",
+  "work_item": "add-bill-ui-review-v3",
+  "write_set": [
+    "artifacts/review/add-bill-ui-review-v3.md"
+  ],
+  "required_changes": [],
+  "verification": [
+    "独立审查 git diff",
+    "对照 PRD v1.16.4 验收标准",
+    "检查 CSS specificity、主题 token、focus-within 唯一边界、react-select Portal、键盘/禁用态和范围越界"
+  ],
+  "forbidden": [
+    "不得修改源码",
+    "不得把 Worker 自述作为视觉行为证据"
+  ],
+  "status": "planned"
+}

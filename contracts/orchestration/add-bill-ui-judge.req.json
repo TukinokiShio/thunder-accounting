@@ -1,0 +1,9 @@
+{
+  "schema": "sacw-worker-request/v1",
+  "worker_id": "01a07f9b-4671-7011-8794-2977b125c4b7",
+  "role": "Judge",
+  "work_item": "add-bill-ui-eval-v3",
+  "scope": "只读评估记一笔 UI 修复、数据安全、测试构建安装与用户验收门槛",
+  "required_changes": [],
+  "forbidden": ["不得修改源码", "不得修改用户数据"]
+}

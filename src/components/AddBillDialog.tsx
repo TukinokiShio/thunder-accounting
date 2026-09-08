@@ -216,7 +216,7 @@ export function AddBillDialog() {
         aria-labelledby="add-bill-dialog-title"
         aria-describedby={error ? 'add-bill-dialog-error' : undefined}
         tabIndex={-1}
-        className="relative rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up aurora-dialog"
+        className="relative rounded-2xl shadow-xl animate-slide-up aurora-dialog add-bill-dialog"
         onKeyDown={handleKeyDown}
       >
         {/* 弹窗标题栏 */}
@@ -234,9 +234,9 @@ export function AddBillDialog() {
           </button>
         </div>
 
-        <form onSubmit={(e) => { e.preventDefault(); if (!submitting) void handleSubmit() }}>
+        <form className="add-bill-dialog-form" onSubmit={(e) => { e.preventDefault(); if (!submitting) void handleSubmit() }}>
           {/* 表单内容区 */}
-          <div className="px-6 py-4 space-y-4">
+          <div className="px-6 py-4 space-y-4 add-bill-dialog-content">
           {/* 支出/收入类型切换 */}
           <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
             <button
@@ -341,7 +341,7 @@ export function AddBillDialog() {
           </div>
 
           {/* 底部操作栏：取消 + 保存 */}
-          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
+          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 add-bill-dialog-footer">
             <button type="button" onClick={handleClose} className="btn-secondary text-sm">
               {t('取消')}
             </button>
