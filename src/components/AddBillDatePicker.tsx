@@ -54,7 +54,10 @@ export function AddBillDatePicker({ id, value, onChange }: Props) {
       : topSpace >= height
         ? 'top'
         : topSpace >= bottomSpace ? 'top' : 'bottom'
-    const top = nextPlacement === 'top' ? rect.top - height - 8 : rect.bottom + 8
+    const viewportMaxTop = Math.max(8, window.innerHeight - height - 8)
+    const minimumTop = Math.min(topBoundary, viewportMaxTop)
+    const preferredTop = nextPlacement === 'top' ? rect.top - height - 8 : rect.bottom + 8
+    const top = Math.min(Math.max(preferredTop, minimumTop), viewportMaxTop)
     return { nextPlacement, top }
   }
 
@@ -105,7 +108,7 @@ export function AddBillDatePicker({ id, value, onChange }: Props) {
 
       const estimatedHeight = 330
       const { nextPlacement, top } = getPopoverPlacement(rect, estimatedHeight)
-      const width = Math.min(rect.width, 352)
+      const width = Math.min(Math.max(rect.width, 360), window.innerWidth - 16)
       const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
       setPlacement(nextPlacement)
       setPopoverPosition({ top, left, width })

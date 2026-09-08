@@ -246,7 +246,8 @@
   }
   .aurora-shell .add-bill-date-picker:focus-within .add-bill-date-icon { color: var(--accent); }
   .aurora-shell .add-bill-date-popover {
-    position: fixed; z-index: 10020; width: min(100%, 22rem); max-width: calc(100vw - 1rem); box-sizing: border-box;
+    position: fixed; z-index: 10020; width: min(100%, 22.5rem); max-width: calc(100vw - 1rem); box-sizing: border-box;
+    max-height: calc(100vh - 1rem); overflow: auto;
     padding: .8rem; border: 1px solid var(--border); border-radius: var(--radius);
     background: var(--bg-card); color: var(--text); box-shadow: var(--shadow-dialog);
   }
@@ -261,7 +262,10 @@
   }
   .aurora-shell .add-bill-calendar-nav:hover { border-color: var(--border); background: var(--accent-dim); color: var(--accent); }
   .aurora-shell .add-bill-calendar-weekdays,
-  .aurora-shell .add-bill-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .25rem; }
+  .aurora-shell .add-bill-calendar-grid {
+    display: grid; min-width: calc(308px + 1.5rem); grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .25rem;
+  }
+  .aurora-shell .add-bill-calendar-grid { grid-template-columns: repeat(7, minmax(44px, 1fr)); }
   .aurora-shell .add-bill-calendar-weekdays { margin-bottom: .25rem; color: var(--text3); font-size: .7rem; text-align: center; }
   .aurora-shell .add-bill-calendar-weekdays span { padding-block: .2rem; }
   .aurora-shell .add-bill-calendar-cell { min-width: 0; }
