@@ -246,7 +246,7 @@
   }
   .aurora-shell .add-bill-date-picker:focus-within .add-bill-date-icon { color: var(--accent); }
   .aurora-shell .add-bill-date-popover {
-    position: fixed; z-index: 10020; width: min(100%, 22rem);
+    position: fixed; z-index: 10020; width: min(100%, 22rem); max-width: calc(100vw - 1rem); box-sizing: border-box;
     padding: .8rem; border: 1px solid var(--border); border-radius: var(--radius);
     background: var(--bg-card); color: var(--text); box-shadow: var(--shadow-dialog);
   }
@@ -266,18 +266,21 @@
   .aurora-shell .add-bill-calendar-weekdays span { padding-block: .2rem; }
   .aurora-shell .add-bill-calendar-cell { min-width: 0; }
   .aurora-shell .add-bill-calendar-day {
-    display: flex; width: 100%; min-width: 2.5rem; min-height: 40px; box-sizing: border-box;
+    display: flex; width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box;
     align-items: center; justify-content: center; padding: 0;
     border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent;
-    color: var(--text2); font-size: .8rem; transition: border-color .18s ease, background-color .18s ease, color .18s ease;
+    color: var(--text2); font-size: .8rem; touch-action: manipulation;
+    transition: border-color .18s ease, background-color .18s ease, color .18s ease;
   }
   .aurora-shell .add-bill-calendar-day:hover { border-color: var(--border-h); background: var(--accent-dim); color: var(--accent); }
+  .aurora-shell .add-bill-calendar-day:active { background: var(--accent-dim); }
   .aurora-shell .add-bill-calendar-day[data-outside-month='true'] { color: var(--text3); }
   .aurora-shell .add-bill-calendar-day[data-today='true'] { border-color: var(--accent); color: var(--accent); }
   .aurora-shell .add-bill-calendar-day[data-selected='true'] {
     border-color: var(--accent); background: var(--accent); color: var(--accent-contrast); font-weight: 700;
   }
   .aurora-shell .add-bill-calendar-day[data-selected='true']:hover { background: var(--accent-h); border-color: var(--accent-h); color: var(--accent-contrast); }
+  .aurora-shell .add-bill-calendar-day[data-selected='true']:active { background: var(--accent-h); border-color: var(--accent-h); color: var(--accent-contrast); }
 
   .profile-input, .profile-input-danger {
     display: block; min-height: 42px; background: var(--bg-card); color: var(--text); outline: none;
