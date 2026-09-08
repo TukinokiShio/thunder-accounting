@@ -119,6 +119,11 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
   ).map((s) => ({ value: s, label: s }))
   const selectedCat2: Option | null = cat2Options.find((o) => o.value === category2) || null
   const menuPlacement = typeof window !== 'undefined' && window.innerHeight <= 600 ? 'top' : 'bottom'
+  // Layout 将主题变量挂在 .aurora-shell 上；Portal 到 body 会让菜单继承根节点的浅色变量。
+  // 将菜单挂到主题 shell 内，既保留 fixed 定位，也让深浅主题 token 与弹窗保持一致。
+  const menuPortalTarget = typeof document !== 'undefined'
+    ? document.querySelector<HTMLElement>('.aurora-shell') ?? document.body
+    : undefined
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row add-bill-category-select">
@@ -129,7 +134,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
         onChange={(opt) => onCategory1Change(opt?.value || '')}
         placeholder={t('选择一级分类')}
         isClearable={false}
-        menuPortalTarget={document.body}
+        menuPortalTarget={menuPortalTarget}
         menuPosition="fixed"
         menuPlacement={menuPlacement}
         styles={SELECT_STYLES}
@@ -146,7 +151,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
         placeholder={t('选择二级分类')}
         isClearable={false}
         isDisabled={!category1}
-        menuPortalTarget={document.body}
+        menuPortalTarget={menuPortalTarget}
         menuPosition="fixed"
         menuPlacement={menuPlacement}
         styles={SELECT_STYLES}

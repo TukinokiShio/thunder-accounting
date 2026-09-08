@@ -4,6 +4,7 @@ import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
 import { CategorySelect } from './CategorySelect'
+import { AddBillDatePicker } from './AddBillDatePicker'
 import type { AddBillForm } from '@/types'
 
 /**
@@ -180,11 +181,14 @@ export function AddBillDialog() {
     }
 
     if (e.key === 'Tab') {
-      const focusable = Array.from(
-        e.currentTarget.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-      )
+      const focusableSelector =
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      const focusable = [
+        ...Array.from(e.currentTarget.querySelectorAll<HTMLElement>(focusableSelector)),
+        ...Array.from(document.querySelectorAll<HTMLElement>(
+          '.add-bill-date-popover button:not([disabled]), .add-bill-date-popover [tabindex]:not([tabindex="-1"])'
+        )),
+      ].filter((element, index, elements) => elements.indexOf(element) === index)
       if (focusable.length === 0) {
         e.preventDefault()
         return
@@ -303,12 +307,10 @@ export function AddBillDialog() {
           {/* 日期选择 */}
           <div>
             <label htmlFor="add-bill-date" className="block text-sm font-medium text-gray-700 mb-1">{t('日期')}</label>
-            <input
+            <AddBillDatePicker
               id="add-bill-date"
-              type="date"
               value={form.date}
-              onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value }))}
-              className="input-field"
+              onChange={(date) => setForm(prev => ({ ...prev, date }))}
             />
           </div>
 

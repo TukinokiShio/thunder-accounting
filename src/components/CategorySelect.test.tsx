@@ -186,4 +186,22 @@ describe('CategorySelect (react-select)', () => {
     // Should not find expense category in income type
     expect(screen.queryByText('🍽️ 餐饮食品')).not.toBeInTheDocument()
   })
+
+  it('keeps the portal menu inside the themed shell', async () => {
+    const user = userEvent.setup()
+    const shell = document.createElement('div')
+    shell.className = 'dark aurora-shell'
+    document.body.appendChild(shell)
+
+    const { unmount } = render(
+      <CategorySelect category1="" category2="" type="expense"
+        onCategory1Change={() => {}} onCategory2Change={() => {}} />
+    )
+    await user.click(screen.getAllByRole('combobox')[0])
+
+    expect(document.querySelector('.rs__menu')?.closest('.aurora-shell')).toBe(shell)
+
+    unmount()
+    shell.remove()
+  })
 })

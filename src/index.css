@@ -236,6 +236,48 @@
     .aurora-shell .add-bill-category-select > * { width: auto; }
   }
 
+  /* 记一笔日期：使用应用内日历，避免 Chromium 原生 date 控件选中年份或套用系统皮肤。 */
+  .aurora-shell .add-bill-date-picker { position: relative; min-width: 0; }
+  .aurora-shell .add-bill-date-input { padding-right: 2.75rem; cursor: pointer; }
+  .aurora-shell .add-bill-date-input[readonly] { cursor: pointer; }
+  .aurora-shell .add-bill-date-icon {
+    position: absolute; top: 50%; right: .85rem; transform: translateY(-50%);
+    color: var(--text2); pointer-events: none;
+  }
+  .aurora-shell .add-bill-date-picker:focus-within .add-bill-date-icon { color: var(--accent); }
+  .aurora-shell .add-bill-date-popover {
+    position: fixed; z-index: 10020; width: min(100%, 22rem);
+    padding: .8rem; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-card); color: var(--text); box-shadow: var(--shadow-dialog);
+  }
+  .aurora-shell .add-bill-calendar-header {
+    display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+    margin-bottom: .65rem;
+  }
+  .aurora-shell .add-bill-calendar-month { min-width: 0; flex: 1; text-align: center; color: var(--text); font-size: .9rem; }
+  .aurora-shell .add-bill-calendar-nav {
+    display: inline-flex; min-width: 32px; min-height: 32px; align-items: center; justify-content: center;
+    border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text2);
+  }
+  .aurora-shell .add-bill-calendar-nav:hover { border-color: var(--border); background: var(--accent-dim); color: var(--accent); }
+  .aurora-shell .add-bill-calendar-weekdays,
+  .aurora-shell .add-bill-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .25rem; }
+  .aurora-shell .add-bill-calendar-weekdays { margin-bottom: .25rem; color: var(--text3); font-size: .7rem; text-align: center; }
+  .aurora-shell .add-bill-calendar-weekdays span { padding-block: .2rem; }
+  .aurora-shell .add-bill-calendar-cell { min-width: 0; }
+  .aurora-shell .add-bill-calendar-day {
+    display: inline-flex; min-width: 0; min-height: 30px; align-items: center; justify-content: center;
+    border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent;
+    color: var(--text2); font-size: .8rem; transition: border-color .18s ease, background-color .18s ease, color .18s ease;
+  }
+  .aurora-shell .add-bill-calendar-day:hover { border-color: var(--border-h); background: var(--accent-dim); color: var(--accent); }
+  .aurora-shell .add-bill-calendar-day[data-outside-month='true'] { color: var(--text3); }
+  .aurora-shell .add-bill-calendar-day[data-today='true'] { border-color: var(--accent); color: var(--accent); }
+  .aurora-shell .add-bill-calendar-day[data-selected='true'] {
+    border-color: var(--accent); background: var(--accent); color: var(--accent-contrast); font-weight: 700;
+  }
+  .aurora-shell .add-bill-calendar-day[data-selected='true']:hover { background: var(--accent-h); border-color: var(--accent-h); color: var(--accent-contrast); }
+
   .profile-input, .profile-input-danger {
     display: block; min-height: 42px; background: var(--bg-card); color: var(--text); outline: none;
     transition: border-color .15s ease, background-color .15s ease, color .15s ease, box-shadow .15s ease;
