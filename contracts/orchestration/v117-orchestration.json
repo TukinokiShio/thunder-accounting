@@ -1,0 +1,82 @@
+{
+  "contract_id": "sacw-orchestration/v1",
+  "run": "v1.17.0",
+  "created_at": "2026-09-12",
+  "execution_form": "multi_agent_supervisor_pipeline",
+  "mode_selection_basis": "单页面 UI 增量、写集收敛（7 文件）、无独立并行模块 → Supervisor 流水线而非黑板/DAG；审查含视觉与明细正确性、无唯一答案 → 辩论收敛（Reviewer 双轴 + Judge）",
+  "roles": [
+    {
+      "role": "Explore",
+      "name": "explore-home-mockup",
+      "status": "done",
+      "duty": "摸底 Home.tsx / ConfirmDialog / Stats 图表范式 / store / i18n / package.json 结构",
+      "inputs": ["src/pages/Home.tsx", "src/components/ConfirmDialog.tsx", "src/pages/Stats.tsx", "src/store/index.ts", "src/i18n/translations.ts", "src/types/index.ts"],
+      "outputs": ["findings.md#环境事实", "findings.md#HOOK_REF"],
+      "summary": {
+        "diff_summary": "无代码改动；产出为摸底结论：卡片为纯展示 div；弹窗范式存在于 ConfirmDialog；环形图范式存在于 Stats.tsx（自定义 Legend 防重叠）；recharts 已装零新依赖",
+        "evidence_paths": ["findings.md", "task_plan.md"],
+        "open_risks": ["工作区 package.json 被截断（P0 阻断）"]
+      }
+    },
+    {
+      "role": "Worker",
+      "name": "worker-p1-dialog",
+      "status": "running",
+      "duty": "P0 修复 package.json 截断 + 版本升至 1.17.0；P1 新建 StatCardDetailDialog.tsx；P2 Home.tsx 接线 + i18n；P3 测试与本地验证",
+      "write_scope": [
+        "package.json",
+        "package-lock.json",
+        "scripts/thunder-setup.iss",
+        "src/components/StatCardDetailDialog.tsx",
+        "src/components/StatCardDetailDialog.test.tsx",
+        "src/pages/Home.tsx",
+        "src/pages/Home.test.tsx",
+        "src/i18n/translations.ts"
+      ],
+      "forbidden_scope": [
+        "main-process/**",
+        "src/store/index.ts",
+        "src/types/index.ts",
+        "src/pages/Stats.tsx",
+        "src/pages/Bills.tsx",
+        "src/index.css",
+        "resources/**",
+        "**/*.db",
+        "Electron app.getPath('userData')"
+      ],
+      "verification": {
+        "vitest": "全量必须全绿",
+        "tsc": "PASS",
+        "version_check": "package.json / package-lock.json / scripts/thunder-setup.iss 三处 = 1.17.0",
+        "scope_check": "git status --short 全部落在 write_scope"
+      },
+      "must_not": ["git add", "git commit", "git push", "打包"]
+    },
+    {
+      "role": "Reviewer",
+      "name": "reviewer-standards-spec",
+      "status": "pending",
+      "duty": "Standards 轴 + Spec 轴 + 安全轴 + UX 轴审查",
+      "independence_requirement": "Reviewer 身份 != Worker 身份（独立子代理）",
+      "outputs": ["contracts/orchestration/v117-reviewer.resp.json"],
+      "required_fields": ["review_verdict{P0..P3 + approve|reject|conditional + rebuttal_refs}"]
+    },
+    {
+      "role": "Judge",
+      "name": "judge-eval",
+      "status": "pending",
+      "duty": "eval_score / quality_score 双门槛独立打分",
+      "independence_requirement": "Judge 身份 != Worker 且 != Reviewer（双盲：不知执行者身份）",
+      "outputs": ["contracts/orchestration/v117-judge.resp.json"],
+      "thresholds": { "eval_score": 90, "quality_score": 70 }
+    }
+  ],
+  "requirement_ledger_ref": "progress.state#requirement_ledger",
+  "invariants": [
+    "弹窗只读，不写库、不改账单/分类",
+    "弹窗汇总金额 == 明细逐笔金额之和（同源同口径）",
+    "卡片 className 零改动",
+    "写集严格限定，越界即回流",
+    "禁止触碰 main-process / *.db / userData"
+  ]
+}

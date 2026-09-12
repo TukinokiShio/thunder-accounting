@@ -3,7 +3,7 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "1.16.9"
+#define AppVersion "1.17.0"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"
@@ -29,6 +29,9 @@ AppPublisherURL={#AppURL}
 DefaultDirName=E:\Code\CodeProduct\thunder-accounting\exe
 ; Inno Setup uses DisableDirPage=no to show the custom installation directory page.
 DisableDirPage=no
+; 关键：Inno 默认 UsePreviousAppDir=yes，静默升级会沿用注册表历史安装目录而绕过 DefaultDirName，
+; 导致新版本被装到旧目录（如 雷霆记账app\_exe）。这里显式关闭，保证始终落到固定验收目录 exe。
+UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 OutputDir={#InstallerOutputDir}
 OutputBaseFilename={#InstallerFileName}

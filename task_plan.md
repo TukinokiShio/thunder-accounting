@@ -1,3 +1,57 @@
+# Thunder Accounting v1.17.0 Task Plan — 首页统计卡片明细弹窗
+
+## 执行形态：多 Agent 编排（KNOWLEDGE_GATE→Explore 摸底；PLAN→Supervisor 汇总；EXEC→Worker 流水线；REVIEW→独立 Reviewer 双轴；EVAL→独立 Judge）——选型依据：单页面 UI 增量、写集收敛（≤6 文件）、无独立并行模块 → Supervisor 流水线而非黑板/DAG；审查含视觉与明细正确性、无唯一答案 → 辩论收敛（Reviewer ≤2 轮 + Judge）。
+
+## 需求（来源：用户指令 + 第一性原理推导）
+
+首页 6 张统计卡片（今日支出 / 本月支出 / 日均支出 / 累计记录 / 本月收入 / 本月结余）点击后弹出对应明细弹窗：
+- 图形化组成拆解（环形图 / 柱状图 / 对比条，按指标语义适配）
+- 逐笔明细列表（用户明确要求"要能看到每一笔"）
+- 卡片本体视觉不变（用户明示已有点击动效）
+
+## 写集（严格边界，越界即回流）
+
+| 文件 | 改动性质 |
+|---|---|
+| `src/components/StatCardDetailDialog.tsx` | 新增（弹窗 + 图表 + 明细） |
+| `src/components/StatCardDetailDialog.test.tsx` | 新增（单测） |
+| `src/pages/Home.tsx` | 最小侵入：卡片 `onClick` + Dialog 渲染 + 传参 |
+| `src/pages/Home.test.tsx` | 增补：点击开弹窗 / Escape 关闭 |
+| `src/i18n/translations.ts` | 新增词条（中英） |
+| `src/index.css` | 仅追加弹窗滚动区/骨架类（如需要） |
+| `package.json` / `package-lock.json` / `scripts/thunder-setup.iss` | 版本 1.16.9 → 1.17.0 |
+| `PRD.md` / `findings.md` / `task_plan.md` / `progress.state` / `progress.log` | 流程产物 |
+
+**禁改（数据安全不变量）**：`main-process/**`、`src/store/index.ts`、`src/types/index.ts`（除非纯新增类型且不改既有签名）、`src/pages/Stats.tsx`、`src/pages/Bills.tsx`、`resources/**`、任何 Electron `userData` 下的 `.db` 文件。禁止读取/迁移/清空/覆盖真实用户数据库。
+
+## 阶段（拓扑排序；无并行分支 → 线性执行）
+
+- **P0 修复阻断**：恢复 `package.json` 完整结构（`scripts` + `devDependencies` + `build`），写回 1.17.0。依赖：无。验证：`git diff package.json` 仅含版本行变更 + `npm run build` 可用。
+- **P1 弹窗组件**：新增 `StatCardDetailDialog.tsx`（6 形态配置表驱动、内部 fetch、只读、三态齐全、token 化）。依赖：P0。验证：单测通过 + 不变量③（明细和 = 汇总）。
+- **P2 首页接线**：`Home.tsx` 卡片 `onClick` + Dialog 渲染；`i18n` 词条。依赖：P1。验证：`Home.test.tsx` 增补用例通过。
+- **P3 质量门**：全量 vitest + `tsc`（node/renderer）+ electron-vite build + `aurora_lint`。依赖：P2。
+- **P4 打包交付**：Clean Build → electron-builder → ISCC → 静默安装到 `exe` → asar 版本校验 + 视觉证据截图。依赖：P3。
+- **P5 审查评估**：独立 Reviewer（Standards + Spec + 安全轴 + UX 轴）→ 独立 Judge（eval_score / quality_score 双门槛）→ 用户验收三证。依赖：P4。
+
+## 关键路径（AOE）
+
+P0 → P1 → P2 → P3 → P4 → P5（线性，无并行路径）
+
+## 反模式清单（防呆）
+
+1. 把 `Home.tsx` 的 `bills`（受 store 筛选影响）直接当作弹窗数据源 → 必须弹窗内自行按明确日期范围 fetch
+2. 卡片汇总与弹窗汇总口径不一致（漏 type 过滤 / 漏日期边界）
+3. 环形图用 inline label → 标签重叠（项目已验证用自定义 Legend 规避）
+4. 引入外部 UI 库 / 新 npm 依赖
+5. 触碰 `main-process` 或 `userData` 数据库
+6. 忘记 `package.json` 结构完整性（本轮已发现被截断）
+
+## 人为终审点
+
+PLAN 终审（计划 + HOOK 检索结果 + 第一性原理推导）→ 用户确认后进入 EXEC。
+
+---
+
 # Thunder Accounting v1.16.0 Task Plan
 
 ## v1.16.1 增量收口

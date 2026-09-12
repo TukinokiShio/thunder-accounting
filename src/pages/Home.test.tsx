@@ -1,21 +1,14 @@
 /**
  * Home 页面（仪表盘）组件测试。
- * 验证统计卡片、账单列表、空状态展示。
+ * 验证统计卡片、账单列表、空状态展示、卡片明细弹窗。
+ * 注意：Home 已改为自查数据（不读 store.bills），所有账单 fixture 通过 getBills mock 注入。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { Home } from './Home';
 
 // ─── Mock 状态（模块级可变引用，mock factory 通过闭包捕获）───
-const mockRefreshBills = vi.fn().mockResolvedValue(undefined);
-
-const storeState: {
-  bills: any[];
-  refreshBills: typeof mockRefreshBills;
-  refreshTrigger: number;
-} = {
-  bills: [],
-  refreshBills: mockRefreshBills,
+const storeState: { refreshTrigger: number } = {
   refreshTrigger: 0,
 };
 
@@ -33,20 +26,70 @@ vi.mock('@/i18n/LanguageContext', () => ({
   LanguageProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-function mockElectronAPI(statsOverride?: any) {
+let seq = 0;
+function mkBill(over: Record<string, unknown> = {}) {
+  seq += 1;
+  return {
+    id: seq,
+    date: '2026-07-27',
+    type: 'expense' as 'expense' | 'income',
+    amount: 0,
+    category1: '餐饮',
+    category2: '午餐',
+    note: '',
+    created_at: '2026-07-27',
+    ...over,
+  };
+}
+
+/** 生成当前月份的某一天（yyyy-MM-dd），用于让账单落入本月区间 */
+function currentMonthDate(day: number) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-${String(day).padStart(2, '0')}`;
+}
+
+interface MockOpts {
+  statsOverride?: any;
+  todayBills?: any[];
+  monthBills?: any[];
+  allBills?: any[];
+}
+
+/**
+ * getBills 按入参区分返回：
+ * - 无参 → allBills（首页自查全量）
+ * - startDate === endDate → todayBills（弹窗今日查询）
+ * - 其它区间 → monthBills（弹窗本月查询）
+ */
+function mockElectronAPI(opts: MockOpts = {}) {
+  const stats = opts.statsOverride ?? {
+    totalAmount: 0,
+    count: 0,
+    byCategory1: [],
+    byCategory2: [],
+    byDate: [],
+  };
+  const allBills = opts.allBills ?? [];
+  const monthBills = opts.monthBills ?? allBills;
+  const todayBills = opts.todayBills ?? [];
   (window as any).electronAPI = {
-    getStats: vi.fn().mockResolvedValue(
-      statsOverride ?? { totalAmount: 0, count: 0, byCategory2: [] }
-    ),
+    getStats: vi.fn().mockResolvedValue(stats),
+    getBills: vi.fn().mockImplementation((filters?: { startDate?: string; endDate?: string }) => {
+      if (filters && filters.startDate && filters.endDate) {
+        if (filters.startDate === filters.endDate) return Promise.resolve(todayBills);
+        return Promise.resolve(monthBills);
+      }
+      return Promise.resolve(allBills);
+    }),
   };
 }
 
 describe('Home', () => {
   beforeEach(() => {
-    storeState.bills = [];
+    seq = 0;
     storeState.refreshTrigger = 0;
-    mockRefreshBills.mockClear();
-    mockRefreshBills.mockResolvedValue(undefined);
     mockElectronAPI();
   });
 
@@ -63,55 +106,34 @@ describe('Home', () => {
   });
 
   // ─── 2. 无账单数据时显示空状态消息 ───
-  it('should show empty state message when there are no bills', () => {
+  it('should show empty state message when there are no bills', async () => {
     render(<Home />);
 
-    expect(
-      screen.getByText('暂无记录，点击右上角"记一笔"开始记账')
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText('暂无记录，点击右上角"记一笔"开始记账')
+      ).toBeInTheDocument();
+    });
   });
 
   // ─── 3. 无分类数据时显示"暂无数据" ───
-  it('should show "暂无数据" for top categories when no data', () => {
+  it('should show "暂无数据" for top categories when no data', async () => {
     render(<Home />);
 
-    expect(screen.getByText('暂无数据')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('暂无数据')).toBeInTheDocument();
+    });
   });
 
   // ─── 4. 有账单数据时渲染账单列表项 ───
   it('should render bill list items when bills exist', async () => {
-    storeState.bills = [
-      {
-        id: 1,
-        date: '2026-07-27',
-        type: 'expense',
-        amount: 58.5,
-        category1: '餐饮',
-        category2: '午餐',
-        note: '',
-        created_at: '2026-07-27',
-      },
-      {
-        id: 2,
-        date: '2026-07-27',
-        type: 'income',
-        amount: 10000,
-        category1: '工资',
-        category2: '月薪',
-        note: '',
-        created_at: '2026-07-27',
-      },
-      {
-        id: 3,
-        date: '2026-07-26',
-        type: 'expense',
-        amount: 35,
-        category1: '交通',
-        category2: '地铁',
-        note: '',
-        created_at: '2026-07-26',
-      },
-    ];
+    mockElectronAPI({
+      allBills: [
+        mkBill({ date: '2026-07-27', type: 'expense', amount: 58.5, category1: '餐饮', category2: '午餐' }),
+        mkBill({ date: '2026-07-27', type: 'income', amount: 10000, category1: '工资', category2: '月薪' }),
+        mkBill({ date: '2026-07-26', type: 'expense', amount: 35, category1: '交通', category2: '地铁' }),
+      ],
+    });
 
     render(<Home />);
 
@@ -125,28 +147,12 @@ describe('Home', () => {
 
   // ─── 5. 收入显示绿色 "+¥"，支出显示红色 "-¥" ───
   it('should render income in green and expense in red', async () => {
-    storeState.bills = [
-      {
-        id: 1,
-        date: '2026-07-27',
-        type: 'expense',
-        amount: 100,
-        category1: '餐饮',
-        category2: '午餐',
-        note: '',
-        created_at: '2026-07-27',
-      },
-      {
-        id: 2,
-        date: '2026-07-27',
-        type: 'income',
-        amount: 500,
-        category1: '兼职',
-        category2: '项目',
-        note: '',
-        created_at: '2026-07-27',
-      },
-    ];
+    mockElectronAPI({
+      allBills: [
+        mkBill({ date: '2026-07-27', type: 'expense', amount: 100, category1: '餐饮', category2: '午餐' }),
+        mkBill({ date: '2026-07-27', type: 'income', amount: 500, category1: '兼职', category2: '项目' }),
+      ],
+    });
 
     render(<Home />);
 
@@ -161,63 +167,67 @@ describe('Home', () => {
     expect(expenseEl.className).toContain('text-red');
   });
 
-  // ─── 6. 边界：bills 为空数组时页面不崩溃 ───
-  it('should not crash when bills array is empty', () => {
-    storeState.bills = [];
+  // ─── 6. 边界：无账单时页面不崩溃 ───
+  it('should not crash when bills array is empty', async () => {
+    mockElectronAPI({ allBills: [] });
 
     expect(() => render(<Home />)).not.toThrow();
 
-    // 空列表应渲染空状态信息
-    expect(
-      screen.getByText('暂无记录，点击右上角"记一笔"开始记账')
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText('暂无记录，点击右上角"记一笔"开始记账')
+      ).toBeInTheDocument();
+    });
   });
 
-  // ─── 7. 挂载时 refreshBills 被调用 ───
-  it('should call refreshBills on mount', async () => {
+  // ─── 7. 挂载时 getBills 与 getStats 均被调用（自查数据） ───
+  it('should call getBills and getStats on mount', async () => {
     render(<Home />);
 
     await waitFor(() => {
-      expect(mockRefreshBills).toHaveBeenCalledTimes(1);
+      expect((window as any).electronAPI.getBills).toHaveBeenCalled();
+      expect((window as any).electronAPI.getStats).toHaveBeenCalled();
     });
   });
 
   // ─── 8. 边界：大量账单数据正确渲染所有条目 ───
   it('should render all bills when there are many records', async () => {
-    storeState.bills = Array.from({ length: 10 }, (_, i) => ({
-      id: i + 1,
-      date: `2026-07-${String(20 + i).padStart(2, '0')}`,
-      type: i % 2 === 0 ? 'expense' : 'income',
-      amount: (i + 1) * 50,
-      category1: i % 2 === 0 ? '餐饮' : '兼职',
-      category2: i % 2 === 0 ? '晚餐' : '项目',
-      note: '',
-      created_at: `2026-07-${String(20 + i).padStart(2, '0')}`,
-    }));
+    mockElectronAPI({
+      allBills: Array.from({ length: 10 }, (_, i) =>
+        mkBill({
+          date: `2026-07-${String(20 + i).padStart(2, '0')}`,
+          type: i % 2 === 0 ? 'expense' : 'income',
+          amount: (i + 1) * 50,
+          category1: i % 2 === 0 ? '餐饮' : '兼职',
+          category2: i % 2 === 0 ? '晚餐' : '项目',
+        })
+      ),
+    });
 
     render(<Home />);
 
     await waitFor(() => {
-      // Home 组件中 recentBills = bills（未做 slice 限制），全部 bill 应出现
       const billEntries = screen.getAllByText(/晚餐|项目/);
       expect(billEntries.length).toBeGreaterThanOrEqual(5);
     });
   });
 
-  // ─── 9. 分类 Top 5 数据渲染（扩展用例） ───
+  // ─── 9. 分类 Top 5 数据渲染 ───
   it('should render top 5 category breakdown when stats data is available', async () => {
     mockElectronAPI({
-      totalAmount: 5000,
-      count: 10,
-      byCategory2: [
-        { category1: '餐饮', category2: '午餐', total: 2000, count: 5 },
-        { category1: '交通', category2: '地铁', total: 1500, count: 3 },
-        { category1: '购物', category2: '衣服', total: 1000, count: 1 },
-        { category1: '娱乐', category2: '电影', total: 500, count: 1 },
-      ],
+      statsOverride: {
+        totalAmount: 5000,
+        count: 10,
+        byCategory1: [],
+        byDate: [],
+        byCategory2: [
+          { category1: '餐饮', category2: '午餐', total: 2000, count: 5 },
+          { category1: '交通', category2: '地铁', total: 1500, count: 3 },
+          { category1: '购物', category2: '衣服', total: 1000, count: 1 },
+          { category1: '娱乐', category2: '电影', total: 500, count: 1 },
+        ],
+      },
     });
-    // 重新触发 stats 加载需要递增 refreshTrigger
-    storeState.refreshTrigger = 1;
 
     render(<Home />);
 
@@ -225,5 +235,67 @@ describe('Home', () => {
       expect(screen.getByText(/1\. 餐饮 · 午餐/)).toBeInTheDocument();
       expect(screen.getByText(/2\. 交通 · 地铁/)).toBeInTheDocument();
     });
+  });
+
+  // ─── 10. 点击「本月支出」卡片打开明细弹窗 ───
+  it('should open detail dialog when a stat card is clicked', async () => {
+    render(<Home />);
+
+    const card = screen.getByRole('button', { name: '查看明细 本月支出' });
+    fireEvent.click(card);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+  });
+
+  // ─── 11. 弹窗打开后按 Escape 关闭 ───
+  it('should close detail dialog when Escape is pressed', async () => {
+    render(<Home />);
+
+    fireEvent.click(screen.getByRole('button', { name: '查看明细 今日支出' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  // ─── 12. 「累计记录」口径 = 本月全部账单数（含收入），卡片值与弹窗大字一致 ───
+  it('should show all-bill count (income + expense) for 累计记录 card and dialog', async () => {
+    const monthFixture = [
+      mkBill({ date: currentMonthDate(3), type: 'expense', amount: 100 }),
+      mkBill({ date: currentMonthDate(4), type: 'expense', amount: 50 }),
+      mkBill({ date: currentMonthDate(5), type: 'income', amount: 800 }),
+      mkBill({ date: currentMonthDate(6), type: 'income', amount: 200 }),
+      mkBill({ date: currentMonthDate(7), type: 'income', amount: 20 }),
+    ]; // 合计 5 笔（2 支出 + 3 收入）
+
+    mockElectronAPI({
+      allBills: monthFixture,
+      monthBills: monthFixture,
+      todayBills: [],
+      // stats.count 仅计支出（2），用于证明「累计记录」显示的是全部（5）而非支出（2）
+      statsOverride: { totalAmount: 150, count: 2, byCategory1: [], byCategory2: [], byDate: [] },
+    });
+
+    render(<Home />);
+
+    const card = screen.getByRole('button', { name: '查看明细 累计记录' });
+    await waitFor(() => {
+      expect(within(card).getByText('5')).toBeInTheDocument();
+    });
+    // 非支出笔数 2
+    expect(within(card).queryByText('2')).toBeNull();
+
+    fireEvent.click(card);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stat-dialog-total')).toBeInTheDocument();
+    });
+    // 弹窗大字与卡片值同源一致 = 「5 笔」
+    expect(screen.getByTestId('stat-dialog-total').textContent).toBe('5 笔');
   });
 });

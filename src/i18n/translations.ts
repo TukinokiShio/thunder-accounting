@@ -47,6 +47,18 @@ export const T: Record<string, string> = {
   '本月支出分类 Top 5': 'Top 5 Expense Categories',
   '暂无数据': 'No data',
 
+  // ── 卡片明细弹窗 ──
+  '查看明细': 'View details',
+  '分类占比': 'Category share',
+  '本月收支构成': 'Income vs expense',
+  '计算过程': 'Calculation',
+  '已过天数': 'days elapsed',
+  '日均': 'Daily average',
+  '每日合计': 'Daily totals',
+  '合计': 'Total',
+  '加载失败，请重试': 'Failed to load, please retry',
+  '暂无记录': 'No records',
+
   // ── 账单页 ──
   '搜索账单...': 'Search bills...',
   '全部分类': 'All Categories',

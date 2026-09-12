@@ -1,3 +1,175 @@
+# SACW Findings — v1.17.0 首页统计卡片明细弹窗
+
+## 任务分类：实质任务
+口诀「要不要先画计划才敢动手」→ **要**。新增用户可见功能（新组件 + 环形图 + i18n + 测试 + 打包验收），且属**增量任务**（项目已有 PRD.md / progress.state / 项目级 skills / wiki）。UI 任务 → 走完整状态机，**不适用简化档**（简化档仅限非 UI）。
+
+## 执行形态：多 Agent 编排（KNOWLEDGE_GATE→Explore；PLAN→Supervisor 汇总；EXEC→Worker 流水线；REVIEW→独立 Reviewer 双轴；EVAL→独立 Judge）——选型依据：单页面 UI 增量、写集收敛（≤6 文件）、无独立并行模块、需求已由用户明确 → **Supervisor 流水线**而非黑板/DAG；审查含视觉与明细正确性、无唯一答案 → **辩论收敛**。子代理不可用时按 PAUSED/BLOCKED 处理并记录，不伪造回执。
+
+## 环境事实
+- 受管 Python `C:\Users\d8502\.workbuddy\binaries\python\versions\3.13.12\python.exe`；Node 22.12.0（managed）
+- 项目根 `E:\Code\CodeProduct\thunder-accounting`；构建 electron-vite → `app-out/`；打包 Inno `scripts/thunder-setup.iss`
+- 既有工件：PRD.md（v1.16.x）、DESIGN.md（Aurora round-3）、CONTEXT.md、项目级 skills（inno-packager / expense-entry / strict-coding-workflow）
+- **P0 阻断发现（本轮新增）**：工作区 `package.json` 被截断——`scripts` / `devDependencies` / `build` 三段被删除且未提交（`git diff` 实锤），当前直接构建/打包必然失败。修复方式 = 恢复结构 + 写回 v1.17.0。
+
+## KNOWLEDGE_GATE
+- 项目级 skill：有（`.workbuddy/skills/`，本轮复用 inno-packager 打包链路）
+- 项目 wiki：有（`wiki/index.md` + `wiki/错误精粹.md`；错误精粹当前仅含模板，0 条历史条目）
+- 生态知识库：`E:\Code\shio-al-ecosystem\wiki\`（错误精粹 149KB / 成功方案 64KB / 心智模型 15KB）
+- 历史错误命中：sql.js `db.export()` 重置 `last_insert_rowid`、`convertNamedParams` 只认 `@name` —— 本轮**不触碰 DB 层**，风险=0
+- 本轮新增踩坑（待写入项目 wiki）：package.json 结构被截断 → 版本升级前后必须 `git diff package.json` 确认结构完整
+
+## PRD_GATE
+- 采用现有 PRD.md，追加「v1.17.0 增量变更」章节（含范围/验收/数据安全不变量/失败路径四要素）
+- 需求澄清（Qx/3，用户已答）：
+  - **Q1 弹窗内容** → 用户：「要能看到今天的每一笔支出，最好用环形图等图形直观展示，其他卡片同理」
+  - **Q2 交互深度** → 用户：「看情况，你认为怎样优化能最大程度提高 UX，可加载 first-principle 辅助」
+  - **Q3 卡片视觉提示** → 用户：「这六个卡片已有点击动效了，可以不改」
+- 🔵 Q2 由第一性原理推导后回填（见下），并在 PLAN 终审点请用户确认
+- 🔶 Assumption：日均支出 / 本月结余属**派生指标**（公式值）而非记录集合，环形图语义不成立 → 改用各自适配图形
+
+## HOOK_REF（reference-first-dev）
+检索顺序：本地模板库 → 包仓库 → GitHub。
+- 本地模板库 `E:\Code\shio-al-ecosystem\UI\UI-Template\`：`cards/` 7 个（音乐播放器 / 动态模糊选择 / 卡片光影 / 发光边框 / 按钮点击 / 翻转页面 / 菜单）、`patterns/` 1 个（动态鼠标路径）→ **无「统计卡片 → 明细弹窗」对口模板**
+- 项目内既有实现（最高优先且已验证）：`ConfirmDialog.tsx`（`role=dialog` + focus trap + Escape + `.aurora-dialog`）；`Stats.tsx` 环形图（token 调色板 `COLORS` + 自定义 `renderLegend` 规避标签重叠 + 自定义 `renderTooltip`）
+- 依赖：`recharts ^2.15.0` 已在项目内 → 环形图 **零新依赖**
+- **采纳结论**：复用项目内既有 dialog + chart 范式，不引外部模板/依赖；`Stats.tsx` 保持**只读不改**（限制修改范围）
+- 台账三段式：参考了什么 = 项目内 ConfirmDialog + Stats.tsx 环形图；落地程度 = 完整复用（结构 + token + 配色思路）；降级原因 = 无
+
+## HOOK_UI
+- 平台：Electron + React（Web 渲染层）→ 以 `aurora-shio-apple-design-system` 为权威规范；项目已按 Aurora round-3 编译（DESIGN.md：light = paper/ink/gold，dark = charcoal/night/gold）
+- 关键约束：颜色只消费语义 token（`--bg-card`/`--border`/`--text`/`--text2`/`--accent`），禁止 raw blue / Material 蓝 / 渐变 / 衬线字体；1px 暖色边框；紧凑圆角；焦点态可见
+- 分层落地：L1 = 规范核对（token 白名单）；L2 = 组件态（弹窗 default/loading/empty/error）；L3 = 弹窗内滚动区与三档宽度
+- 视觉方案用户确认：**卡片本体不动**（用户明示已有点击动效）；仅新增弹窗 → 在 PLAN 终审点一并确认
+- 待执行：`aurora_lint.py`
+
+## HOOK_ERR（error-memory-loop）
+- claude-mem MCP 本会话未暴露 → **换路**（非免做）：读项目 `wiki/错误精粹.md`（仅模板，0 条）+ 生态 `wiki/错误精粹.md`（chart / recharts / 弹窗 / z-index 关键词命中 0 条）
+- 分级注入：无 P0/P1 命中 → 本轮不注入禁止项；沿用 `.workbuddy/memory/MEMORY.md` 第五节《踩坑精粹》
+
+## 第一性原理分析（first-principle，Q2 推导依据）
+
+### Goal / Outcome
+点击 6 张统计卡片任意一张 → 弹窗回答两件事：**这个数字怎么算出来的**（组成拆解，图形化）+ **具体是哪些记录**（逐笔可追溯）。
+
+### Facts（已确认）
+- 6 张卡片分两类：
+  - **集合型**：今日支出 / 本月支出 / 本月收入 / 累计记录 → 对应一组账单记录
+  - **派生型**：日均支出（本月支出 ÷ 已过天数）/ 本月结余（本月收入 − 本月支出）→ 对应一个公式，不是记录集合
+- 现有 API 足够：`getBills({startDate,endDate})`（明细）+ `getStats(start,end,type)`（byCategory1/2、byDate 聚合）
+- recharts 已装；弹窗范式与 Design Token 已具备
+
+### Invariants（不变量，硬约束）
+1. **只读**：弹窗不写库、不改账单/分类（用户红线「禁止修改用户数据」）
+2. **同源同口径**：弹窗顶部汇总必须与卡片数字完全一致（同日期范围 + 同 type）
+3. **可加和**：明细金额之和 = 汇总金额（不允许"汇总 ¥2418.74、明细加起来不等于"）
+4. **不回归**：卡片布局/动效/深色主题不变；`Stats.tsx`、`Bills.tsx` 等既有页面零改动
+5. **i18n 完整**：新增文案中英双语齐备
+
+### Minimal Complete Mechanism（最小完整机制）
+1. 新组件 `src/components/StatCardDetailDialog.tsx`（受控 `open / cardKey / onClose`，**内部自己 fetch**，不污染 store、不新增 IPC）
+2. **一张「卡片 → 内容形态」配置表**驱动 6 种形态（避免 6 个组件 / 6 个分支组件）
+3. `Home.tsx` 最小侵入：加 `useState<CardKey|null>` + 卡片 `onClick` + 渲染 Dialog
+4. 复用 recharts 环形图 + `.aurora-dialog` + Stats.tsx 的 token 调色板与自定义 Legend/Tooltip 思路
+
+### 6 张卡片内容形态（推导结果）
+| 卡片 | 图形（回答"哪一类"） | 明细（回答"哪几笔"） |
+|---|---|---|
+| 今日支出 | 环形图：今日各分类占比 | 今日逐笔支出 |
+| 本月支出 | 环形图：本月各分类占比 | 本月逐笔支出 |
+| 日均支出 | 柱状图：本月每日支出趋势（派生值无分类构成） | 每日合计 + 环比解释 |
+| 累计记录 | 环形图：本月支出/收入构成 | 本月全部逐笔（可滚动） |
+| 本月收入 | 环形图：本月收入分类占比 | 本月逐笔收入 |
+| 本月结余 | 对比条：收入 vs 支出 | 计算式（收入 − 支出 = 结余）+ 两侧汇总 |
+
+### 交互深度（用户委托判断的结论）
+- **明细只读、不内嵌编辑**。理由：① 编辑入口已有两处（账单页 + 卡片外「记一笔」），第三处属功能重复而非 UX 提升；② 用户红线是限制修改范围；③ 弹窗职责单一 = "解释数字"，认知负担最低
+- 关闭方式：X 按钮 / Escape / 点击遮罩；打开时锁定背景滚动
+- 键盘可达：Escape 关闭、焦点管理与 `ConfirmDialog` 一致、`aria-modal` + `aria-labelledby`
+- 三态：加载（占位）、空（「暂无记录」）、错误（可关闭提示）
+
+### Explicit Non-goals
+不新增 IPC 通道；不改数据库 / CloudBase / 认证 / store 持久化；不做图表第二层下钻；不做导出；不做跨月切换器；不改卡片本体视觉。
+
+### Evidence Plan
+- 单测 `StatCardDetailDialog.test.tsx`：6 卡片内容形态、空态、**不变量③（明细和 = 汇总）**
+- `Home.test.tsx` 增补：点击卡片 → 弹窗出现 → Escape 关闭
+- 全量 vitest + tsc + electron-vite build + Inno 打包 + 固定目录安装 + asar 版本校验
+- 视觉证据：浅色/深色 × 弹窗开/关截图
+
+---
+
+## PLAN 终审回执（用户答复，v1.17.0）
+
+| 问题 | 用户答复 | 对方案的影响 |
+|---|---|---|
+| 方案是否确认 | 「不要改原有布局，这是加内容、加功能，额外弹窗的效果我认为更好」 | **批准进入 EXEC**。卡片 DOM 的 class/style **零改动**，仅追加 `onClick`/`role`/`tabIndex`/键盘处理；弹窗为**独立叠加层** |
+| 日均/结余图形适配 | 「用图表的目的是更直观、显著提高 UX。日均支出可以考虑怎样直观地显示**计算过程**，本月结余可以用**进度条**显示。用第一性原理就是要独立思考、明辨是非、灵活变通」 | 修正设计：**日均支出 = 显式公式拆解 + 每日支出柱状图**（公式：本月支出 ÷ 已过天数 = 日均）；**本月结余 = 进度条**（支出/收入占比）+ 计算式。「环形图」不再是硬性要求，以"最直观"为唯一判据 |
+
+### 最终 6 形态（EXEC 执行基准）
+
+| 卡片 | 图形 | 明细 |
+|---|---|---|
+| 今日支出 | 环形图（今日各一级分类占比，单笔时为 100% 单扇区） | 今日逐笔支出 |
+| 本月支出 | 环形图（本月各一级分类占比） | 本月逐笔支出（滚动） |
+| 日均支出 | **公式条**（本月支出 ÷ 已过 N 天 = 日均）+ **每日支出柱状图** | 每日合计（日期 / 笔数 / 金额） |
+| 累计记录 | 环形图（本月支出 vs 收入构成） | 本月全部逐笔（滚动） |
+| 本月收入 | 环形图（本月各收入分类占比） | 本月逐笔收入 |
+| 本月结余 | **进度条**（支出占收入比例 + 收入基线）+ 计算式 | 收入侧 / 支出侧汇总 |
+
+---
+
+## EXEC 回执（Worker `worker-p1-dialog`，两轮）
+
+| 轮次 | 内容 | 验证 |
+|---|---|---|
+| 第 1 轮 | P0 修复 `package.json` 截断 + 版本升 1.17.0；P1 新建 `StatCardDetailDialog.tsx`；P2 `Home.tsx` 接线 + i18n；P3 测试 | vitest 29 文件 / 261 用例全绿 |
+| 第 2 轮（Supervisor 复核后退出） | 修正 1：`monthRecords` 大字改为笔数 + 金额拆解块；修正 2：消除 4 个未使用 i18n 键、改为分区小标题 | vitest 261 全绿 |
+| 第 3 轮（Reviewer conditional 后退出） | 修正 A/B：累计记录口径统一 + 首页数据自查；修正 C：dailyAvg 数值断言；修正 D：aria-label 半角；修正 E：补 monthIncome 覆盖 | vitest 29 文件 / **263 用例全绿** |
+
+## REVIEW 回执（独立 Reviewer `reviewer-v117`，双轴 + 安全轴 + UX 轴）
+
+- **第 1 轮 `verdict: conditional`** —— 完整回执见 `contracts/orchestration/v117-reviewer.resp.json`
+  - P1：`monthRecords` 弹窗汇总与卡片数字不一致（卡片=支出笔数 40，弹窗=全部账单数 41）→ **Supervisor 独立复核确认为实锤**（读 `Home.tsx:37,67,114`）
+  - P2：`todayExpense` 弹窗与卡片非同源（卡片用 `store.bills` 受 Bills 页筛选污染）→ 已复核（读 `Bills.tsx:42,64-66` + `store/index.ts:96-117`）
+  - P2：dailyAvg 用例为弱断言（`toContain`），违反项目已记录纪律
+  - P3 ×3：`Home.tsx` 卡片文案与取值不符、`monthIncome` 无测试覆盖、`aria-label` 全角冒号
+  - Reviewer 做了 7 次证伪尝试，其中 2 次推翻（monthRecords 不一致、todayExpense 条件性不一致）
+- **第 2 轮 `re_verdict: approve`** —— 5 项全部 resolved，无新回归；额外验证修正 B 最大回归风险点（CRUD 后首页仍会刷新，证据链完整）
+
+### Supervisor 承担的决定（超出 Reviewer 权限）
+
+两项真实产品口径冲突上交用户拍板，未擅自改既有卡片数字：
+1. 「累计记录」口径 → 用户选 **修正卡片为全部账单数**
+2. 首页筛选失真（既有缺陷）→ 用户选 **一并修**
+
+## 交付验证（Supervisor 实机验证，非转述）
+
+| 验收项 | 实测值 | 结论 |
+|---|---|---|
+| 全量测试（Supervisor 亲自重跑） | 29 文件 / 263 用例通过，exit 0 | ✅ |
+| `release/win-unpacked/resources/app.asar` | version = 1.17.0 | ✅ |
+| `exe/resources/app.asar`（AGENTS.md 固定验收目录） | version = **1.17.0**，102,229,417 字节 | ✅ |
+| 注册表 `DisplayVersion` | 1.17.0 | ✅ |
+| 注册表 `InstallLocation` | `E:\Code\CodeProduct\thunder-accounting\exe\` | ✅ |
+| 桌面快捷方式 | `D:\Users\d8502\Desktop\雷霆记账.lnk` 16:16 重建 | ✅ |
+| 开始菜单快捷方式 | 16:16 重建 | ✅ |
+| 卡片 `className` | `git diff` 逐字符未变 | ✅ |
+| 写集边界 | `git status` 全部落在写集内；无 `*.db`、无 `main-process/**` | ✅ |
+
+### 交付过程中发现并修复的两个阻断/缺陷
+
+1. **P0 阻断（开工前发现）**：工作区 `package.json` 被截断（`scripts` / `devDependencies` / `build` 三段丢失且未提交）→ 已用 `git show HEAD:package.json` 为基准恢复，恢复后 `git diff` 仅剩 version 行。记为 `wiki/错误精粹.md KI-2026-09-12-001`。
+2. **P1 交付缺陷（安装后验证才发现）**：Inno `UsePreviousAppDir` 默认 yes，首次静默安装把 1.17.0 装进了**历史目录** `雷霆记账app\_exe`，而 `exe\` 仍是 1.16.9 —— 且 `INSTALL_EXIT=0` 掩盖了这一点。已在 `.iss` 显式加 `UsePreviousAppDir=no`，重编 ISCC 并重装后落点正确。记为 `wiki/错误精粹.md KI-2026-09-12-002`，并已同步修正项目级 `inno-packager` skill（含 3 处过时路径 + 该致命指令缺失）。
+
+### 数据安全（用户红线）
+
+- 全程**未读写、未迁移、未删除**任何用户数据库；未启动过 App（因此未触发 sql.js 的库打开/迁移路径）
+- 已对 `%APPDATA%\thunder-accounting` 做完整备份：**130/130 文件 sha256 一致，0 不一致、0 缺失**，备份位于 `C:\Users\d8502\thunder-accounting-userdata-backup-20260912-1606\`
+- 唯一删除操作：`rm -rf app-out dist node_modules/.vite`（三个**可重建的构建缓存**，非用户数据）
+- 待披露副作用：首次误落点的安装把**旧安装目录** `雷霆记账app\_exe` 一并升级到了 1.17.0（该目录是构建/安装产物目录，非用户数据）
+
+---
+
 # SACW Findings — v1.15.0 遗留问题重启审查
 
 ## 执行形态：多 Agent 编排

@@ -1,11 +1,16 @@
 project: thunder-accounting
-task: 仅优化 thunder-accounting 的“记一笔”分类选择与输入框焦点 UI，并将 v1.16.4 安装验收到 exe
+task: 首页 6 张统计卡片（今日支出/本月支出/日均支出/累计记录/本月收入/本月结余）点击后弹出对应明细弹窗：图形化组成拆解 + 逐笔明细；版本 v1.16.9 → v1.17.0；限制修改范围、禁止修改用户数据
 task_class:
   ui_task: true
-state: USER_ACCEPT_FINAL
-round: 2
+  incremental: true
+  simplified_tier: false
+workflow_version: 5.5.1
+run_receipt_required: true
+state: EVAL
+round: 1
 defect_round: 1
 max_rounds: 12
+max_edit_rounds: 8
 step_chain:
   - TASK_CLASSIFY
   - KNOWLEDGE_GATE
@@ -14,29 +19,93 @@ step_chain:
   - HOOK_UI
   - HOOK_ERR
   - PLAN
-  - DEFECT_TRIAGE
   - EXEC
   - REVIEW
   - EVAL
-  - USER_ACCEPT_FINAL
-plan_status: awaiting_user_signoff_v1.16.4
+plan_status: approved_by_user_v1.17.0
+executor_llm: claude-opus-4.6 (WorkBuddy)
+orchestration_form: multi_agent_supervisor_pipeline
+subagent_usage:
+  Explore:
+    - name: explore-home-mockup
+      duty: 摸底 Home.tsx / ConfirmDialog / Stats 图表范式 / store / i18n / package.json 结构
+      status: done
+      natural_completion_evidence: Supervisor 亲读源码复核（Home.tsx / ConfirmDialog.tsx / Stats.tsx / store/index.ts / database/index.ts:635 / Bills.tsx）
+  Worker:
+    - name: worker-p1-dialog
+      duty: P0 修复 package.json 截断 + 版本升 1.17.0；P1 新建 StatCardDetailDialog.tsx；P2 Home 接线 + i18n；P3 测试
+      status: done
+      rounds: 3
+      outputs: [src/components/StatCardDetailDialog.tsx, src/components/StatCardDetailDialog.test.tsx, src/pages/Home.tsx, src/pages/Home.test.tsx, src/i18n/translations.ts, package.json, package-lock.json, scripts/thunder-setup.iss]
+      verify: vitest 29 文件 / 263 用例全绿
+  Reviewer:
+    - name: reviewer-v117
+      duty: 四轴独立审查（Standards / Spec / 安全 / UX）+ 定向复验
+      status: done
+      independence: 独立子代理，未分享 Worker 上下文
+      round1_verdict: conditional
+      round2_verdict: approve
+      receipt: contracts/orchestration/v117-reviewer.resp.json
+  Judge:
+    - name: judge-v117
+      duty: eval_score / quality_score 双门槛独立打分 + 主动证伪
+      status: running
+      independence: 独立子代理，未参与编写与审查
+requirement_ledger_required: true
+requirement_ledger:
+  - id: RL-1
+    source: 用户原话「点击这六个卡片可以弹窗其对应的数据」
+    acceptance: 6 张卡片均可点击并打开对应弹窗；弹窗标题与卡片语义一致
+    status: met
+    evidence: Home.tsx 卡片 role="button" + tabIndex + onClick/onKeyDown；buildView() 6 个 case 齐全；StatCardDetailDialog.test.tsx 10 例 + Home.test.tsx 12 例
+  - id: RL-2
+    source: 用户原话「要能够看到今天的每一笔支出」
+    acceptance: 弹窗内列出逐笔明细，且明细金额绝对值之和 = 顶部汇总
+    status: met
+    evidence: renderBillList + sumAbs 同源数组；测试断言 stat-dialog-total 文本 == 明细之和
+  - id: RL-3
+    source: 用户原话「最好使用环形图等图像直观展示」+ 拍板「日均显示计算过程、结余用进度条」
+    acceptance: 集合型卡片环形图；日均=公式条+柱状图；结余=进度条+计算式
+    status: met
+    evidence: 4 张环形图（todayExpense/monthExpense/monthIncome/monthRecords）+ dailyAvg 公式条+BarChart + monthBalance 进度条+计算式
+  - id: RL-4
+    source: 用户原话「这六个卡片已有点击动效，可以不改」+「不要改原有布局」
+    acceptance: 卡片 className 逐字符未变；不改布局
+    status: met
+    evidence: git diff 显示 className 字符串完全一致，仅追加 role/tabIndex/aria-label/onClick/onKeyDown 属性
+  - id: RL-5
+    source: 用户原话「本次升级版本号为 v1.17.0」
+    acceptance: package.json / package-lock.json / thunder-setup.iss / exe asar 四处一致
+    status: met
+    evidence: 四处实测均 1.17.0；注册表 DisplayVersion=1.17.0
+  - id: RL-6
+    source: 用户原话「限制修改范围、禁止修改用户数据」
+    acceptance: git diff --name-only 全在写集内；main-process/**、*.db、userData 零改动
+    status: met
+    evidence: git status 全部落在写集；无 *.db；未启动 App；已备份 userData（130/130 sha256 一致）
+  - id: RL-7
+    source: 用户拍板「累计记录口径 = 修正卡片为全部账单数」
+    acceptance: 卡片值 = 本月全部账单数；与弹窗 monthRecords 大字一致
+    status: met
+    evidence: Home.tsx monthRecords value=`${monthBills.length}`；弹窗 bigNumber=`${monthAll.length} 笔`；两者同源自 getBills 同区间
+  - id: RL-8
+    source: 用户拍板「首页筛选失真一并修」
+    acceptance: 账单页筛选不再影响首页任何数字
+    status: met
+    evidence: Home.tsx 删除 store.bills / refreshBills 订阅，改为一次无参 getBills() 派生全部；Reviewer 复验 pass
 reflow_counts:
-  EXEC: 2
-  REVIEW: 0
+  EXEC: 3
+  REVIEW: 2
 reflow_reason:
-  - 重启后重新执行测试、构建、Inno 打包和隔离安装；更新状态机以记录真实产物时间线
-  - 用户反馈登录默认尺寸裁切、输入框焦点光、验证码竖线、账号残留和模糊 CloudBase 错误
-  - 用户验收补充文字链接交互、错误自动消失、邮箱通道图标、真实手机号注册/登录和旧产物清理
-  - v1.16.1 登录页焦点边界、文字按钮、金棕色标题与 Inno 自定义安装目录；安装包改放 release
-  - 新增统一 Toast、验证码五分钟有效期提示、参考模板文字链接 hover 反馈、codex 管理员账号创建请求
-  - round2 缺陷轮：用户实测分类管理 3 bug（输入框焦点光越界、新增分类按钮配色、新建分类报错）；上一轮假设 v1.16.1 修复完成不成立——分类管理表单未纳入焦点规范且 addCategory rowid 时序回归
-  - v1.16.3 缺陷轮：原 3 bug 实测通过，但用户发现新 bug——分类删除操作失败（CategoryManager nameToIdRef 挂载时未初始化，直接点 × 删除查不到 id 误报失败）
+  - Supervisor 复核发现 monthRecords 语义偏差 + 4 个未使用 i18n 键 → 退回 EXEC
+  - Reviewer 第 1 轮 conditional（1×P1 + 2×P2 + 3×P3）→ 退回 EXEC；其中 2 项产品口径冲突上交用户拍板
+  - 交付验证阶段发现 Inno UsePreviousAppDir 导致装错目录 → 修 iss + 重编 + 重装
 last_reflect:
-  action: 完成“记一笔”分类金棕色样式、单一输入焦点边界、分类控件 ARIA 名称和短视口滚动保护；完成独立 renderer 视觉证据、PNG 尺寸断言、Aurora v6.2.0 预检、Reviewer/Judge；Clean Build + electron-builder + ISCC + 固定目录静默安装 v1.16.4
-  verify_result: 全量 243/243（26 文件）、Node tsc PASS、renderer build PASS、发布产物校验 PASS、Inno 编译与固定 exe 安装 PASS、exe/resources/app.asar 版本=1.16.4；Web tsc 仅保留既有数据库声明/tsconfig/mock 错误；eval_score=75 quality_score=95 recompute={ts:2026-09-08T14:20:52, hash:5b08fcda76181351, score:[75, 95]}
-  decision: next_state
-  next: FINAL
-token_used: "未统计(由 Codex 宿主不提供精确 token 计数)"
+  action: 完成 6 卡片明细弹窗实现（新组件 + 环形图/柱状图/进度条 + i18n + 测试）；修复 package.json 截断 P0；修复首页数据源筛选污染；修复 Inno 安装落点缺陷；知识沉淀入项目 wiki 与 inno-packager skill
+  verify_result: vitest 29 文件 / 263 用例全绿；tsc 本次改动文件 0 错误；exe/resources/app.asar=1.17.0；注册表 DisplayVersion=1.17.0 / InstallLocation=exe\；桌面+开始菜单快捷方式 16:16 重建；Reviewer 复验 approve
+  decision: awaiting_judge
+  next: USER_ACCEPT_FINAL
+token_used: "未统计(宿主不提供精确 token 计数)"
 elapsed: 0
 budget:
   max_rounds: 12
@@ -45,126 +114,48 @@ budget:
 knowledge:
   sync_pending: false
   wiki: E:/Code/shio-al-ecosystem/wiki/错误精粹.md
+  project_wiki: wiki/错误精粹.md
+  entries_added:
+    - KI-2026-09-12-001 (P0) package.json 被截断
+    - KI-2026-09-12-002 (P1) Inno UsePreviousAppDir 默认 yes 导致装错目录
+  skill_updates:
+    - .workbuddy/skills/inno-packager/SKILL.md
 acceptance_evidence:
-  status: partial
+  status: delivered_pending_user_signoff
   items:
-    - 用户实际启动浅色默认主题并检查登录/总览/账单/统计/分类/个人中心/设置
-    - 用户切换深色并检查同一页面集合
-    - 用户提供截图或明确验收结论
-  verified_by: Codex automated Electron capture
-  date: 2026-09-08
+    - 用户实机启动 v1.17.0，点击首页 6 张卡片逐一确认弹窗内容
+    - 用户切换深色主题重复上述检查
+    - 用户确认「累计记录」卡片数字已变为本月全部账单数
+    - 用户回填验收结论（不得由执行者代填）
+  verified_by: null
+  date: null
   evidence_paths:
-    - artifacts/visual-v1.16.4/visual-evidence.json
-    - artifacts/visual-v1.16.4/screenshots/mobile-light-category-final.png
-    - artifacts/visual-v1.16.4/screenshots/tablet-light-date-final.png
-    - artifacts/visual-v1.16.4/screenshots/desktop-light-amount-final.png
-    - artifacts/visual-v1.16.4/screenshots/mobile-light-category-short-final.png
-    - artifacts/inno/inno-receipt.json
-    - artifacts/review/add-bill-ui-review-v3.md
-    - artifacts/eval/add-bill-ui-eval-v3.json
-    - artifacts/run-receipt.json
-    - tests/visual/add-bill-ui-visual-check.pass
-executor_llm: gpt-5
+    - contracts/orchestration/v117-orchestration.json
+    - contracts/orchestration/v117-reviewer.resp.json
+    - wiki/错误精粹.md
+    - release/雷霆记账_Inno_v1.17.0.exe
+    - findings.md
+data_safety:
+  user_data_read: false
+  user_data_modified: false
+  app_launched: false
+  backup_path: C:\Users\d8502\thunder-accounting-userdata-backup-20260912-1606
+  backup_verification: "130/130 文件 sha256 一致，0 不一致，0 缺失"
+  deletions:
+    - rm -rf app-out dist node_modules/.vite（可重建构建缓存，非用户数据）
+  disclosed_side_effects:
+    - 首次误落点的安装把旧安装目录 雷霆记账app\_exe 一并升级到 1.17.0（构建/安装产物目录，非用户数据）
 metrics:
-  eval_score: 75
-  quality_score: 95
+  eval_score: null
+  quality_score: null
   violation_rate: 0.0
-  reflow_total: 2
+  reflow_total: 3
   budget_hit_rate: null
   one_pass: false
   score_semantics:
-    eval_samples: 1
-    quality_samples: 1
-    gap_note: EVAL_MIN_EVAL 仅记录当前 USER_ACCEPT_FINAL 前的流程/质量实算；门通过不等于用户验收通过，未达到 FINAL 的流程分阈值
+    eval_samples: 0
+    quality_samples: 0
+    gap_note: 分数待独立 Judge judge-v117 产出；门通过 ≠ 任务成功，用户验收结论须由用户回填
   rag_tier: FULL
   final_waiver: null
-  closeout: null
-  integration_exit: null
-subagent_usage:
-  degradation: null
-  historical_degradation: "round2 EXEC 曾发生 Worker-1(Knuth)/Worker-2(Lovelace) 无文件产出；按 sacw §0.1 记录并在主流程中受控代行，历史原因与范围保留于此，不代表当前 Reviewer/Judge 未编排"
-  rounds: 4
-  subagent_count: 10
-  roles:
-    - role: Explore
-      agent: Hypatia
-      status: completed
-      scope: tech-stack、UI 入口、构建/打包链、清理候选的只读扫描
-    - role: Worker
-      agent: Darwin
-      status: completed
-      scope: dialog accessibility/focus and Settings account route
-    - role: Worker
-      agent: Beauvoir
-      status: completed
-      scope: global token/focus/text selection CSS
-    - role: Worker
-      agent: Volta
-      status: completed
-      scope: Stats/Bills/Profile UI states and semantic colors
-    - role: Worker
-      agent: Fermat
-      status: completed
-      scope: deploy output target
-    - role: Worker
-      agent: Pascal
-      status: completed
-      scope: Inno fixed installation target
-    - role: Test
-      agent: Maxwell
-      status: completed
-      scope: Vitest full suite
-    - role: Reviewer
-      agent: Heisenberg
-      status: interrupted
-      scope: targeted final diff review; stopped after timeout
-    - role: Worker
-      agent: Knuth
-      status: failed
-      scope: defect-round2-worker1 database rowid timing fix + regression test（spawn 后零产出，降级主 Agent 代行）
-    - role: Worker
-      agent: Lovelace
-      status: failed
-      scope: defect-round2-worker2 category manager focus/btn UI fix（spawn 后零产出，降级主 Agent 代行）
-    - role: Reviewer
-      agent: Archimedes
-      status: completed
-      scope: v1.16.4 最新工作树、视觉证据、数据安全与交付证据独立审查
-    - role: Judge
-      agent: Boyle
-      status: completed
-      scope: v1.16.4 最新工作树、测试构建安装、数据安全与用户验收门槛独立评估
-  spec_id: [sacw-agent-specs/explore]
-  depth: 2
-  modes: [multi_agent_v1]
-  last_used: 3
-orchestration_form: 多 Agent 编排
-requirement_ledger:
-  REQ-001: cleanup manifest + user confirmation before deletion
-  REQ-002: final installer and silent install target fixed to exe
-  REQ-003: multi-page UI token/focus/dialog/state/accessibility remediation
-  REQ-004: light default, dark support, 640/1024/1440 and real visual acceptance
-  REQ-005: tests, build, Inno, app.asar/package version and receipt verification
-  REQ-006: project memory update, cleanup closeout, commit and push
-verification:
-  tests: "26 files / 243 tests passed"
-  visual_test: pass
-  run_receipt: artifacts/run-receipt.json
-  typecheck: "node tsc pass; web tsc retains pre-existing database declaration/tsconfig/mock errors"
-  renderer_build: pass
-  isolated_release_verify: pass
-  inno_compile: pass
-  silent_install_exit_code: 0
-  installed_app_asar_version: 1.16.4
-  aurora_visual_evidence: valid_pending_judge
-  aurora_assessment: artifacts/aurora/assess-add-bill-v5.json
-  cleanup_status: not_performed_history_preserved
-context_vars:
-  index_path: .sacw/context-index.json
-  keys_retrieved: [PRODUCT.md, DESIGN.md, docs/login-demos/round-3/round-3.css]
-anti_evasion_log:
-  - id: restart-001
-    finding: 旧状态声明 USER_ACCEPT_FINAL，但验收状态 pending 且无 evidence_paths
-    action: 回流 TASK_CLASSIFY，清空旧终态语义，不继承旧分数或角色回执
-    status: applied
-stop_reason: null
+anti_evasion_log: []

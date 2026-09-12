@@ -1,0 +1,124 @@
+{
+  "contract_id": "sacw-orchestration-review-receipt/v1",
+  "run": "v1.17.0",
+  "role": "Reviewer",
+  "name": "reviewer-v117",
+  "independence": {
+    "spawned_fresh": true,
+    "shares_context_with_worker": false,
+    "note": "Reviewer 由 Supervisor 新建独立子代理，未参与代码编写，未接触 Worker 会话上下文"
+  },
+  "verdict": "conditional",
+  "axes": {
+    "A_standards": "warn",
+    "B_spec": "warn",
+    "C_security": "pass",
+    "D_ux": "warn"
+  },
+  "requirement_ledger_verdict": {
+    "RL-1": "met",
+    "RL-2": "met",
+    "RL-3": "met",
+    "RL-4": "met :: git diff 显示卡片 className 字符串逐字符未变",
+    "RL-5": "met :: package.json:3 / package-lock.json:3,9 / thunder-setup.iss:6 均为 1.17.0",
+    "RL-6": "partial :: 代码零越界；额外改了 4 个工作流文档 + 1 个新增契约文件（SACW 流程产物，非用户数据）"
+  },
+  "invariants_verdict": {
+    "I1_readonly": "hold :: 新组件仅命中 getBills×2 / getStats×2；preload.ts 未改动；无新增 IPC",
+    "I2_same_source": "violated :: monthRecords 确定不一致（卡片=支出笔数，弹窗=全部账单笔数）；todayExpense 条件性不一致（卡片用 store.bills 受 Bills 页筛选污染）",
+    "I3_additivity": "hold :: 逐 cardKey 核验通过；dailyAvg 与 monthRecords 属合理例外（顶部为派生值/笔数，金额经公式条与拆解块可追溯）",
+    "I4_no_regression": "hold :: Stats.tsx / Bills.tsx / store / types / index.css / main-process 零改动；vitest 29 文件 261 用例全绿",
+    "I5_i18n": "hold :: 新组件 25 个 t() key + Home 新增 16 个 key 全部命中"
+  },
+  "findings": [
+    {
+      "severity": "P1",
+      "axis": "B",
+      "file": "src/components/StatCardDetailDialog.tsx:401-403 对照 src/pages/Home.tsx:67,114",
+      "issue": "monthRecords 弹窗汇总与卡片数字不一致：卡片=本月支出笔数（getStats(...,'expense').count），弹窗=全部账单笔数（含收入）",
+      "supervisor_verified": true,
+      "resolution": "用户拍板：修正卡片为全部账单数（修正 A）"
+    },
+    {
+      "severity": "P2",
+      "axis": "B",
+      "file": "src/components/StatCardDetailDialog.tsx:150 对照 src/store/index.ts:96-117 + src/pages/Bills.tsx:64-66",
+      "issue": "todayExpense 弹窗与卡片非同源：卡片用 store.bills（受 Bills 页 filterMonth/filterDateRange/filterCategory1 污染且卸载不重置），弹窗直查今日",
+      "supervisor_verified": true,
+      "resolution": "用户拍板：一并修（修正 B）"
+    },
+    {
+      "severity": "P2",
+      "axis": "A",
+      "file": "src/components/StatCardDetailDialog.test.tsx:145-162",
+      "issue": "dailyAvg 用例仅 toContain('已过天数')/toContain('日均') 弱断言，未断言公式数值，违反项目已记录纪律",
+      "resolution": "修正 C"
+    },
+    {
+      "severity": "P3",
+      "axis": "B",
+      "file": "src/pages/Home.tsx:113-115",
+      "issue": "「累计记录/本月账单数」文案与取值（支出笔数）不符（既有缺陷，本次放大）",
+      "resolution": "随修正 A 一并收口"
+    },
+    {
+      "severity": "P3",
+      "axis": "A",
+      "file": "src/components/StatCardDetailDialog.test.tsx",
+      "issue": "monthIncome 在任一测试中均未被用作 cardKey，覆盖不对称",
+      "resolution": "修正 E"
+    },
+    {
+      "severity": "P3",
+      "axis": "D",
+      "file": "src/pages/Home.tsx:155",
+      "issue": "aria-label 用全角冒号拼接，英文界面下读屏呈现 \"View details：...\"",
+      "resolution": "修正 D"
+    }
+  ],
+  "falsification_attempts": [
+    {
+      "hypothesis": "getStats 与 getBills 同表同区间必然一致",
+      "method": "比对 main-process/database/index.ts:576-595 与 635-673 的 SQL 区间/类型条件，并核对金额取值范围",
+      "result": "未推翻，但附带前提：sumAbs == SUM(amount) 仅在 amount >= 0 时成立；已核实 AddBillDialog.tsx:102-107 拒绝 amount <= 0",
+      "residual_risk": "云同步 / 备份导入路径是否可能写入负额未验证"
+    },
+    {
+      "hypothesis": "monthRecords 弹窗与卡片一致",
+      "method": "对比 Home.tsx:114 取值来源与弹窗 :401-403",
+      "result": "推翻（不一致）"
+    },
+    {
+      "hypothesis": "todayExpense 弹窗与卡片一致",
+      "method": "追 store.bills 的筛选来源与弹窗直查",
+      "result": "在非默认筛选下推翻"
+    },
+    {
+      "hypothesis": "monthBalance 进度条在极端值下溢出",
+      "method": "读 :436-461，取 income=0&expense>0、income=0&expense=0、expense>income>0 三组边界",
+      "result": "未推翻：Math.min(ratio,100) 封顶；全 0 时落在 empty 分支不渲染进度条"
+    },
+    {
+      "hypothesis": "新组件引入 raw 蓝色 / 硬编码颜色 / dark: 前缀",
+      "method": "grep -nE \"(blue|#[0-9a-fA-F]{6}|rgb\\(|rgba\\(|gray-|slate-|zinc-)\" 与 grep -n \"dark:\"",
+      "result": "未推翻，两次 grep 均无命中；仅遮罩 bg-black/40（与 ConfirmDialog 一致）"
+    },
+    {
+      "hypothesis": "新增测试断言足够强",
+      "method": "逐条读 StatCardDetailDialog.test.tsx",
+      "result": "部分推翻（dailyAvg 用例为弱断言）"
+    },
+    {
+      "hypothesis": "存在写集外数据层改动或新增 IPC",
+      "method": "git status --porcelain 过滤 main-process/preload/*.db；grep 数据层调用",
+      "result": "未推翻（无越界）"
+    }
+  ],
+  "claims_not_verified": [
+    "环形图/柱状图在真实浏览器中的实际绘制：jsdom 中 ResponsiveContainer 报 width(0)/height(0)，测试仅断言包裹层存在",
+    "键盘焦点还原、Tab 焦点循环在真实浏览器/读屏软件下的行为：单测仅覆盖 Escape 与遮罩点击",
+    "金额是否在所有数据路径恒为正：仅核实 UI 录入路径，未核实云同步/备份导入",
+    "tsc 6 条报错是否为既有：均落在未改动文件，未做基线对照"
+  ],
+  "supervisor_note": "Reviewer 的 P1 经 Supervisor 独立复核（读 Home.tsx:37,67,114 与 bundle 产物）确认为实锤；其 P2 todayExpense 的数据源推断经 Supervisor 读 Bills.tsx:42,64-66 与 store/index.ts:96-117 确认成立。Reviewer 未编造问题，也未放过真问题。"
+}
