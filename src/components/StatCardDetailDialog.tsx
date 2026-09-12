@@ -8,6 +8,7 @@
  * Stats.tsx（环形图 + 自定义 Legend / Tooltip 替代 inline label）。
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import { X } from 'lucide-react'
 import {
@@ -510,8 +511,17 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
 
   const view = !loading && !error ? buildView() : null
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+  // 通过 Portal 直接挂到 document.body，并用内联样式写死视口几何。
+  // 原因：若 position:fixed 的包含块被应用树中的某个祖先（transform/filter/contain 等）影响，
+  // 遮罩就会以该祖先为基准而无法铺满整个窗口（表现为顶部露白、顶栏未被压暗）。
+  // 挂到 body 后祖先链只剩 body/html，几何用内联样式而非工具类，彻底不受上层结构影响。
+  // z-index 取 9000：高于应用内容（z-[60]），低于 react-select 菜单 Portal（10000），
+  // 保证「记一笔」里的分类下拉仍能正常盖在弹窗之上。
+  return createPortal(
+    <div
+      className="flex items-center justify-center"
+      style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 animate-fade-in"
@@ -575,6 +585,7 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
           </>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

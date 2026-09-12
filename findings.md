@@ -236,6 +236,59 @@ vitest 29 文件 / **265 用例**全绿（无回归）；`exe\resources\app.asar
 
 ---
 
+## v1.17.3 增量（用户反馈：弹窗遮罩顶部未铺满）
+
+### 症状量化（直接从用户截图取像素，非目测）
+
+用户描述：「点击卡片并弹窗后，背景变暗这个设计是好的，但有 bug，仔细看最上方，背景变暗没有完全铺满」。
+
+对截图 `9ee4817b...png`（1359×891，由窗口 1100×720 × DPR≈1.235 得到）逐像素测量：
+
+| 观测 | 实测值 | 推断 |
+|---|---|---|
+| 全宽水平转折线 | `x=200~1330` 一致在 **y=101**；`x=60` 在 y=96→104 同样转折 | 遮罩上边缘是一条**全宽水平线**，不是"某块元素没被盖住" |
+| 金色「+ 记一笔」按钮剖面 | y=83~98 = `rgb(213,155,37)`（`--accent` 原色）；y≥101 = `rgb(128,93,22)` = 原色 **×0.6** | 按钮被**横切**，下半精确 40% 压暗 |
+| 换算 | 网页视口自 y≈70 起；转折 y=101 → **遮罩上边缘在视口顶下方 ≈24 CSS px** | 遮罩几何整体下移约 24px |
+| 对照：顶栏 `border-b` | y≈150 一条深色线（= 顶栏底边，h-16=64px ✓） | 顶栏纵跨 y≈70~150，遮罩从其中部开始 |
+
+### 静态排查（全部排除）
+
+对 `src/index.css`、`tailwind.config.ts`、`index.html`、`Layout.tsx`、`App.tsx`、`AuthGuard.tsx`、`main-process/main.ts` 全量检索：
+**没有任何** `transform` / `filter` / `backdrop-filter` / `will-change` / `contain` / `perspective` / `isolation` / `opacity<1` / `zoom` 落在弹窗的任一祖先上；顶栏与 shell 也**没有 z-index**（`index.css` 仅 2 处 z-index，均不相干）。按 CSS 规范，`position: fixed` 此时**必须**以视口为包含块铺满 —— 与观测矛盾，说明触发条件在静态源码之外。
+
+### 复现尝试（3 次，均未复现；其中 1 次证伪了一个假设）
+
+复现设施：headless Chromium（Playwright 缓存 `chromium_headless_shell-1234`）+ `python -m http.server` + Pillow 逐像素测量（脚本见 `artifacts/repro-overlay/`）。
+
+| # | 复现方式 | 结果 |
+|---|---|---|
+| 1 | 手写 CSS 复刻 shell + `fixed inset-0` 遮罩 | **未复现**（遮罩从 y=0 起正常压暗） |
+| 2 | 直接取 App 构建产物 `app-out/renderer/index.html` + **真实构建 CSS**，注入模拟 shell | **未复现**（y=0 起 = 150 正常压暗）→ **证伪了「`body { display:flex; align-items:center }` 导致」这一假设**，故未改 `index.html` |
+| 3 | 加载**真实 React 构建产物** + 桩 `electronAPI`（全 fixture 数据）自动点开卡片 | **设施未跑通**（`file://` 下 ES module 被 CORS 拦；转 HTTP 后 404） → 无结论 |
+| — | Electron 直接驱动（项目既有 `artifacts/capture-add-bill-visual.mjs` 方式） | 环境沙箱内 `electron.exe` 无法启动（`--version` 都无输出；注意 `ELECTRON_RUN_AS_NODE=1` 已存在需 `env -u` 取消） |
+
+**诚实结论：根因未定位到具体机制。** 症状（遮罩整体下移约 24px）已确证，但静态源码中不存在能造成它的包含块/层叠上下文创建者，且两次可信复现都未能重现。
+
+### 采用的修复（结构性、标准做法）
+
+`src/components/StatCardDetailDialog.tsx`：
+1. 遮罩与弹窗改为 **`createPortal(..., document.body)`** —— 挂到 body 后祖先链只剩 `body/html`，任何应用树祖先都无法再充当 `fixed` 的包含块。
+2. 几何改用**内联样式写死**：`position: fixed; top/right/bottom/left: 0`，不再依赖 Tailwind 工具类的生成/优先级。
+3. `z-index: 9000`：高于应用内容（`z-[60]`），低于 react-select 菜单 Portal（10000），保证「记一笔」的分类下拉仍能盖在弹窗之上。
+
+新增回归测试（`StatCardDetailDialog.test.tsx` 用例 13）：断言遮罩**不在组件容器内**（即确实走了 Portal）、其父节点**就是 `document.body`**、且四边内联几何均为 `0px`。
+
+### 验证与残留风险
+
+- vitest 29 文件 / **266 用例**全绿（新增 1 条）
+- **残留风险（须用户复验）**：若根因在 Electron 窗口层（渲染进程之外）而非渲染树祖先，Portal 无法解决。因此请用户在 v1.17.3 上确认遮罩是否铺满；
+  若仍未铺满，请**额外打开「记一笔」弹窗看一眼**（该弹窗**未**做 Portal，仍是 `fixed inset-0 z-50`）：
+  - 「记一笔」也露白 → 系统性问题，根因在渲染进程之外或公共 shell，下一步查 Electron 窗口/菜单栏层
+  - 只有卡片弹窗露白、「记一笔」正常 → 说明原因为该组件独有，可继续二分
+- 刻意未改动：`index.html` 的 body 结构（已被复现 #2 证伪，不做无据修改）、其它三个弹窗（超出「限制修改范围」）
+
+---
+
 # SACW Findings — v1.15.0 遗留问题重启审查
 
 ## 执行形态：多 Agent 编排

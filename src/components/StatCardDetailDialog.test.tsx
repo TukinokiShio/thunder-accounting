@@ -339,4 +339,31 @@ describe('StatCardDetailDialog', () => {
     // 超支提示
     expect(dialog.textContent).toContain('支大于收');
   });
+
+  // 13. 遮罩必须 Portal 到 document.body，且四边几何写死为 0（等价视口铺满）。
+  //     回归防护：若 position:fixed 的包含块被上层祖先影响，遮罩会以该祖先为基准而露白。
+  it('should portal the overlay into document.body with full-viewport geometry', async () => {
+    mockAPI({ bills: [bill({ amount: 10 })] });
+    const { container } = renderDialog({ cardKey: 'monthExpense' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stat-dialog-backdrop')).toBeInTheDocument();
+    });
+
+    // 组件容器内不应存在遮罩 —— 存在即说明没走 Portal，会受应用树祖先影响
+    expect(container.querySelector('[data-testid="stat-dialog-backdrop"]')).toBeNull();
+
+    const backdrop = document.body.querySelector('[data-testid="stat-dialog-backdrop"]');
+    const overlay = backdrop?.parentElement as HTMLElement;
+
+    // 遮罩的父节点必须是 body 本身（Portal 的落点）
+    expect(overlay.parentElement).toBe(document.body);
+    expect(overlay.style.position).toBe('fixed');
+    expect([
+      overlay.style.top,
+      overlay.style.right,
+      overlay.style.bottom,
+      overlay.style.left,
+    ]).toEqual(['0px', '0px', '0px', '0px']);
+  });
 });
