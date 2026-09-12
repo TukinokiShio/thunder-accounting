@@ -210,6 +210,32 @@ v1.17.0 已提交、推送、安装，按 SemVer「同一版本号绝不重发�
 
 ---
 
+## v1.17.2 增量（用户反馈：点击卡片后图像还可以快一点）
+
+### 根因定位（先量后改）
+
+| 候选原因 | 实测/静态核验 | 结论 |
+|---|---|---|
+| 数据加载慢（弹窗打开时 4 次只读 IPC：`getBills`×2 + `getStats`×2） | 全部是主进程内 sql.js 的同步小查询，63 条数据量级下 UI 线程等待在毫秒级；`Promise.all` 并行 | **不是瓶颈** |
+| 弹窗进场 CSS 动画慢 | `tailwind.config.ts` 实测 `slide-up 0.2s` / `fade-in 0.15s` | **不是瓶颈** |
+| **图表绘制动画慢** | `StatCardDetailDialog.tsx` 的 `<Pie>` / `<Bar>` **均未设 `animationDuration`** → 走 recharts 默认 **1500ms**（环形图要"转"1.5 秒才成形） | **✅ 根因** |
+
+### 修复
+
+`src/components/StatCardDetailDialog.tsx`：新增常量 `CHART_ANIM_DURATION = 300`（带注释说明为何偏离默认值），在 `<Pie>` 与 `<Bar>` 上各加 `animationDuration={CHART_ANIM_DURATION}`。**1500ms → 300ms，5 倍提速**，保留轻动感但不再有慢半拍感。
+
+### 刻意不做的改动（避免为凑数增加回归面）
+
+- **不减少 IPC 调用**：4 次调用是毫秒级，改数据流只会扩大回归面、降低测试区分度（F3 修的「mock 按日期区间分流」正是靠今日区间独立调用才能证明取数正确）
+- **不改数据流为 props 预置**：虽可彻底去掉骨架屏，但会丢失 PRD 要求的错误态，且需重写 12 条测试，收益不可测
+- **不改 `Stats.tsx`**：超出「限制修改范围」；其图表仍为 1500ms，如需统一可另行提需求
+
+### 验证
+
+vitest 29 文件 / **265 用例**全绿（无回归）；`exe\resources\app.asar` = **1.17.2**；注册表 `DisplayVersion=1.17.2`、`InstallLocation=E:\Code\CodeProduct\thunder-accounting\exe\`；桌面 + 开始菜单快捷方式 16:45 重建；安装包 `release/雷霆记账_Inno_v1.17.2.exe`。
+
+---
+
 # SACW Findings — v1.15.0 遗留问题重启审查
 
 ## 执行形态：多 Agent 编排

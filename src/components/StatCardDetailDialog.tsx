@@ -38,6 +38,13 @@ const COLORS = [
   'var(--text3)', 'var(--chart-axis)', 'var(--text2)'
 ]
 
+/**
+ * 图表绘制动画时长（毫秒）。
+ * recharts 默认 animationDuration = 1500ms，环形图/柱状图要"画"1.5 秒才成形，
+ * 点击卡片后有明显的慢半拍感。压到 300ms：保留一点轻动感，但接近即时呈现。
+ */
+const CHART_ANIM_DURATION = 300
+
 /** 计算占比字符串 */
 function pct(value: number, total: number): string {
   if (total <= 0) return '0.0%'
@@ -231,6 +238,7 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
             outerRadius={70}
             innerRadius={42}
             strokeWidth={0}
+            animationDuration={CHART_ANIM_DURATION}
           >
             {pieData.map((_, idx) => (
               <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
@@ -295,7 +303,13 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
                 color: 'var(--chart-tooltip-text)'
               }}
             />
-            <Bar dataKey="amount" name={t('支出')} fill="var(--accent)" radius={[3, 3, 0, 0]} />
+            <Bar
+              dataKey="amount"
+              name={t('支出')}
+              fill="var(--accent)"
+              radius={[3, 3, 0, 0]}
+              animationDuration={CHART_ANIM_DURATION}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
