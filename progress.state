@@ -1,5 +1,5 @@
 project: thunder-accounting
-task: 首页 6 张统计卡片（今日支出/本月支出/日均支出/累计记录/本月收入/本月结余）点击后弹出对应明细弹窗：图形化组成拆解 + 逐笔明细；版本 v1.16.9 → v1.17.0 → v1.17.1（Judge 6 项发现收口）；限制修改范围、禁止修改用户数据
+task: 缺陷轮 v1.17.5/v1.17.6 —— 修复 v1.17.3/v1.17.4 Portal 化引入的两处回归（记一笔选择分类后弹窗塌缩 / 深色主题下弹窗仍为浅色）；根因 = Portal 丢失 `.aurora-shell` 版式作用域与 `.dark` 主题上下文；修复 = Portal 根自带作用域替身（不撤销 Portal）+ 可执行回归门禁 verify:modal-scope；限制修改范围、禁止修改用户数据
 task_class:
   ui_task: true
   incremental: true
@@ -7,8 +7,8 @@ task_class:
 workflow_version: 5.5.1
 run_receipt_required: true
 state: USER_ACCEPT_FINAL
-round: 2
-defect_round: 2
+round: 4
+defect_round: 4
 max_rounds: 12
 max_edit_rounds: 8
 step_chain:
@@ -120,6 +120,41 @@ requirement_ledger:
     acceptance: 不碰 .db / userData；不启动 App
     status: met
     evidence: 无 .db / sqlite / userData 进入 diff；全程未启动 App（仅 vitest、electron-vite build、electron-builder、ISCC、静默安装）；安装落点为固定验收目录 exe\
+  - id: RL-906
+    source: 独立 Reviewer P3（is_this_round_regression=true）
+    acceptance: CategorySelect / AddBillDatePicker 的 portal 目标选择器排除替身根，不因模态根同名而失焦
+    status: met
+    evidence: 两处均改为 `.aurora-shell:not(.aurora-portal-root)` 并附原因注释；CategorySelect.test.tsx 13 例与 AddBillDialog.integration 1 例继续通过
+  - id: RL-907
+    source: 独立 Judge P2（主报 bug 无自动化防护）
+    acceptance: 存在可执行门禁，能对「替身下宽度极差=0、深色面板 #202224、浅色面板 #fffaf2、遮罩铺满、替身根透明底」逐项断言
+    status: met
+    evidence: 新增 scripts/verify-modal-scope.cjs + npm run verify:modal-scope；实测 1.3s 返回 VERIFY_MODAL_SCOPE: PASS（withShim 448/448 极差 0 + rgb(32,34,36)；四组 coversViewport 全 true）
+  - id: RL-908
+    source: 独立 Judge P2（防验证器退化为橡皮图章）
+    acceptance: 门禁必须含负对照自检 —— 无替身组不复现问题即报错
+    status: met
+    evidence: 断言组 E 要求 noShim 两种内容宽极差 > 0；实测 noShim 250/308（极差 58），负对照有效
+  - id: RL-909
+    source: 独立 Judge P3（契约清单硬编码）
+    acceptance: 模态清单从文件系统派生 + 保底断言，新增模态自动纳入且清单不得静默变空
+    status: met
+    evidence: modal-portal-contract.test.ts 改为 readdirSync 派生 + MODALS.length>=5 与两条具名保底断言；vitest 30 文件 291 用例全绿
+  - id: RL-910
+    source: 独立 Judge P3（证据存档不可复现）
+    acceptance: 证据存档可复现并说明命令与预期输出
+    status: met
+    evidence: artifacts/repro-portal-scope/evidence/README.md（三步复现 + 实测输出 + 两个工具陷阱说明）+ scope-measure.json 实测落盘
+  - id: RL-911
+    source: 项目交付纪律
+    acceptance: 四处版本一致 = 1.17.6；UsePreviousAppDir=no 保留
+    status: met
+    evidence: package.json / package-lock.json(两处) / thunder-setup.iss 均 1.17.6；exe\resources\app.asar = 1.17.6；注册表 DisplayVersion = 1.17.6；UsePreviousAppDir=no 计数 1
+  - id: RL-912
+    source: 用户红线（延续）
+    acceptance: 写集零越界；不碰 .db / userData；不启动 App
+    status: met
+    evidence: 提交 57ee93f 共 19 文件（5 模态 + 2 选择器 + index.css + modalScope.ts + 2 测试 + verify 脚本 + 版本三处 + 4 流程文档），无 .db/userData/preload/main-process 改动
 reflow_counts:
   EXEC: 3
   REVIEW: 2
@@ -150,10 +185,10 @@ knowledge:
 acceptance_evidence:
   status: delivered_pending_user_signoff
   items:
-    - 用户实机启动 v1.17.1，点击首页 6 张卡片逐一确认弹窗内容
-    - 用户切换深色主题重复上述检查
-    - 用户确认「累计记录」卡片数字已变为本月全部账单数
-    - 用户确认「本月结余」在支大于收时明细行与顶部大字符号一致（F1 修复点）
+    - 用户实机启动 v1.17.6，打开「记一笔」→ 选择一级/二级分类，确认**弹窗宽度不再塌缩**（RL-901）
+    - 用户切换深色主题，确认「记一笔」与首页卡片明细弹窗**均为深色**（RL-902）
+    - 用户切换回浅色主题，确认未出现反向污染
+    - 用户确认首页遮罩仍铺满整个视口（RL-903，不得回退）
     - 用户回填验收结论（不得由执行者代填）
   verified_by: null
   date: null
@@ -181,19 +216,27 @@ data_safety:
   disclosed_side_effects:
     - 首次误落点的安装把旧安装目录 雷霆记账app\_exe 一并升级到 1.17.0（构建/安装产物目录，非用户数据）
 metrics:
-  eval_score: 91
-  quality_score: 84
+  eval_score: 94
+  quality_score: 87
   violation_rate: 0.0
-  reflow_total: 4
+  reflow_total: 6
   budget_hit_rate: null
   one_pass: false
   score_semantics:
     eval_samples: 1
     quality_samples: 1
-    gap_note: 分数由独立 Judge judge-v117 产出（eval 91 / quality 84，双门通过 verdict=RELEASE）；其 6 项发现已全部收口为 v1.17.1。门通过 ≠ 任务成功，最终验收结论须由用户实机回填
+    gap_note: 最新分数由独立 Judge judge-v1175 产出（eval 94 / quality 87，双门通过 verdict=RELEASE）；v1.17.5 修复亦经独立 Reviewer reviewer-v1175 approve（四轴全 pass）。两者各自独立以真实构建 CSS + headless Chromium 复现量测。其 2×P2 + 4×P3 已收口为 v1.17.6。门通过 ≠ 任务成功，最终验收结论须由用户实机回填
   rag_tier: FULL
   final_waiver: null
 judge_findings_disposition:
+  v1175_P2_contract_test_weak_source_assertion: fixed_in_1.17.6（清单改文件系统派生 + 行为级门禁）
+  v1175_P2_no_automated_guard_for_collapse: fixed_in_1.17.6（verify:modal-scope 含负对照自检）
+  v1175_P2_toast_outside_aurora_shell_dark_theme: reported_not_fixed（既有缺陷，非本轮回归；超出用户「限制修改范围」，待用户决定）
+  v1175_P3_boilerplate_in_5_modals: reported_not_fixed（建议抽 <ModalRoot>，本轮未重构）
+  v1175_P3_theme_read_from_localstorage_second_truth: documented（两个独立来源均判定实际不可达：遮罩覆盖主题按钮 + 模态有 Tab 焦点陷阱）
+  v1175_P3_evidence_archive_not_reproducible: fixed_in_1.17.6（README + JSON + 门禁）
+  v1175_P3_wrong_comment_and_pending_ledger: fixed_in_1.17.6
+  v1175_reviewer_P3_selector_not_unique: fixed_in_1.17.6（→ RL-906）
   F1_P2_negative_balance_sign: fixed_in_1.17.1
   F2_P3_loading_flash: fixed_in_1.17.1
   F3_P3_mock_ignores_date_range: fixed_in_1.17.1
