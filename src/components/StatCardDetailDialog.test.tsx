@@ -1,9 +1,11 @@
 /**
  * StatCardDetailDialog 组件测试。
- * 覆盖：关闭态渲染 null、环形图 + 明细、汇总不变量、结余进度条、日均公式、空态、Escape、遮罩关闭。
+ * 覆盖：关闭态渲染 null、环形图 + 明细、汇总不变量、结余进度条（正/负）、日均公式、
+ * todayExpense 今日区间、monthIncome、空态、Escape、遮罩关闭。
+ * getBills / getStats 按入参分流，确保区间与 type 取数正确。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { StatCardDetailDialog, type StatCardKey } from './StatCardDetailDialog';
 
 // ─── Mock 语言上下文（t 为恒等映射）───
@@ -40,13 +42,31 @@ const emptyStats = {
   byDate: [],
 };
 
-function mockAPI(opts: { bills?: any[]; expenseStats?: any; incomeStats?: any } = {}) {
-  const bills = opts.bills ?? [];
+function mockAPI(opts: {
+  bills?: any[];
+  monthBills?: any[];
+  todayBills?: any[];
+  allBills?: any[];
+  expenseStats?: any;
+  incomeStats?: any;
+} = {}) {
+  // `bills` 为兼容别名：同时作为「本月」「今日」两组 fixture
+  const monthBills = opts.monthBills ?? opts.bills ?? [];
+  const todayBills = opts.todayBills ?? opts.bills ?? [];
+  const allBills = opts.allBills ?? monthBills;
   (window as any).electronAPI = {
-    getBills: vi.fn().mockResolvedValue(bills),
-    getStats: vi.fn().mockImplementation((_s: string, _e: string, type?: string) =>
-      Promise.resolve(type === 'income' ? (opts.incomeStats ?? emptyStats) : (opts.expenseStats ?? emptyStats))
-    ),
+    // 按日期区间入参分流，避免「今日/本月区间写反」被掩盖
+    getBills: vi.fn().mockImplementation((filters?: { startDate?: string; endDate?: string }) => {
+      if (!filters?.startDate) return Promise.resolve(allBills);
+      if (filters.startDate === filters.endDate) return Promise.resolve(todayBills);
+      return Promise.resolve(monthBills);
+    }),
+    // 按 type 分流
+    getStats: vi.fn().mockImplementation((_s: string, _e: string, type?: string) => {
+      if (type === 'income') return Promise.resolve(opts.incomeStats ?? emptyStats);
+      if (type === 'expense') return Promise.resolve(opts.expenseStats ?? emptyStats);
+      return Promise.resolve(opts.expenseStats ?? emptyStats);
+    }),
   };
 }
 
@@ -258,5 +278,65 @@ describe('StatCardDetailDialog', () => {
 
     // 明细之和 == 顶部大字（500 + 200.5 = 700.50）
     expect(screen.getByTestId('stat-dialog-total').textContent).toBe('¥700.50');
+  });
+
+  // 11. todayExpense → 只用今日 expense（排除今日收入与本月其它支出）
+  it('should use today-only expense data for todayExpense', async () => {
+    const todayFixture = [
+      bill({ date: '2026-09-12', type: 'expense', amount: 30, category1: '餐饮', category2: '午餐' }),
+      bill({ date: '2026-09-12', type: 'expense', amount: 20.5, category1: '交通', category2: '地铁' }),
+      bill({ date: '2026-09-12', type: 'income', amount: 999, category1: '工资', category2: '月薪' }),
+    ];
+    const monthFixture = [
+      bill({ date: '2026-09-01', type: 'expense', amount: 777, category1: '购物', category2: '衣服' }),
+    ];
+    // 今日与本月 fixture 数值不同，证明取的是今日区间
+    mockAPI({ todayBills: todayFixture, monthBills: monthFixture });
+    renderDialog({ cardKey: 'todayExpense' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stat-dialog-total')).toBeInTheDocument();
+    });
+
+    // 顶部大字 = 今日支出之和（30 + 20.5 = 50.50），不含收入 999、不含本月 777
+    expect(screen.getByTestId('stat-dialog-total').textContent).toBe('¥50.50');
+    expect(screen.getByTestId('stat-dialog-chart')).toBeInTheDocument();
+    expect(screen.getByText('餐饮 · 午餐')).toBeInTheDocument();
+    expect(screen.getByText('交通 · 地铁')).toBeInTheDocument();
+    // 明细只含今日 expense：今日收入与本月其它支出均不得出现
+    expect(screen.queryByText('工资 · 月薪')).toBeNull();
+    expect(screen.queryByText('+¥999.00')).toBeNull();
+    expect(screen.queryByText('购物 · 衣服')).toBeNull();
+    expect(screen.queryByText('-¥777.00')).toBeNull();
+  });
+
+  // 12. monthBalance 负结余：顶部大字与明细行「结余」逐字符一致
+  it('should keep negative balance consistent between top number and detail row', async () => {
+    const incomeTotal = 1000;
+    const expenseTotal = 1234.45;
+    const balance = incomeTotal - expenseTotal; // -234.45
+    mockAPI({
+      bills: [
+        bill({ amount: expenseTotal, type: 'expense', category1: '餐饮', category2: '午餐' }),
+        bill({ amount: incomeTotal, type: 'income', category1: '工资', category2: '月薪' }),
+      ],
+    });
+    renderDialog({ cardKey: 'monthBalance' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stat-dialog-total')).toBeInTheDocument();
+    });
+
+    const expected = `¥${balance.toFixed(2)}`; // ¥-234.45（含负号）
+    expect(screen.getByTestId('stat-dialog-total').textContent).toBe(expected);
+
+    const dialog = screen.getByRole('dialog');
+    // 明细行「结余」文本与顶部大字逐字符相等
+    const balanceRow = within(dialog).getByText('结余').closest('div');
+    expect(balanceRow?.textContent).toBe(`结余${expected}`);
+    // 公式块同样包含含负号的结余
+    expect(dialog.textContent).toContain(`结余 ${expected}`);
+    // 超支提示
+    expect(dialog.textContent).toContain('支大于收');
   });
 });

@@ -170,6 +170,46 @@
 
 ---
 
+## EVAL 回执（独立 Judge `judge-v117`）与 v1.17.1 收口
+
+- `eval_score: 91` / `quality_score: 84` —— **双门通过**，`verdict: RELEASE`
+- 完整回执见 `contracts/orchestration/v117-judge.resp.json`
+- Judge 独立执行：本机重跑 vitest（29/263 全绿）、asar + 注册表两路核版本、**额外验证 bundle 内确实含新功能字符串**（排除「只改版本号」的假交付）、7 次证伪尝试（**推翻 3 条假设**）
+- Judge 独立发现了**执行者与 Reviewer 两轮都漏掉**的真实用户可见缺陷（F1），独立性有效
+
+### Judge 的 6 项发现 → v1.17.1（PATCH）
+
+| ID | 级别 | 问题 | 修复 |
+|---|---|---|---|
+| F1 | **P2** | 负结余时明细行「结余」用 `Math.abs` 吞掉负号（`¥123.45`），与顶部大字 `¥-123.45`、公式块 `结余 ¥-123.45` **同屏矛盾**；任何「支大于收」的月份都会看到 | 结余行改为独立渲染 `¥{balance.toFixed(2)}`，与顶部大字逐字符一致；`renderBalanceRow` 保留给收入/支出两行 |
+| F2 | P3 | `loading` 初值 false 且关闭不重置 `data` → 重开弹窗「内容→骨架→内容」闪一帧 | 初值改 `true`，首帧即走骨架分支 |
+| F3 | P3 | 弹窗测试 `getBills` mock 忽略日期区间参数，今日/本月区间写反也测不出 | mock 按入参分流（无参/今日/区间三路），`getStats` 按 type 三路分流 |
+| F4 | P3 | `todayExpense` 是六卡中唯一无内容级测试 | 补用例：断言大字=今日支出之和（排除今日收入与本月其它支出）+ 环形图容器 + 明细只含今日 expense |
+| F5 | P3 | 首页「最近记录」同日期排序由 DB 的 `date DESC, created_at DESC` 被改成 `id DESC`（**本轮引入的回归**） | 改回 `date DESC` → `created_at DESC` → `id DESC` 三级，与账单页对齐 |
+| F6 | P3 | 日期派生值在 effect 与 render 各算一遍 | 抽模块级 `currentPeriod()` 两处复用 |
+
+### v1.17.1 交付验证（Supervisor 实机验证）
+
+| 验收项 | 实测值 | 结论 |
+|---|---|---|
+| 全量测试（Supervisor 亲自重跑） | 29 文件 / **265 用例**通过，exit 0 | ✅ |
+| `exe/resources/app.asar` | version = **1.17.1** | ✅ |
+| 注册表 `DisplayVersion` | 1.17.1 | ✅ |
+| 注册表 `InstallLocation` | `E:\Code\CodeProduct\thunder-accounting\exe\` | ✅ |
+| 桌面 / 开始菜单快捷方式 | 16:34 重建 | ✅ |
+| `.iss` 的 `UsePreviousAppDir=no` | 完好保留（第 34 行） | ✅ |
+
+### 版本纪律说明
+
+v1.17.0 已提交、推送、安装，按 SemVer「同一版本号绝不重发」不得就地修改 → 缺陷修复走 **PATCH = v1.17.1**。
+
+### 待用户确认的清理项（未自行删除）
+
+`release/` 下存在历史安装包：`雷霆记账_Inno_v1.16.2 / v1.16.3 / v1.16.4 / v1.16.5 / v1.16.6 / v1.16.8 / v1.16.9 / v1.17.0` 及对应 `雷霆记账 Setup 1.16.4 / 1.17.0 / 1.17.1`（合计约 1GB）。
+按 AGENTS.md「作废版本安装包不作为交付物，但删除可能影响回滚或审计时先保留并汇报」→ **本轮全部保留，待用户确认后再清理**。
+
+---
+
 # SACW Findings — v1.15.0 遗留问题重启审查
 
 ## 执行形态：多 Agent 编排

@@ -1,14 +1,14 @@
 project: thunder-accounting
-task: 首页 6 张统计卡片（今日支出/本月支出/日均支出/累计记录/本月收入/本月结余）点击后弹出对应明细弹窗：图形化组成拆解 + 逐笔明细；版本 v1.16.9 → v1.17.0；限制修改范围、禁止修改用户数据
+task: 首页 6 张统计卡片（今日支出/本月支出/日均支出/累计记录/本月收入/本月结余）点击后弹出对应明细弹窗：图形化组成拆解 + 逐笔明细；版本 v1.16.9 → v1.17.0 → v1.17.1（Judge 6 项发现收口）；限制修改范围、禁止修改用户数据
 task_class:
   ui_task: true
   incremental: true
   simplified_tier: false
 workflow_version: 5.5.1
 run_receipt_required: true
-state: EVAL
-round: 1
-defect_round: 1
+state: USER_ACCEPT_FINAL
+round: 2
+defect_round: 2
 max_rounds: 12
 max_edit_rounds: 8
 step_chain:
@@ -123,17 +123,25 @@ knowledge:
 acceptance_evidence:
   status: delivered_pending_user_signoff
   items:
-    - 用户实机启动 v1.17.0，点击首页 6 张卡片逐一确认弹窗内容
+    - 用户实机启动 v1.17.1，点击首页 6 张卡片逐一确认弹窗内容
     - 用户切换深色主题重复上述检查
     - 用户确认「累计记录」卡片数字已变为本月全部账单数
+    - 用户确认「本月结余」在支大于收时明细行与顶部大字符号一致（F1 修复点）
     - 用户回填验收结论（不得由执行者代填）
   verified_by: null
   date: null
+  delivery_verified_by_supervisor:
+    - vitest 29 文件 / 265 用例通过（Supervisor 亲自重跑，exit 0）
+    - exe/resources/app.asar version = 1.17.1
+    - 注册表 DisplayVersion = 1.17.1；InstallLocation = E:\Code\CodeProduct\thunder-accounting\exe\
+    - 桌面 D:\Users\d8502\Desktop\雷霆记账.lnk 与开始菜单 lnk 均 16:34 重建
+    - 安装包 release/雷霆记账_Inno_v1.17.1.exe
   evidence_paths:
     - contracts/orchestration/v117-orchestration.json
     - contracts/orchestration/v117-reviewer.resp.json
+    - contracts/orchestration/v117-judge.resp.json
     - wiki/错误精粹.md
-    - release/雷霆记账_Inno_v1.17.0.exe
+    - release/雷霆记账_Inno_v1.17.1.exe
     - findings.md
 data_safety:
   user_data_read: false
@@ -146,16 +154,23 @@ data_safety:
   disclosed_side_effects:
     - 首次误落点的安装把旧安装目录 雷霆记账app\_exe 一并升级到 1.17.0（构建/安装产物目录，非用户数据）
 metrics:
-  eval_score: null
-  quality_score: null
+  eval_score: 91
+  quality_score: 84
   violation_rate: 0.0
-  reflow_total: 3
+  reflow_total: 4
   budget_hit_rate: null
   one_pass: false
   score_semantics:
-    eval_samples: 0
-    quality_samples: 0
-    gap_note: 分数待独立 Judge judge-v117 产出；门通过 ≠ 任务成功，用户验收结论须由用户回填
+    eval_samples: 1
+    quality_samples: 1
+    gap_note: 分数由独立 Judge judge-v117 产出（eval 91 / quality 84，双门通过 verdict=RELEASE）；其 6 项发现已全部收口为 v1.17.1。门通过 ≠ 任务成功，最终验收结论须由用户实机回填
   rag_tier: FULL
   final_waiver: null
+judge_findings_disposition:
+  F1_P2_negative_balance_sign: fixed_in_1.17.1
+  F2_P3_loading_flash: fixed_in_1.17.1
+  F3_P3_mock_ignores_date_range: fixed_in_1.17.1
+  F4_P3_todayExpense_no_content_test: fixed_in_1.17.1
+  F5_P3_recent_sort_regression: fixed_in_1.17.1
+  F6_P3_duplicate_date_computation: fixed_in_1.17.1
 anti_evasion_log: []

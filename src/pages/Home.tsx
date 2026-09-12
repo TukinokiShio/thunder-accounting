@@ -56,10 +56,12 @@ export function Home() {
   }, [monthStart, monthEnd, loadData, refreshTrigger])
 
   const todayStr = format(today, 'yyyy-MM-dd')
-  // 全部派生自 allBills 单一数据源，按日期倒序（同日按 id 倒序）
-  const sortedBills = [...allBills].sort((a, b) =>
-    a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1
-  )
+  // 全部派生自 allBills 单一数据源；排序与账单页一致（date DESC, created_at DESC, id DESC）
+  const sortedBills = [...allBills].sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1
+    return b.id - a.id
+  })
   const monthBills = sortedBills.filter((b) => b.date >= monthStart && b.date <= monthEnd)
   // 今日支出：筛选今天日期 + 支出类型的账单
   const todayBills = sortedBills.filter((b) => b.date === todayStr && b.type === 'expense')

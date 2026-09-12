@@ -1,0 +1,129 @@
+{
+  "contract_id": "sacw-orchestration-judge-receipt/v1",
+  "run": "v1.17.0",
+  "role": "Judge",
+  "name": "judge-v117",
+  "independence": {
+    "spawned_fresh": true,
+    "shares_context_with_worker": false,
+    "shares_context_with_reviewer": false,
+    "note": "Judge 由 Supervisor 新建独立子代理；未参与编写、未参与审查，双盲于执行者身份"
+  },
+  "eval_score": 91,
+  "quality_score": 84,
+  "eval_gate": "pass",
+  "quality_gate": "pass",
+  "final_verdict": "RELEASE",
+  "requirement_coverage": {
+    "6 张卡片可点击并弹窗": "达成",
+    "能看到每一笔 + 逐笔明细可加和": "达成",
+    "环形图直观展示": "达成（复用 Stats.tsx 既有范式，非堆图表）",
+    "日均支出显示计算过程": "达成（公式条 + 每日柱状图 + 每日合计）",
+    "本月结余用进度条": "达成（进度条 + 计算式）；但负结余时明细行符号缺陷见 F1",
+    "不改原有布局 / 卡片动效不改": "达成（className 逐字符未变；全仓无 [role=button] CSS）",
+    "累计记录口径修正且卡片弹窗自洽": "达成",
+    "首页脱离账单页筛选污染": "达成（已独立确认 store.refreshBills 确实会带入 Bills 页 filter）",
+    "禁止修改用户数据 / 限制修改范围": "达成（无 .db / userData 写集；弹窗只命中 getBills×2 / getStats×2）"
+  },
+  "score_justification": {
+    "eval": "8 条需求/约束全部达成，核心问题（点不开、看不到明细、口径错、数据失真）被真实解决。扣分在两位同事都漏掉的用户可见问题：负结余明细行丢符号（矛盾）、弹窗重开闪一帧旧内容；另 todayExpense 无内容级断言（验证盲区）。",
+    "quality": "断言总体在验行为；模块边界清晰；i18n 齐备；a11y 完整；只读约束守住；无死代码。扣分：弹窗测试 mock 忽略日期区间（-5）、todayExpense 无内容级测试（-4）、结余符号缺陷（-4）、loading 初值导致闪旧内容（-2）、日期重复计算（-1）、明细滚动区不可键盘聚焦（-1）。"
+  },
+  "falsification_attempts": [
+    {
+      "attempt": "6 个 buildView case 是否存在顶部数字与下方明细自相矛盾",
+      "result": "推翻（存在）",
+      "evidence": "StatCardDetailDialog.tsx:320-327 renderBalanceRow 用 Math.abs(value) 且默认 sign=''；:475 调用「结余」时不传 sign → balance<0 时明细行显示 ¥123.45，而顶部 bigNumber 与公式块均为 ¥-123.45。其余 5 个 case 内部自洽。"
+    },
+    {
+      "attempt": "Home 数据派生是否依赖数组缺项 / 重复渲染 / 无限循环",
+      "result": "没推翻",
+      "evidence": "useCallback deps 与 useEffect deps 一致且值稳定；无自增副作用；App.tsx:49-54 在登录后统一 refreshBills，Home 摘除 refreshBills 不会让 store.bills 变空"
+    },
+    {
+      "attempt": "弹窗打开时再点另一张卡，effect/cancelled 是否正确重载",
+      "result": "没推翻（UI 上不可达，逻辑亦正确）",
+      "evidence": "遮罩 fixed inset-0 z-[60] 拦截点击；cleanup 置 cancelled=true 阻止旧请求 setState"
+    },
+    {
+      "attempt": "是否存在为过测试而写的取巧实现 / mock 掩盖真实行为",
+      "result": "推翻（测试强度不足，但非造假）",
+      "evidence": "StatCardDetailDialog.test.tsx:43-51 getBills mock 忽略 startDate/endDate；断言本身是拿组件输出与独立计算值比对，非自证"
+    },
+    {
+      "attempt": "6 张卡是否有测试覆盖不到的一张",
+      "result": "推翻（todayExpense 无内容级覆盖）",
+      "evidence": "该文件覆盖 monthExpense/dailyAvg/monthBalance/monthRecords/monthIncome；todayExpense 仅在 Home.test.tsx:253-264 被点击验证「能打开 + 能 Escape」"
+    },
+    {
+      "attempt": "getStats 与 getBills 是否必然同源（金额路径是否恒正）",
+      "result": "未推翻（有前提）",
+      "evidence": "同表同区间同 type；AddBillDialog.tsx:102-107 拒绝 amount<=0。云同步/备份导入是否可能写负额未验证"
+    },
+    {
+      "attempt": "安装产物是否真的是新功能（不是只改版本号）",
+      "result": "未推翻（安装真实有效）",
+      "evidence": "asar 内 bundle 含 stat-dialog-chart/list/backdrop/total 与「计算过程/已过天数/本月收支构成/查看明细/每日合计/累计记录/分类占比/加载失败，请重试」；注册表 DisplayName=「雷霆记账 1.17.0 (Current user)」、InstallLocation=E:\\Code\\CodeProduct\\thunder-accounting\\exe\\；桌面（重定向在 D 盘）与开始菜单 lnk 均为 16:16"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "P2",
+      "file": "src/components/StatCardDetailDialog.tsx:320-327,475",
+      "issue": "负结余时明细行「结余」显示绝对值（¥123.45），与顶部大字 ¥-123.45 / 公式块「结余 ¥-123.45」矛盾；同屏「支出合计 -¥X / 收入合计 +¥X」都带符号，唯独结余丢符号",
+      "visible_to_user": true,
+      "note": "执行者与 Reviewer 两轮均漏掉；Judge 独立发现",
+      "resolution": "已派 EXEC 修复 → v1.17.1（PATCH）"
+    },
+    {
+      "id": "F2",
+      "severity": "P3",
+      "file": "src/components/StatCardDetailDialog.tsx:114,134-168",
+      "issue": "loading 初值 false 且关闭不重置 data，重开弹窗先渲染上一轮内容再进骨架，产生一帧闪烁",
+      "resolution": "已派 EXEC 修复（loading 初值改 true）"
+    },
+    {
+      "id": "F3",
+      "severity": "P3",
+      "file": "src/components/StatCardDetailDialog.test.tsx:43-51",
+      "issue": "getBills mock 忽略日期区间参数，区间写反也测不出",
+      "resolution": "已派 EXEC 修复（按入参分流）"
+    },
+    {
+      "id": "F4",
+      "severity": "P3",
+      "file": "src/components/StatCardDetailDialog.test.tsx",
+      "issue": "todayExpense 是六卡中唯一无内容级测试的，属覆盖盲区",
+      "resolution": "已派 EXEC 补用例"
+    },
+    {
+      "id": "F5",
+      "severity": "P3",
+      "file": "src/pages/Home.tsx:60-62",
+      "issue": "最近记录同日期排序由 DB 的 date DESC, created_at DESC 改为 id DESC，云同步/导入场景下与账单页顺序不一致（本轮引入的回归）",
+      "resolution": "已派 EXEC 修复（同日期改 created_at 倒序，id 作 tie-breaker）"
+    },
+    {
+      "id": "F6",
+      "severity": "P3",
+      "file": "src/components/StatCardDetailDialog.tsx:202-206 与 141-144",
+      "issue": "todayStr/monthStart/monthEnd/daysElapsed 在 effect 与 render 各算一遍，存在重复计算与将来漂移风险",
+      "resolution": "已派 EXEC 修复（抽模块级纯函数复用）"
+    }
+  ],
+  "unverifiable": [
+    "真实浏览器/打包 exe 中环形图、柱状图、进度条的实际绘制（jsdom ResponsiveContainer width/height=0，仅断言容器存在；未启动 GUI 目视）",
+    "键盘 Tab 焦点循环、关窗后焦点还原在真实读屏软件下的行为",
+    "「不修改用户数据」只能静态证明代码只读、提交无 .db 变更；未做安装前后 userData DB 内容比对",
+    "云同步/备份导入路径是否可能写入负 amount",
+    "英文界面下 6 张卡片的排版是否与中文一致（i18n 键齐备但未做视觉回归）"
+  ],
+  "independently_executed": [
+    "本机重跑 vitest（29 文件 / 263 用例全绿，非采信转述）",
+    "从 asar 与注册表两路独立核到 1.17.0",
+    "额外验证 bundle 内确实含新功能字符串，排除「只改版本号」的假交付",
+    "按最终提交清单核对范围，确认无越界、无用户数据写集"
+  ],
+  "supervisor_note": "Judge 的 F1 经 Supervisor 读源码复核（StatCardDetailDialog.tsx renderBalanceRow 默认 sign='' + monthBalance 结余行调用未传 sign）确认成立。Judge 独立发现了执行者与 Reviewer 两轮都漏掉的真实用户可见缺陷，独立性与有效性成立。"
+}

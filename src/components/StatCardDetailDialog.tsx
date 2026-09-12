@@ -58,6 +58,16 @@ function groupByCategory(bills: Bill[]): Array<{ name: string; value: number }> 
   return Array.from(map, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 }
 
+/** 当前周期派生值（今日 / 本月区间 / 已过天数），供数据加载与渲染复用，避免两处各算一遍 */
+function currentPeriod(now = new Date()) {
+  return {
+    todayStr: format(now, 'yyyy-MM-dd'),
+    monthStart: format(startOfMonth(now), 'yyyy-MM-dd'),
+    monthEnd: format(endOfMonth(now), 'yyyy-MM-dd'),
+    daysElapsed: Math.max(1, now.getDate())
+  }
+}
+
 /** 自定义 Legend：颜色圆点 + 分类名 + 占比，替代 inline label 以避免标签重叠 */
 type LegendEntry = { value?: string; color?: string; payload?: { value?: number } }
 const renderLegend = ({ payload }: { payload?: LegendEntry[] }) => {
@@ -111,7 +121,7 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const [data, setData] = useState<DialogData | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
   // 打开时记录焦点并在关闭时还原；同时锁定背景滚动
@@ -138,16 +148,13 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
     setError(false)
     setData(null)
 
-    const now = new Date()
-    const today = format(now, 'yyyy-MM-dd')
-    const monthStart = format(startOfMonth(now), 'yyyy-MM-dd')
-    const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd')
+    const { todayStr, monthStart, monthEnd } = currentPeriod()
 
     void (async () => {
       try {
         const [monthBills, todayBills, expenseStats, incomeStats] = await Promise.all([
           window.electronAPI.getBills({ startDate: monthStart, endDate: monthEnd }),
-          window.electronAPI.getBills({ startDate: today, endDate: today }),
+          window.electronAPI.getBills({ startDate: todayStr, endDate: todayStr }),
           window.electronAPI.getStats(monthStart, monthEnd, 'expense'),
           window.electronAPI.getStats(monthStart, monthEnd, 'income')
         ])
@@ -199,11 +206,7 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
 
   if (!open || !cardKey) return null
 
-  const now = new Date()
-  const todayStr = format(now, 'yyyy-MM-dd')
-  const monthStart = format(startOfMonth(now), 'yyyy-MM-dd')
-  const monthEnd = format(endOfMonth(now), 'yyyy-MM-dd')
-  const daysElapsed = Math.max(1, now.getDate())
+  const { todayStr, monthStart, monthEnd, daysElapsed } = currentPeriod()
 
   const titleMap: Record<StatCardKey, string> = {
     todayExpense: t('今日支出'),
@@ -472,7 +475,16 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
             <div className="mt-3">
               {renderBalanceRow(t('收入合计'), incomeTotal, 'var(--success)', '+')}
               {renderBalanceRow(t('支出合计'), expenseTotal, 'var(--danger)', '-')}
-              {renderBalanceRow(t('结余'), balance, balance >= 0 ? 'var(--success)' : 'var(--danger)')}
+              {/* 结余行与顶部大字逐字符一致（含负号），不复用 renderBalanceRow 的 abs 逻辑 */}
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-[var(--text)]">{t('结余')}</span>
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: balance >= 0 ? 'var(--success)' : 'var(--danger)' }}
+                >
+                  ¥{balance.toFixed(2)}
+                </span>
+              </div>
             </div>
           )
         }
