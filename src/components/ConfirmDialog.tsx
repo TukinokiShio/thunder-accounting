@@ -3,6 +3,7 @@
  * 支持普通模式和危险操作模式（danger 属性开启红色高亮），由调用方控制 open/onConfirm/onCancel。
  */
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useLanguage } from '@/i18n/LanguageContext'
 
@@ -80,8 +81,11 @@ export function ConfirmDialog({
 
   if (!open) return null
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+  return createPortal(
+    <div
+      className="flex items-center justify-center"
+      style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9500 }}
+    >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onCancel} aria-hidden="true" />
 
@@ -126,6 +130,7 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

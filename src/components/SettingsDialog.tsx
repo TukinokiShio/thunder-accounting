@@ -3,6 +3,7 @@
  * 包含：偏好设置（语言、时区）、数据管理（导出/导入备份、清除数据）、关于信息。
  */
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Globe, Clock } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -170,8 +171,11 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    <div
+      className="flex items-center justify-center"
+      style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
+    >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} aria-hidden="true" />
 
@@ -290,6 +294,7 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
           <About t={t} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

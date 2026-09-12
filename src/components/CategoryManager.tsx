@@ -4,6 +4,7 @@
  * 预设分类的名称不可修改，但图标和子分类可调整。
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Settings } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -343,14 +344,18 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     )
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    <div
+      className="flex items-center justify-center"
+      style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
+    >
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col animate-slide-up">
         {headerContent}
         {bodyContent}
         {deleteDialog}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

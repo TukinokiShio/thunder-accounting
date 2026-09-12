@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
@@ -208,8 +209,11 @@ export function AddBillDialog() {
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    <div
+      className="flex items-center justify-center"
+      style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
+    >
       {/* 半透明背景遮罩，点击关闭 */}
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={handleClose} aria-hidden="true" />
 
@@ -357,6 +361,7 @@ export function AddBillDialog() {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
