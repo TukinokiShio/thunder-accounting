@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { modalPortalScope } from '@/utils/modalScope'
 
 interface Props {
   open: boolean
@@ -81,9 +82,12 @@ export function ConfirmDialog({
 
   if (!open) return null
 
+  const portalScope = modalPortalScope()
+
   return createPortal(
     <div
-      className="flex items-center justify-center"
+      className={`${portalScope.className} flex items-center justify-center`}
+      data-theme={portalScope['data-theme']}
       style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9500 }}
     >
       {/* Backdrop */}

@@ -127,6 +127,15 @@
     background: var(--bg); color: var(--text); font-family: var(--font);
   }
 
+  /* Portal 模态层作用域替身（v1.17.5）：模态经 createPortal 挂到 body 后不再处于
+     `.aurora-shell` 子树内，会丢失 `.aurora-shell .xxx-dialog` 版式规则；本类把它补回来。
+     但不继承 shell 的版面与底色（遮罩层必须透明，否则会盖住整个应用）。 */
+  .aurora-shell.aurora-portal-root {
+    width: auto;
+    min-height: 0;
+    background: transparent;
+  }
+
   .aurora-sidebar {
     flex: 0 0 var(--sidebar-width); width: var(--sidebar-width);
     min-width: var(--sidebar-width); min-height: 0;

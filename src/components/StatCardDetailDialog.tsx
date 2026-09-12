@@ -16,6 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { modalPortalScope } from '@/utils/modalScope'
 import type { Bill, StatsResult } from '@/types'
 
 /** 卡片标识 */
@@ -517,9 +518,12 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
   // 挂到 body 后祖先链只剩 body/html，几何用内联样式而非工具类，彻底不受上层结构影响。
   // z-index 取 9000：高于应用内容（z-[60]），低于 react-select 菜单 Portal（10000），
   // 保证「记一笔」里的分类下拉仍能正常盖在弹窗之上。
+  const portalScope = modalPortalScope()
+
   return createPortal(
     <div
-      className="flex items-center justify-center"
+      className={`${portalScope.className} flex items-center justify-center`}
+      data-theme={portalScope['data-theme']}
       style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
     >
       {/* Backdrop */}

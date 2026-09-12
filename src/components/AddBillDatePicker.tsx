@@ -144,8 +144,10 @@ export function AddBillDatePicker({ id, value, onChange }: Props) {
   const calendarLabel = language === 'zh' ? '选择日期' : 'Choose date'
   const previousMonthLabel = language === 'zh' ? '上个月' : 'Previous month'
   const nextMonthLabel = language === 'zh' ? '下个月' : 'Next month'
+  // 注意：模态根也带 .aurora-shell（Portal 作用域替身），必须用 :not(.aurora-portal-root) 排除，
+  // 否则选择器不再唯一，可能把浮层挂到模态里而不是应用外壳上。
   const portalTarget = typeof document !== 'undefined'
-    ? document.querySelector<HTMLElement>('.aurora-shell') ?? document.body
+    ? document.querySelector<HTMLElement>('.aurora-shell:not(.aurora-portal-root)') ?? document.body
     : null
   const changeMonth = (offset: number) => {
     const nextMonth = addMonths(viewDate, offset)

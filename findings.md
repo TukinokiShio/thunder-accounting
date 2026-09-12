@@ -1,3 +1,94 @@
+# SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失
+
+## 任务分类：实质任务 / 增量 / UI / **缺陷重入轮**
+用户实测反馈「记一笔功能异常，至少两处以前不存在的 bug」→ 按 §0.3 强制重入状态机（`state → DEFECT_TRIAGE`，`round/defect_round += 1`）。UI 任务，不适用简化档。
+
+## 执行形态：多 Agent 编排（DEFECT_TRIAGE→Supervisor 归因；EXEC→Worker 流水线；REVIEW→独立 Reviewer 双轴；EVAL→独立 Judge）——选型依据：根因已在 Supervisor 侧定位到确定机制（无需黑板探索方案），写集收敛于「1 新文件 + 1 CSS 规则 + 5 组件 + 测试」，无并行模块 → **Supervisor 流水线**；审查需独立证伪（上一轮同源修复已被证伪一次）→ 辩论收敛。
+
+## 用户反馈原文（资源清单，整改前重读）
+> 「你对首页六张卡片的弹窗的修改，导致了记一笔功能异常，至少存在两处以前不存在的bug：1.选择分类后，弹窗塌缩；2.深色主题下显示的不是深色主题弹窗」
+
+配图三张：① 记一笔（浅色、已选分类、面板宽 310px）② 记一笔（浅色、未选分类、面板宽 383px）③ 日均支出明细弹窗（**深色主题下仍是浅米色面板**）。
+
+## 归因（reflow_reason，schema v1.1）
+- `round: 2` / `state: EXEC(v1.17.3~v1.17.4)` / `assumption`: 「把模态层 createPortal 到 `document.body` 是充分修复 —— 遮罩铺满即代表修复完成」
+- `why_invalid`: 遮罩几何确实修好了（像素复验 287→1 饱和金像素），但 **Portal 同时切断了模态层与两层祖先作用域的绑定**，而这两层恰好承载弹窗的版式与主题。修复只验证了「遮罩铺满」这一个维度，**未验证「样式与主题上下文是否随迁」** → 回归在用户实机才暴露。
+
+## 根因（已定位到确定机制，非推测）
+
+| # | 丢失的祖先 | CSS 事实（实测行号） | 后果 |
+|---|---|---|---|
+| 1 | `.aurora-shell` | `index.css:216-226` `.aurora-shell .add-bill-dialog { width: min(28rem, calc(100vw - 2rem)); max-width: …; display: flex; flex-direction: column; max-height: calc(100vh - 2rem); overflow: hidden; }`；`:231` 媒体查询内 `width: 28rem; max-width: 28rem`；`:227-229` 表单/内容区/底部按钮的 flex 布局；`:233-236` 分类选择器宽度 | 版式规则**全部失配** → 面板退化为内容自适应宽度 → **选中分类后内容宽度变化 → 整窗塌缩**（bug 1） |
+| 2 | `.dark` + `data-theme` | `index.css:48-…` `.dark, [data-theme='dark'] { --bg:…; --bg-card:…; --text:… }`；`tailwind.config.ts:4` `darkMode: 'class'` | 深色 token 覆盖与 `dark:` 变体**全部不命中** → **深色主题下弹窗仍是浅色**（bug 2） |
+
+**反证吻合**：`image#3` 面板底色是浅米色而非纯白 —— 因为 `.aurora-dialog`（`index.css:175/387`）是**全局**规则、只有 `width` 与主题是 shell 作用域。这一细节反证了「丢的是祖先作用域，不是元素样式」。
+
+**主题真相源已核实**：`Layout.tsx:29-31` 每次 theme 变更写回 `localStorage['thunder_theme']`，`Layout.tsx:44` 把 `dark` 类与 `data-theme` 挂在 shell div 上 → `localStorage` 可作为 Portal 层读取主题的**可靠且无第二真值**的来源。
+
+## 修复方向（不撤销 Portal）
+遮罩几何修复已被像素证据证明有效，**不回退**；改为让 **Portal 根自带作用域替身**：
+1. 新增 `src/utils/modalScope.ts` 导出 `MODAL_PORTAL_ROOT_CLASS = 'aurora-shell aurora-portal-root'` 与 `modalPortalScope()`（返回 `className` + `data-theme`，深色时附 `dark`）
+2. `index.css` 新增 `.aurora-shell.aurora-portal-root { width: auto; min-height: 0; background: transparent; }` —— 命中 `.aurora-shell` 全部后代规则并重新声明 token，但**不继承 shell 的版面与底色**
+3. 5 个模态根元素带上该作用域与主题标记
+> 备选方案（拒绝）：「把 `dark` 提到 `<html>`」blast radius 过大 —— 会让此前**从未生效**的 `.dark .aurora-shell …` 规则（如 `index.css:340`）突然生效，产生跨页视觉漂移；本轮选局部替身方案。
+
+## 写集（严格边界）
+`src/utils/modalScope.ts`（新建）/ `src/index.css` / `src/components/{AddBillDialog,SettingsDialog,ConfirmDialog,CategoryManager,StatCardDetailDialog}.tsx` / `src/components/modal-portal-contract.test.ts` / `package.json` / `package-lock.json` / `scripts/thunder-setup.iss`
+
+**禁改**：`main-process/**`、`src/store/**`、`src/types/**`、`src/pages/**`、`src/i18n/**`、`src/components/Sidebar.tsx`、`CategorySelect.tsx`（其 `menuPortalTarget` 为**既有**行为，非本轮回归）
+
+## 环境事实（复用，本轮新增一条）
+- 既有：受管 Python/Node、electron-vite、ISCC `E:/SHIO/inno/Inno Setup 6/`、Electron 在本沙箱无法启动
+- **本轮新增**：headless Chromium 位于 `~/AppData/Local/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-win64/chrome-headless-shell.exe`；Pillow 已装入受管 venv → 可对**真实构建 CSS** 做像素级几何/亮度断言（本轮修复的决定性证据手段）
+
+---
+
+# SACW Findings — v1.17.5 缺陷轮（Portal 作用域丢失）+ v1.17.6 收口
+
+## 缺陷归因（根因链，非猜测）
+1. v1.17.3/v1.17.4 为修「模态遮罩顶部露白约 24px」把 5 个模态改为 `createPortal(..., document.body)`。遮罩几何确实修好（像素复验通过）。
+2. **但 Portal 只改变节点位置，不搬运依赖祖先的上下文**：
+   - `src/index.css:216-226/:231` 的 `.aurora-shell .add-bill-dialog { width: min(28rem, calc(100vw - 2rem)); display:flex; flex-direction:column; max-height: calc(100vh - 2rem) }` 及 `:227-229` 表单布局、`:233-236` 分类选择器宽度 —— 全部挂 `.aurora-shell` **后代作用域** → Portal 后全部失配 → 面板退化为内容自适应宽度 → 选中分类后内容变窄 → **整窗塌缩**（用户报 bug 1）。
+   - `src/index.css:48` 的 `.dark, [data-theme='dark']` token 块 + `tailwind.config.ts:4` 的 `darkMode: 'class'` 祖先要求 → Portal 后两层都丢 → **深色主题下弹窗仍渲染浅色**（用户报 bug 2）。
+3. 上一轮的验证缺口：只验证了用户报的**那一个维度**（遮罩是否铺满），没有验证修复所依赖的上下文是否随迁。这是本轮返工的直接原因。
+
+## 修复（v1.17.5）
+- 新增 `src/utils/modalScope.ts`：`modalPortalScope()` 读 `localStorage['thunder_theme']`（与 Layout 同一来源）返回 `{ className: 'aurora-shell aurora-portal-root [dark]', 'data-theme' }`。
+- `src/index.css` 新增 `.aurora-shell.aurora-portal-root { width: auto; min-height: 0; background: transparent; }`（特指度 0,2,0 > 基础 `.aurora-shell` 的 0,1,0 且同层靠后）。**经独立证伪确认不可省**：删掉它，替身根会取到 `--bg` 与 `min-height:100%`，整屏盖住应用。
+- 5 个模态根接入替身；内联视口几何与 z-index 分层（ConfirmDialog 9500 / 其余 9000）逐字符未改。
+
+## 验证证据（Supervisor 独立执行，含负对照）
+真实构建 CSS + headless Chromium 2×2 对照（`artifacts/repro-portal-scope/`）：
+
+| 模式 | 宽(内容248) | 宽(内容306) | 极差 | 面板底色 |
+|---|---|---|---|---|
+| 无替身 + 深色 | 250 | 308 | 58 | `rgb(255,250,242)` 浅色 |
+| 有替身 + 深色 | 448 | 448 | 0 | `rgb(32,34,36)` |
+| 有替身 + 浅色 | 448 | 448 | 0 | `rgb(255,250,242)` |
+
+4 组 `coversViewport` 全 true。像素级复核（Pillow 主导底色统计）：面板底板 `rgb(255,250,242)`→`rgb(32,34,36)`，宽度 330px（内容驱动）→446px≈28rem（规则驱动）。
+
+## 独立审查结论
+- **Reviewer（reviewer-v1175，未参与编写）**：`approve`，四轴全 pass。独立复跑量测；7 次证伪尝试，其中「删掉覆盖规则」被推翻（证明规则不可省）、「`.add-bill-dialog` 焦点豁免是否失效」未推翻。
+- **Judge（judge-v1175，未参与编写与审查）**：`eval 94 / quality 87`，双门通过，`RELEASE`。自建复现器于 500×600 / 900×600 / 1200×800 三档视口复现；6 次证伪尝试。
+- 交叉印证：`.aurora-shell` 的后代规则**零个**使用 `> + ~` 组合器 → 把 shell 从"祖先"改为"根本身"对后代命中**严格等价**，即替身方案与 Portal 之前（v1.17.2）行为一致。
+
+## 发现的待收口项（→ v1.17.6）
+| 级别 | 问题 | 归属 | 处置 |
+|---|---|---|---|
+| P3 | `CategorySelect.tsx:125` / `AddBillDatePicker.tsx:148` 用 `querySelector('.aurora-shell')` 取 portal 目标；v1.17.5 起模态根也带该类 → 选择器由唯一变不唯一（当前靠 DOM 顺序侥幸命中） | **本轮引入的耦合** | v1.17.6 收窄为 `.aurora-shell:not(.aurora-portal-root)` |
+| P2 | 主报 bug「宽度塌缩」无任何自动化防护（jsdom 无排版，vitest 恒绿） | 验证缺口 | v1.17.6 新增 `scripts/verify-modal-scope.cjs` + npm script，含负对照自检 |
+| P2 | 契约测试的模态清单硬编码 → 新增模态忘登记即零约束 | 验证缺口 | v1.17.6 改为从文件系统派生 + 保留 ≥5 与两条具名保底断言 |
+| P3 | `evidence/` 存档相对路径失效，照原样打开会得到"CSS 未加载"的假结果 | 证据可复现性 | v1.17.6 修好并附 README + JSON |
+| P3 | `StatCardDetailDialog.test.tsx:389` 注释理由不成立 | 文档准确性 | v1.17.6 修正 |
+| P3 | Theme 从 `localStorage` 快照读取，与应用外壳 state 构成第二真值；弹窗打开期间切主题不重渲染 | 架构脆弱 | **两个独立来源均判定实际不可达**（遮罩覆盖主题按钮 + 模态有 Tab 焦点陷阱）→ 本轮不改，记录为已知局限 |
+| P2 | `ToastContainer` 位于 `.aurora-shell` 之外 → 深色主题下 toast 仍浅色 | **既有缺陷，非本轮回归**（本轮未碰 `App.tsx`/`Toast.tsx`） | 上报用户，待其决定是否扩展范围 |
+
+## v1.17.6 执行形态
+多 Agent 编排（EXEC→Worker `worker-v1176`；REVIEW→独立 Reviewer 定向复验；Supervisor 独立执行打包与交付验证）。选型依据：改动集中于验证基础设施 + 1 处选择器收窄，写集收敛、无独立并行模块。
+
+---
+
 # SACW Findings — v1.17.0 首页统计卡片明细弹窗
 
 ## 任务分类：实质任务

@@ -4,7 +4,7 @@
  * todayExpense 今日区间、monthIncome、空态、Escape、遮罩关闭。
  * getBills / getStats 按入参分流，确保区间与 type 取数正确。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { StatCardDetailDialog, type StatCardKey } from './StatCardDetailDialog';
 
@@ -366,4 +366,47 @@ describe('StatCardDetailDialog', () => {
       overlay.style.left,
     ]).toEqual(['0px', '0px', '0px', '0px']);
   });
+
+  // 14. 深色主题：Portal 根必须自带作用域替身 + 主题标记（否则弹窗留在浅色，且版式规则失配塌缩）
+  it('should carry dark scope markers on the portal root when theme is dark', async () => {
+    localStorage.setItem('thunder_theme', 'dark');
+    mockAPI({ bills: [bill({ amount: 10 })] });
+    renderDialog({ cardKey: 'monthExpense' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('dialog');
+    const portalRoot = (dialog.closest('[data-theme]') ?? dialog.parentElement) as HTMLElement;
+
+    expect(portalRoot.className).toContain('aurora-shell');
+    expect(portalRoot.className).toContain('aurora-portal-root');
+    expect(portalRoot.className.split(/\s+/)).toContain('dark');
+    expect(portalRoot.getAttribute('data-theme')).toBe('dark');
+  });
+
+  // 15. 浅色主题：Portal 根不得带 dark 标记
+  it('should not carry dark scope markers on the portal root when theme is light', async () => {
+    localStorage.setItem('thunder_theme', 'light');
+    mockAPI({ bills: [bill({ amount: 10 })] });
+    renderDialog({ cardKey: 'monthExpense' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('dialog');
+    const portalRoot = (dialog.closest('[data-theme]') ?? dialog.parentElement) as HTMLElement;
+
+    expect(portalRoot.className).toContain('aurora-shell');
+    expect(portalRoot.className).toContain('aurora-portal-root');
+    expect(portalRoot.className.split(/\s+/)).not.toContain('dark');
+    expect(portalRoot.getAttribute('data-theme')).toBe('light');
+  });
+});
+
+// 主题相关用例会写入 localStorage，收尾清理以免污染其余用例（其余用例依赖浅色语义）
+afterEach(() => {
+  localStorage.removeItem('thunder_theme');
 });

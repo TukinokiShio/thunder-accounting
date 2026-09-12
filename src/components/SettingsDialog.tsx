@@ -9,6 +9,7 @@ import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { loadSettings, saveSettings, TIMEZONE_OPTIONS } from '@/utils/settings'
 import { formatLocalDate } from '@/utils/date'
+import { modalPortalScope } from '@/utils/modalScope'
 import { BackupRestore } from './SettingsDialog/BackupRestore'
 import { About } from './SettingsDialog/About'
 
@@ -171,9 +172,12 @@ export function SettingsDialog({ isOpen, onClose }: Props) {
 
   if (!isOpen) return null
 
+  const portalScope = modalPortalScope()
+
   return createPortal(
     <div
-      className="flex items-center justify-center"
+      className={`${portalScope.className} flex items-center justify-center`}
+      data-theme={portalScope['data-theme']}
       style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
     >
       {/* Backdrop */}

@@ -1,3 +1,76 @@
+# Thunder Accounting v1.17.5 Task Plan — 缺陷轮：Portal 作用域替身
+
+## 执行形态：多 Agent 编排（DEFECT_TRIAGE→Supervisor 归因；EXEC→Worker 流水线；REVIEW→独立 Reviewer 双轴；EVAL→独立 Judge）——选型依据：根因机制已确定（无需黑板探索）、写集收敛、无并行模块 → Supervisor 流水线；上一轮同源修复被用户实机证伪一次 → 审查必须独立证伪（辩论收敛）。
+
+## 用户反馈 → 可验收标准（逐条对齐）
+
+| # | 用户原话 | 可验收标准 | 验证方式 |
+|---|---|---|---|
+| RL-901 | 「选择分类后，弹窗塌缩」 | 记一笔弹窗在**任意内容**下宽度恒为 `min(28rem, 100vw-2rem)`（≥640px 视口下为 28rem）；选中一级/二级分类后宽度不变 | 真实构建 CSS + headless Chromium 像素量宽（有值/无值/长文本三态），宽度极差 = 0 |
+| RL-902 | 「深色主题下显示的不是深色主题弹窗」 | 深色主题下模态面板底色 = `--bg-card` 深色值 `#202224`（亮度≈34），非浅色 `#fffaf2`（≈251） | 同上，对面板中心取像素亮度；明暗两态各测一次 |
+| RL-903 | （隐含）遮罩仍须铺满视口 | v1.17.3 的遮罩修复不得回退 | 复验遮罩四边几何仍为 0；Portal 契约测试须继续通过 |
+| RL-904 | 用户红线「限制修改范围」 | `git diff --name-only` 全落在写集内；`main-process/**`、`src/store/**`、`src/types/**`、`src/pages/**` 零改动 | `git status --short` |
+| RL-905 | 用户红线「禁止修改用户数据」 | 不碰 `.db` / userData / 不启动 App | `git status` 过滤 + 备份校验（已有 `C:\Users\d8502\thunder-accounting-userdata-backup-20260912-1606`） |
+
+## 拓扑（DAG，无并行分支 → 线性）
+
+```
+T1 modalScope.ts（新建）─┐
+T2 index.css 替身规则   ─┼─→ T4 5 个模态根接入 ─→ T5 测试扩充 ─→ T6 vitest 全量
+T3 版本号 1.17.5       ─┘                                    → T7 独立 Reviewer
+                                                             → T8 独立 Judge
+                                                             → T9 像素级复验（Supervisor）
+                                                             → T10 打包/安装/提交推送/知识回流
+```
+
+## 反模式清单（本轮强制禁止）
+- ❌ 撤销 Portal 回到 `fixed inset-0` 树内渲染（会退回遮罩露白，已被像素证据推翻）
+- ❌ 把 `dark` 提到 `<html>`（blast radius 过大，会让历史失效规则突然生效）
+- ❌ 改动模态根的内联几何字符串（源级契约测试逐字符断言）
+- ❌ 触碰 `CategorySelect.tsx` 的 `menuPortalTarget`（既有行为，非本轮回归；越界即回流）
+- ❌ 只做「源码 grep 式」验证就宣称修复 —— 必须有像素级几何/亮度证据
+
+## 版本
+`1.17.4 → 1.17.5`（PATCH，纯缺陷修复，无公开 API 变更）
+
+---
+
+# Thunder Accounting v1.17.6 Task Plan — 缺陷轮收口（回归守卫 + 耦合修复）
+
+## 执行形态：多 Agent 编排
+EXEC→Worker `worker-v1176`（实现）；REVIEW→独立 Reviewer `reviewer-v1175` 定向复验（它自己报的那条）；Supervisor 独立执行验证与打包交付。选型依据：改动集中于验证基础设施 + 1 处选择器收窄，写集收敛、无独立并行模块，无需黑板/DAG。
+
+## 需求来源
+v1.17.5 的两份独立回执：
+- Reviewer（approve）P3：`CategorySelect.tsx:125` / `AddBillDatePicker.tsx:148` 的 `.aurora-shell` 选择器因模态根新增同类名而**不再唯一**（本轮引入的耦合）。
+- Judge（eval 94 / quality 87 / RELEASE）P2：主报 bug「宽度塌缩」**无自动化防护**；契约测试模态清单硬编码；`evidence/` 存档不可复现。
+
+## 可验收标准（requirement ledger）
+| ID | 验收标准 |
+|---|---|
+| RL-906 | 两处 portal 目标选择器排除替身根；`CategorySelect.test.tsx:202` 仍通过 |
+| RL-907 | `npm run verify:modal-scope` 可执行并通过：替身下宽度极差=0、深色面板=#202224、浅色面板=#fffaf2、遮罩覆盖视口、替身根透明底 |
+| RL-908 | 该脚本含**负对照自检**：无替身组必须复现"宽度不稳定"，否则报错（防止验证器变成橡皮图章） |
+| RL-909 | 契约测试模态清单从文件系统派生 + ≥5 与两条具名保底断言（防止清单静默变空） |
+| RL-910 | `evidence/` 存档可复现（README + `scope-measure.json`） |
+| RL-911 | 四处版本 = 1.17.6；`UsePreviousAppDir=no` 保留 |
+| RL-912 | 写集内零越界；不碰 `.db` / userData；不启动 App |
+
+## 写集（严格边界）
+`src/components/CategorySelect.tsx`、`src/components/AddBillDatePicker.tsx`、`scripts/verify-modal-scope.cjs`(新)、`src/components/modal-portal-contract.test.ts`、`src/components/StatCardDetailDialog.test.tsx`、`artifacts/repro-portal-scope/evidence/README.md`(新)、`package.json`、`package-lock.json`、`scripts/thunder-setup.iss`
+
+## 反模式清单（本轮明令禁止）
+- 为了让新验证脚本通过而**放宽断言**（尤其负对照项）
+- 把模态清单硬编码回去、或让其可为空而不报错
+- 为绕开选择器不唯一问题去改 `CategorySelect.test.tsx` 的断言
+- 把 `dark` 类提到 `<html>`（会让历史失效规则突然生效，blast radius 不可控）
+- 撤销 Portal（遮罩修复有效，已被像素证明）
+
+## 交付链路
+`npm run build` → `npm run dist:win` → ISCC → 静默安装到 `exe\` → asar/注册表/快捷方式三重校验 → commit + push → 知识库修正（KI-2026-09-12-003 补「作用域必须随迁」+ 新增「结构迁移类修复的验证判据」）
+
+---
+
 # Thunder Accounting v1.17.0 Task Plan — 首页统计卡片明细弹窗
 
 ## 执行形态：多 Agent 编排（KNOWLEDGE_GATE→Explore 摸底；PLAN→Supervisor 汇总；EXEC→Worker 流水线；REVIEW→独立 Reviewer 双轴；EVAL→独立 Judge）——选型依据：单页面 UI 增量、写集收敛（≤6 文件）、无独立并行模块 → Supervisor 流水线而非黑板/DAG；审查含视觉与明细正确性、无唯一答案 → 辩论收敛（Reviewer ≤2 轮 + Judge）。

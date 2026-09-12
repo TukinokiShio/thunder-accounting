@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
+import { modalPortalScope } from '@/utils/modalScope'
 import { CategorySelect } from './CategorySelect'
 import { AddBillDatePicker } from './AddBillDatePicker'
 import type { AddBillForm } from '@/types'
@@ -209,9 +210,12 @@ export function AddBillDialog() {
 
   if (!isOpen) return null
 
+  const portalScope = modalPortalScope()
+
   return createPortal(
     <div
-      className="flex items-center justify-center"
+      className={`${portalScope.className} flex items-center justify-center`}
+      data-theme={portalScope['data-theme']}
       style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
     >
       {/* 半透明背景遮罩，点击关闭 */}

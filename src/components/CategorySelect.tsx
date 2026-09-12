@@ -121,8 +121,10 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
   const menuPlacement = typeof window !== 'undefined' && window.innerHeight <= 600 ? 'top' : 'bottom'
   // Layout 将主题变量挂在 .aurora-shell 上；Portal 到 body 会让菜单继承根节点的浅色变量。
   // 将菜单挂到主题 shell 内，既保留 fixed 定位，也让深浅主题 token 与弹窗保持一致。
+  // 注意：模态根也带 .aurora-shell（Portal 作用域替身），必须用 :not(.aurora-portal-root) 排除，
+  // 否则选择器不再唯一，可能把浮层挂到模态里而不是应用外壳上。
   const menuPortalTarget = typeof document !== 'undefined'
-    ? document.querySelector<HTMLElement>('.aurora-shell') ?? document.body
+    ? document.querySelector<HTMLElement>('.aurora-shell:not(.aurora-portal-root)') ?? document.body
     : undefined
 
   return (

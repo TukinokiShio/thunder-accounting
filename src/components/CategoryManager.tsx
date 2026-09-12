@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom'
 import { X, Settings } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { modalPortalScope } from '@/utils/modalScope'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CategoryList } from './CategoryManager/CategoryList'
 import { CategoryForm } from './CategoryManager/CategoryForm'
@@ -344,9 +345,12 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     )
   }
 
+  const portalScope = modalPortalScope()
+
   return createPortal(
     <div
-      className="flex items-center justify-center"
+      className={`${portalScope.className} flex items-center justify-center`}
+      data-theme={portalScope['data-theme']}
       style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, zIndex: 9000 }}
     >
       <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />

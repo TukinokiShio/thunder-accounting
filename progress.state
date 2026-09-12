@@ -22,7 +22,9 @@ step_chain:
   - EXEC
   - REVIEW
   - EVAL
-plan_status: approved_by_user_v1.17.0
+  - DEFECT_TRIAGE
+  - EXEC
+plan_status: defect_rework_v1.17.5_root_cause_confirmed
 executor_llm: claude-opus-4.6 (WorkBuddy)
 orchestration_form: multi_agent_supervisor_pipeline
 subagent_usage:
@@ -93,6 +95,31 @@ requirement_ledger:
     acceptance: 账单页筛选不再影响首页任何数字
     status: met
     evidence: Home.tsx 删除 store.bills / refreshBills 订阅，改为一次无参 getBills() 派生全部；Reviewer 复验 pass
+  - id: RL-901
+    source: 用户实测反馈「选择分类后，弹窗塌缩」
+    acceptance: 记一笔弹窗在任意内容下宽度恒为 min(28rem, 100vw-2rem)；选中一级/二级分类后宽度不变
+    status: met
+    evidence: Supervisor 独立量测（真实构建 CSS index-B2g4uqCr.css + headless Chromium 1200×800）：无替身时面板宽随内容 250→308（极差 58，塌缩复现）；带替身恒为 448px=28rem（极差 0）。独立 Judge 复现在 500×600 / 900×600 / 1200×800 三档视口，同为 448 恒定。像素级复核：面板宽度 330px（内容驱动）→ 446px≈28rem（规则驱动）
+  - id: RL-902
+    source: 用户实测反馈「深色主题下显示的不是深色主题弹窗」
+    acceptance: 深色主题下模态面板底色 = --bg-card 深色值（亮度≈34），非浅色（≈251）；浅色主题仍为浅色
+    status: met
+    evidence: Supervisor 量测：带替身_深色 面板底色 rgb(32,34,36)=#202224（亮度 33）、标题色 rgb(238,231,218)；无替身_深色 为 rgb(255,250,242)（亮度 250，复现用户图③）。浅色组仍 rgb(255,250,242) 且根类不含 dark（双向无污染）。独立 Judge 复现一致；像素级复核见 artifacts/repro-portal-scope/scope-visual.png 的主导底色统计
+  - id: RL-903
+    source: 隐含不变量（v1.17.3 遮罩修复不得回退）
+    acceptance: 遮罩四边几何仍为 0，铺满视口；Portal 契约测试继续通过
+    status: met
+    evidence: 2×4 组量测 coversViewport 全 true（root 四边 0、尺寸=视口）；替身根 background 为 transparent（rootBg=rgba(0,0,0,0)，未把 shell 底色带到遮罩）；modal-portal-contract.test.ts 既有几何与 z-index 分层断言全部继续通过（ConfirmDialog 9500 / 其余 9000 未变）
+  - id: RL-904
+    source: 用户红线「限制修改范围」
+    acceptance: git diff --name-only 全在写集内；main-process/**、src/store/**、src/types/**、src/pages/** 零改动
+    status: met
+    evidence: git status --short 仅含 5 组件 + index.css + src/utils/modalScope.ts(新) + 2 测试 + 版本三处 + SACW 过程文档；main-process/**、src/store/**、src/types/**、src/pages/**、src/i18n/**、Layout.tsx、CategorySelect.tsx 零改动（Worker 回执 + Supervisor 复核 + Judge 独立复核三方一致）
+  - id: RL-905
+    source: 用户红线「禁止修改用户数据」
+    acceptance: 不碰 .db / userData；不启动 App
+    status: met
+    evidence: 无 .db / sqlite / userData 进入 diff；全程未启动 App（仅 vitest、electron-vite build、electron-builder、ISCC、静默安装）；安装落点为固定验收目录 exe\
 reflow_counts:
   EXEC: 3
   REVIEW: 2
