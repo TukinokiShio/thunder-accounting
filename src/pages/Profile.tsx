@@ -16,10 +16,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { friendlyError } from '@/utils/errorMessages'
+import { isAndroid } from '@/platform'
 import {
   User, Lock, Link, BarChart3, AlertTriangle, AlertCircle,
   Copy, Check, Eye, EyeOff, Loader2, Trash2,
-  Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X
+  Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X, Tags
 } from 'lucide-react'
 
 type Tab = 'info' | 'security' | 'binding' | 'stats' | 'danger'
@@ -68,17 +69,36 @@ function bindingError(e: unknown, lang: Parameters<typeof friendlyError>[1]): st
   return friendlyError(e, lang)
 }
 
+/**
+ * 云端能力不可用时的降级面板（P2-5 / RL-A9）。
+ *
+ * ⚠ 实现纪律：`cloudbase-contract.test.ts:133` 明确禁止在 Profile.tsx 里把控件属性
+ * disabled 直接绑定到「云端不可用」——云端能力门必须用**条件渲染 / 降级文案**表达，
+ * 不能靠禁用控件（该禁写字面量因此在本文件里一个字都不能出现）。
+ * 另外此面板只在安卓本地模式渲染（`isAndroid() && !cloudAvailable`），桌面渲染逐位不变。
+ */
+function LocalModeCloudNotice({ message }: { message: string }) {
+  return (
+    <div className="profile-surface rounded-xl p-4" role="status">
+      <p className="text-sm text-gray-600">{message}</p>
+    </div>
+  )
+}
+
 export default function ProfilePage() {
-  const { user, addToast, appLogout } = useStore()
+  const { user, addToast, appLogout, setActivePage } = useStore()
   const { lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<Tab>('info')
+
+  // 安卓首版为纯本地单机：无云端账号能力 → cloudAvailable 初值直接是 false（桌面仍是 null=检测中）
+  const localMode = isAndroid()
 
   // ── 账号信息 ──
   const [account, setAccount] = useState<AccountInfo | null>(null)
   const [copied, setCopied] = useState(false)
   const [accountStatus, setAccountStatus] = useState<LoadState>('loading')
   // 云端服务可用性：null = 检测中, true = 可用, false = 未配置
-  const [cloudAvailable, setCloudAvailable] = useState<boolean | null>(null)
+  const [cloudAvailable, setCloudAvailable] = useState<boolean | null>(() => (localMode ? false : null))
 
   // ── 数据概览 ──
   const [stats, setStats] = useState<UserStats | null>(null)
@@ -119,10 +139,22 @@ export default function ProfilePage() {
   }, [])
 
   useEffect(() => {
+    // 安卓本地模式（纯本地单机）：
+    // - `loadStats()`（getUserStats）**照常调用** —— 桌面侧 `cloudbase.ts` 与安卓适配器
+    //   `android-adapter.ts:389-395` 都证明它是**本地库聚合**，与云端能力无关；
+    //   若被云门挡住，安卓「我的 → 数据概览」会恒为空态（真实功能缺失）。
+    // - 只有 `loadAccount()` / `checkCloud()` 这两个**真正依赖云**的挂载期调用不发起（RL-A9 修正版：
+    //   门控范围 = 2 个云调用 + 1 个本地调用）。
+    // 桌面分支与改动前逐位一致：仍然是 loadAccount → loadStats → checkCloud，同一顺序。
+    if (localMode) {
+      setAccountStatus('ready')
+      loadStats()
+      return
+    }
     loadAccount()
     loadStats()
     checkCloud()
-  }, [loadAccount, loadStats, checkCloud])
+  }, [localMode, loadAccount, loadStats, checkCloud])
 
   // ── 派生值 ──
   const accountId = account?.accountId || user?.accountId || ''
@@ -179,6 +211,20 @@ export default function ProfilePage() {
             </button>
           ))}
         </nav>
+        {/* P2-1 方案 B：底部导航只有 4 个 Tab，「分类管理」归入「我的」。
+            桌面侧栏已有该入口，故这里只在安卓渲染（桌面零变化）。 */}
+        {localMode && (
+          <button
+            type="button"
+            onClick={() => setActivePage('categories')}
+            className="profile-action mt-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            aria-label="分类管理"
+          >
+            <Tags size={16} aria-hidden="true" />
+            分类管理
+            <ChevronRight size={14} className="ml-auto" aria-hidden="true" />
+          </button>
+        )}
       </aside>
 
       {/* ── 右侧内容区 ── */}
@@ -423,7 +469,7 @@ function InfoTab({
 // 子组件：安全设置（修改密码）
 // ═════════════════════════════════════════════════════════════════
 
-function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email: string; phone: string; cloudAvailable: boolean }) {
+function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: string; cloudAvailable: boolean }) {
   const [verifyChannel, setVerifyChannel] = useState<'email' | 'phone' | null>(null)
   const [showChannelDropdown, setShowChannelDropdown] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -515,6 +561,19 @@ function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email:
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // 安卓本地模式：无云端账号能力 → 修改密码链路整体不可用，改为降级说明（不渲染任何云控件）
+  if (isAndroid() && !cloudAvailable) {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <Shield size={20} className="profile-accent-icon" />
+          安全设置
+        </h2>
+        <LocalModeCloudNotice message="本版本为本地模式，未接入云端账号服务，因此「修改密码」不可用。" />
+      </div>
+    )
   }
 
   return (
@@ -703,12 +762,25 @@ function SecurityTab({ email, phone, cloudAvailable: _cloudAvailable }: { email:
 // 子组件：绑定管理（邮箱 + 手机号）
 // ═════════════════════════════════════════════════════════════════
 
-function BindingTab({ email, phone, onChange, cloudAvailable: _cloudAvailable }: {
+function BindingTab({ email, phone, onChange, cloudAvailable }: {
   email: string
   phone: string
   onChange: () => void | Promise<void>
   cloudAvailable?: boolean
 }) {
+  // 安卓本地模式：无云端账号能力 → 邮箱/手机绑定整体不可用，改为降级说明
+  if (isAndroid() && !cloudAvailable) {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <Link size={20} className="profile-accent-icon" />
+          绑定管理
+        </h2>
+        <LocalModeCloudNotice message="本版本为本地模式，未接入云端账号服务，因此邮箱/手机绑定不可用。" />
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -1223,7 +1295,7 @@ function StatCard({ label, value, variant }: {
 // ═════════════════════════════════════════════════════════════════
 
 function DangerTab({
-  accountId, email, phone, nickname, onDeleted, cloudAvailable: _cloudAvailable
+  accountId, email, phone, nickname, onDeleted, cloudAvailable
 }: {
   accountId: string
   email: string
@@ -1283,6 +1355,19 @@ function DangerTab({
     } finally {
       setDeleting(false)
     }
+  }
+
+  // 安卓本地模式：无云端账号能力 → 注销账号链路整体不可用，改为降级说明
+  if (isAndroid() && !cloudAvailable) {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <AlertTriangle size={20} className="text-red-600" />
+          危险操作
+        </h2>
+        <LocalModeCloudNotice message="本版本为本地模式，未接入云端账号服务，因此「注销账号」不可用。" />
+      </div>
+    )
   }
 
   return (

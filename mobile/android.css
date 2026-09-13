@@ -1,0 +1,281 @@
+/**
+ * 安卓端（Capacitor WebView · 竖屏手机）专属样式。
+ *
+ * 四条硬约束（违反即桌面回归 / 源级契约打红）：
+ * 1. **全部选择器以 `html.platform-android` 开头** —— 该 class 只由 `mobile/main.tsx` 在动态
+ *    import 共享 UI 之前加到 `<html>` 上；桌面 `<html>` 永不含它 → 本文件里没有任何规则
+ *    会在桌面命中（`app-out/renderer` 也根本不包含本文件）。
+ * 2. **不做任何水平裁切、不用双边预留滚动条槽**：`Layout.test.tsx:129/130` 对 index.css
+ *    下了两条全文负向禁令；本文件主动规避同一打字形态，避免未来把它纳入扫描时踩雷。
+ * 3. 颜色一律走语义 token（`--accent*` / `--text*` / `--border` / `--bg*`），
+ *    不得出现任何遗留的蓝色系 / 主色系 Tailwind 工具类、也不得出现蓝色 hex 值
+ *    （对应 `theme-contract.test.ts:28-30` 的三条正则）—— 同上一条理由，本文件连这些
+ *    前缀字面量都不写，以免未来把本文件纳入扫描时被注释文本误伤。
+ *
+ * 本文件由 `mobile/main.tsx` 静态 import，因此它在产出 CSS 中的顺序**早于** `src/index.css`；
+ * 所有覆盖都靠**更高的选择器特指度**取胜（`html.platform-android .x` = 0,2,1 > Tailwind 工具类 0,1,0），
+ * 不依赖书写顺序。
+ * 4. **本文件不含任何 `!important`**。`src/index.css` 里确有若干 `!important`（例如 399 行的
+ *    `.aurora-shell .text-gray-300`）。按层叠规则，author origin 的 `!important` 处在比普通声明
+ *    更高的层叠层，**同层才比较特指度**，所以不带 `!important` 的高特指度规则**无法**反超它。
+ *    遇到这种对抗时的做法是：把属性定义到那条 `!important` **不命中**的元素上
+ *    （`!important` 只管它命中的那个元素，不会经由继承压过子元素自身的声明），
+ *    见下面的 `.category-delete-btn > svg`。
+ */
+
+/* ───────────────────────── P2-4 视口与安全区 ───────────────────────── */
+
+/* 安卓 WebView 里 100vh 会把系统手势条算进去（本机模拟器实测约占 24px），
+   必须用 100dvh，并给底部交互控件让出 env(safe-area-inset-bottom)。 */
+html.platform-android .aurora-shell {
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+html.platform-android body {
+  overscroll-behavior-y: none;
+}
+
+/* 弹窗（含 Portal 模态）底部让位系统手势条：只加外边距，不改内边距/尺寸 */
+html.platform-android .aurora-dialog,
+html.platform-android .add-bill-dialog {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ─────────────── P2-1 底部导航（4 Tab + 中央凸起「记一笔」） ─────────────── */
+
+/* 仅手机竖屏；桌面（≥640px 逻辑宽度）不加载本文件，此处再兜一层媒体查询。
+   侧栏与底部导航互斥：窄屏下隐藏 224px 固定侧栏。 */
+@media (max-width: 639px) {
+  html.platform-android .aurora-sidebar {
+    display: none;
+  }
+
+  /* 顶栏原本 px-6（工具类 0,1,0），窄屏收紧到 1rem */
+  html.platform-android .aurora-topbar {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* 内容区底部让位：56px 导航条 + 18px 凸起 + 安全区 */
+  html.platform-android .aurora-main {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+html.platform-android .android-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60; /* 高于应用内容（z-50/60），远低于模态 9000 与 react-select 菜单 10000 */
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* 竖屏下 left/right 通常为 0；补上是为横屏/挖孔机型不贴边（首版不做横屏，纯防御） */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  touch-action: manipulation;
+}
+
+/* 每个 Tab 至少 56px 高（≥44px 触控目标） */
+html.platform-android .android-tab {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.1;
+  touch-action: manipulation;
+}
+
+html.platform-android .android-tab-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+html.platform-android .android-tab-label {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* P2-1b 当前页指示：顶部 2px 金棕线 + 图标金棕 + 文字用正文色 + 字重 650。
+   不用发光、不用色块 —— 实测 `--accent #d59b25` 压在底栏底 `#fffaf2` 上只有 2.37:1，
+   小字不达标；`--accent-h #b98218` 为 3.22:1（过非文本 3:1），正文色 16.12:1。 */
+html.platform-android .android-tab-active {
+  color: var(--text);
+  font-weight: 650;
+}
+
+html.platform-android .android-tab-active .android-tab-icon {
+  color: var(--accent-h);
+}
+
+html.platform-android .android-tab-active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 24px;
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: 0 0 2px 2px;
+  background: var(--accent-h);
+}
+
+/* 中央凸起「记一笔」：占位槽 + 相对导航条上抬 18px */
+html.platform-android .android-fab-slot {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+html.platform-android .android-fab {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transform: translateX(-50%);
+  border: 1px solid var(--accent-h);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 0 8px 20px var(--accent-dim);
+  touch-action: manipulation;
+}
+
+html.platform-android .android-fab:active {
+  background: var(--accent-h);
+  border-color: var(--accent-h);
+}
+
+/* ─────────────── P2-2 hover → 触屏可达（功能性阻断常显） ─────────────── */
+
+/* `CategoryList.tsx` 的列表项删除按钮原先靠 `opacity-0 group-hover:opacity-100` 才可见 →
+   Android WebView 无 hover → 永远点不到。给它一个稳定 hook 类并常显（`opacity-0` 是普通
+   声明，0,2,1 > 0,1,0 即可覆盖，不需要 `!important`）。
+   桌面不加载本文件，故桌面 hover 交互逐位不变。 */
+html.platform-android .category-delete-btn {
+  opacity: 1;
+}
+
+/* 图标配色 —— 不带 `!important` 的写法。
+   `src/index.css:399` 的 `.aurora-shell .text-gray-300 { color: var(--text3) !important }`
+   命中的是**按钮**，会把图标压到 --text3（实算 2.37~3.46:1，最差 2.37:1）：低于非文本图形 3:1。
+   因为它是 author origin 的 `!important`，提高特指度也反超不了，所以这里不去跟它抢按钮，
+   而是给**它不命中的图标元素**声明 color —— lucide 渲染的是 `<svg stroke="currentColor">`，
+   `currentColor` 取 svg 自身的 color；元素自身声明永远高于从祖先继承来的值，祖先带不带
+   `!important` 都不影响。实算结果（浅色 #dc2626 / 深色 #ef4444）：最差 3.22:1（深色选中行），
+   其余 3.81~4.95:1，全部达到 3:1。 */
+html.platform-android .category-delete-btn > svg {
+  color: var(--danger);
+}
+
+/* 编辑模式：行内的拖动把手与删除按钮都要 ≥44px 触控目标，并禁用浏览器手势竞争 */
+html.platform-android .android-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -8px 0 -8px -8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  cursor: grab;
+  touch-action: none; /* 关键：把手上的触摸不再触发列表滚动，pointermove 才连续 */
+}
+
+html.platform-android .android-drag-handle[data-dragging='true'] {
+  color: var(--accent-h);
+  cursor: grabbing;
+}
+
+/* 拖动中的行与落位目标行 */
+html.platform-android .category-row-dragging {
+  background: var(--accent-dim);
+}
+
+html.platform-android .category-row-drop-target {
+  outline: 1px dashed var(--accent-h);
+  outline-offset: -1px;
+}
+
+/* 编辑模式开关：44px 触控目标 + 文案状态可读 */
+html.platform-android .android-edit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 600;
+  touch-action: manipulation;
+}
+
+html.platform-android .android-edit-toggle[aria-pressed='true'] {
+  border-color: var(--accent-h);
+  background: var(--accent-dim);
+  color: var(--accent-h);
+}
+
+/* ─────────── 分类管理页：竖屏下由「左右两栏」改为「上下堆叠」 ─────────── */
+
+@media (max-width: 639px) {
+  html.platform-android .category-manager-body {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  /* 列表原本 w-56 + 固定不收缩 + 右边框，窄屏会挤压/溢出 */
+  html.platform-android .category-list-pane {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: 45dvh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* 我的（Profile）左侧标签导航在窄屏改为可换行的横向条 */
+  html.platform-android .profile-nav nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  html.platform-android .profile-nav nav > button {
+    flex: 0 1 auto;
+    width: auto;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}

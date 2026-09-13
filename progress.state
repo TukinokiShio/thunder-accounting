@@ -135,10 +135,15 @@ requirement_ledger:
     status: pending
     evidence: null
   - id: RL-A9
-    source: 独立 Judge + 红队共同指出
-    acceptance: 云能力门真正接线——Profile.tsx 的 cloudAvailable 为 false 时，:91/:103/:114 三个挂载期云调用不被触发
-    status: pending
-    evidence: null
+    source: 独立 Judge + 红队共同指出；**2026-09-13 由 Supervisor 修正措辞**
+    acceptance: '云能力门真正接线。**原措辞有误已改**：原写「:91/:103/:114 三个云调用不被触发」—— 但已核实 :103 对应的 getUserStats 在桌面(cloudbase.ts:1382-1402)与安卓适配器(android-adapter.ts:389-395) 都是**读本地库聚合**，并非云调用。修正后：本地模式下 `getAccountBindings` / `isCloudSyncEnabled` **不被调用**，而 `getUserStats` **被调用并返回真实本地数值**（否则安卓「我的→数据概览」恒为空态，属用户可见功能缺失）'
+    status: met
+    evidence: "Profile.tsx:141-157 平台短路仅跳过 loadAccount/checkCloud，loadStats 继续执行；测试 2 条云调用未调用 + getUserStats 被调用 + 新增第 6 例断言真实本地数值渲染；npm test 43 文件/425 用例全绿（Supervisor 复跑）"
+  - id: RL-A9b
+    source: Phase 2 执行者提出 + Supervisor 采纳（实现路径由实现方定）
+    acceptance: 门控实现方式不按云状态短路，而用平台短路
+    status: met
+    evidence: "采用 `if (localMode) {…return}`（Profile.tsx:149）。理由：按 cloudAvailable===false 短路会让桌面在 checkCloud() 返回后 effect 重跑 → 云可用时重复发 IPC、云不可用时覆盖 loadAccount 错误态，**两者都破坏「桌面零变化」不变量**；平台短路在安卓侧可观测行为等价"
   - id: RL-A10
     source: 用户 OQ-1① 原话「暂时决定采纳方案 B 4 Tab + 中央凸起按钮」
     acceptance: 移动端底部导航 = 4 Tab（首页/账单/统计/我的）+ 中央凸起「记一笔」；桌面侧栏零变化；FAB 避让底部安全区

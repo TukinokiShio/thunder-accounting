@@ -5,10 +5,11 @@
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Settings } from 'lucide-react'
+import { X, Settings, Pencil } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { modalPortalScope } from '@/utils/modalScope'
+import { isAndroid } from '@/platform'
 import { ConfirmDialog } from './ConfirmDialog'
 import { CategoryList } from './CategoryManager/CategoryList'
 import { CategoryForm } from './CategoryManager/CategoryForm'
@@ -39,6 +40,17 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   const dragOrderRef = useRef<string[]>([])
   const dragIdxRef = useRef<number | null>(null)
   const nameToIdRef = useRef<Map<string, number>>(new Map())
+
+  // ─── 安卓（P2-3）：编辑模式 + Pointer Events 拖拽 state ──
+  // 桌面（`touch === false`）完全不走这条路径：仍用 HTML5 DnD + group-hover 删除按钮。
+  const touch = isAndroid()
+  const [editMode, setEditMode] = useState(false)
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
+  const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null)
+  const pressTimerRef = useRef<number | null>(null)
+  const pointerActiveRef = useRef(false)
+  const dragFromRef = useRef<number | null>(null)
+  const dragToRef = useRef<number | null>(null)
 
   const categories = tab === 'expense' ? expenseCategories : incomeCategories
 
@@ -129,8 +141,8 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     }
   }
 
-  /** 删除确认弹窗 */
-  const [deleteConfirm, setDeleteConfirm] = useState<{ name: string; id: number } | null>(null)
+  /** 删除确认弹窗：必须展示将一并删除的二级分类数量，并说明账单不会被删除（P2-3） */
+  const [deleteConfirm, setDeleteConfirm] = useState<{ name: string; id: number; children: number } | null>(null)
 
   const handleDelete = async () => {
     if (!deleteConfirm) return
@@ -166,7 +178,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
       addToast('error', t('删除失败，请重试'))
       return
     }
-    setDeleteConfirm({ name: cat.name, id })
+    setDeleteConfirm({ name: cat.name, id, children: cat.children.length })
   }
 
   const resetForm = () => {
@@ -210,10 +222,8 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     dragIdxRef.current = idx
   }
 
-  const handleDragEnd = async () => {
-    const names = dragOrderRef.current
-    dragIdxRef.current = null
-    dragOrderRef.current = []
+  /** 把名称顺序落库。桌面 HTML5 DnD 与安卓指针拖拽共用同一条路径（落库行为逐字一致）。 */
+  const persistOrder = async (names: string[]) => {
     if (names.length === 0) return
     if (nameToIdRef.current.size === 0) await loadMeta()
     let ids = names.map(n => nameToIdRef.current.get(n)).filter((id): id is number => id !== undefined)
@@ -231,6 +241,86 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
         addToast('error', t('保存失败，请重试'))
       }
     }
+  }
+
+  const handleDragEnd = async () => {
+    const names = dragOrderRef.current
+    dragIdxRef.current = null
+    dragOrderRef.current = []
+    await persistOrder(names)
+  }
+
+  // ─── 安卓指针拖拽（HTML5 DnD 在 Android WebView 基本不可用） ───────
+  // 交互：把手 pointerdown → 长按约 150ms 激活 → setPointerCapture → pointermove 计算落位
+  //      → pointerup 提交。「长按再拖」避免与列表滚动/点击选分类抢手势。
+
+  const clearPressTimer = () => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current)
+      pressTimerRef.current = null
+    }
+  }
+
+  // 卸载时清掉未触发的长按定时器，避免离开页面后仍 setState
+  useEffect(() => () => { clearPressTimer() }, [])
+
+  const handleHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>, idx: number) => {
+    if (!touch || !editMode) return
+    e.preventDefault() // 抑制长按选中与系统上下文菜单（把手另有 touch-action: none）
+    dragFromRef.current = idx
+    dragToRef.current = idx
+    pointerActiveRef.current = true
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // 部分 WebView 在指针已释放时抛 NotFoundError；触摸场景下浏览器本身已有隐式捕获
+    }
+    clearPressTimer()
+    pressTimerRef.current = window.setTimeout(() => {
+      pressTimerRef.current = null
+      setDraggingIdx(idx)
+      setDropTargetIdx(idx)
+    }, 150)
+  }
+
+  const handleHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!pointerActiveRef.current || draggingIdx === null) return
+    e.preventDefault()
+    const rows = document.querySelectorAll<HTMLElement>('[data-cat-row="true"]')
+    const y = e.clientY
+    let target = dragToRef.current ?? draggingIdx
+    rows.forEach((row) => {
+      const rect = row.getBoundingClientRect()
+      if (y >= rect.top && y <= rect.bottom) {
+        const parsed = Number(row.getAttribute('data-cat-index'))
+        if (Number.isFinite(parsed)) target = parsed
+      }
+    })
+    dragToRef.current = target
+    if (target !== dropTargetIdx) setDropTargetIdx(target)
+  }
+
+  const handleHandlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!pointerActiveRef.current) return
+    pointerActiveRef.current = false
+    clearPressTimer()
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      // 未捕获/已释放：忽略
+    }
+    const from = dragFromRef.current
+    const to = dragToRef.current
+    const activated = draggingIdx !== null
+    dragFromRef.current = null
+    dragToRef.current = null
+    setDraggingIdx(null)
+    setDropTargetIdx(null)
+    if (!activated || from === null || to === null || from === to) return
+    const names = categories.map(c => c.name)
+    const [moved] = names.splice(from, 1)
+    names.splice(to, 0, moved)
+    void persistOrder(names)
   }
 
   const handleTabChange = (newTab: 'expense' | 'income') => {
@@ -261,6 +351,18 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
         <Settings size={18} className="text-gray-400" />
         <h2 className="text-lg font-bold text-gray-900">{t('分类管理')}</h2>
       </div>
+      {isPage && touch && (
+        <button
+          type="button"
+          className="android-edit-toggle"
+          aria-pressed={editMode}
+          aria-label={editMode ? t('退出编辑模式') : t('进入编辑模式')}
+          onClick={() => setEditMode(v => !v)}
+        >
+          <Pencil size={14} aria-hidden="true" />
+          {editMode ? t('完成') : t('编辑')}
+        </button>
+      )}
       {!isPage && (
         <button
           onClick={onClose}
@@ -273,7 +375,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
   )
 
   const bodyContent = (
-    <div className="flex-1 flex min-h-0 overflow-hidden">
+    <div className="category-manager-body flex-1 flex min-h-0 overflow-hidden">
       <CategoryList
         categories={categories}
         selectedId={selectedId}
@@ -289,6 +391,14 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
         tabLabelIncome={t('收入分类')}
         deleteTitle={t('删除此分类')}
         newLabel={t('新增分类')}
+        touch={touch}
+        editMode={editMode}
+        draggingIdx={draggingIdx}
+        dropTargetIdx={dropTargetIdx}
+        dragHandleLabel={t('拖动排序')}
+        onHandlePointerDown={handleHandlePointerDown}
+        onHandlePointerMove={handleHandlePointerMove}
+        onHandlePointerUp={handleHandlePointerUp}
       />
       <CategoryForm
         editName={editName}
@@ -327,7 +437,12 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     <ConfirmDialog
       open={deleteConfirm !== null}
       title={t('确认删除')}
-      message={deleteConfirm ? `「${deleteConfirm.name}」` : ''}
+      message={deleteConfirm
+        ? t('将删除分类「{name}」及其 {n} 个二级分类。已使用该分类的账单不会被删除，只会变为「未分类」。')
+          .replace('{name}', deleteConfirm.name)
+          .replace('{n}', String(deleteConfirm.children))
+        : ''
+      }
       confirmLabel={t('删除')}
       danger
       onConfirm={handleDelete}

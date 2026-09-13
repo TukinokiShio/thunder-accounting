@@ -267,6 +267,13 @@
 4. `mobile/` 适配器：`isCloudSyncEnabled → false`，`getAccountBindings → null`，`loadCredentials → {identifier:'', rememberAccount:false, autoLogin:false}`（**必须返回对象、不可抛错** —— `App.tsx:33` 直接读 `.autoLogin`）
 5. **不注入合成 user**（RL-A8）
 
+> ⚠️ **更正上面第 3 条（2026-09-13，Phase 2 执行期实测取证）**：原文写「跳过 `:91/:103/:114` **三个挂载期云调用**」—— **「三个云调用」的措辞有误**。
+> `:103` 的 `getUserStats`（`loadStats`）**不是云调用**：桌面 `main-process/cloudbase.ts:1382` 与安卓 `mobile/bridge/android-adapter.ts:389` 都是**本地库聚合**；只有 `:91` 的 `getAccountBindings`（`loadAccount`）与 `:114` 的 `isCloudSyncEnabled`（`checkCloud`）才是真云调用。
+> **门控范围 = 2 个云调用（`loadAccount` / `checkCloud`）+ 1 个本地调用（`loadStats` 照常发起）。**
+> 若把 `loadStats` 一起挡掉，安卓「我的 → 数据概览」**恒为空态**（真实功能缺失）—— 这是一个被原措辞掩盖的**真缺陷**，实测由 Phase 2 用例捕获。
+> 落地位置：`src/pages/Profile.tsx:141-157`（`if (localMode) { setAccountStatus('ready'); loadStats(); return }`）、用例 `src/pages/Profile.local-mode.test.tsx`。
+> 注：`progress.state:139` 的 RL-A9 `acceptance` 字段仍是旧措辞（该文件由编排方持有，未由本 Worker 改写）。
+
 ### S3 —— 触屏可达性盘点 ✅ **PASS**（只读代理 `agent-d9d7dc60`）
 
 **量化基线（该代理实际执行的 grep 输出）**：

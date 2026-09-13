@@ -230,7 +230,7 @@
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
     overflow: hidden;
   }
   .aurora-shell .add-bill-dialog-form { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
@@ -256,7 +256,7 @@
   .aurora-shell .add-bill-date-picker:focus-within .add-bill-date-icon { color: var(--accent); }
   .aurora-shell .add-bill-date-popover {
     position: fixed; z-index: 10020; width: min(100%, 22.5rem); max-width: calc(100vw - 1rem); box-sizing: border-box;
-    max-height: calc(100vh - 1rem); overflow: auto;
+    max-height: calc(100dvh - 1rem); overflow: auto;
     padding: .8rem; border: 1px solid var(--border); border-radius: var(--radius);
     background: var(--bg-card); color: var(--text); box-shadow: var(--shadow-dialog);
   }
@@ -407,11 +407,11 @@
   .login-shell {
     --login-paper: var(--paper); --login-card: var(--bg-card); --login-ink: var(--text);
     --login-muted: var(--text2); --login-line: var(--border); --login-gold: var(--accent);
-    min-height: 100vh; background: var(--login-paper); color: var(--login-ink);
+    min-height: 100dvh; background: var(--login-paper); color: var(--login-ink);
   }
   .login-layout { max-width: none; background: var(--login-paper); }
   .login-hero { min-width: 0; padding: clamp(1.75rem, 5vw, 5rem); background: var(--login-paper); }
-  .login-content { min-height: 100vh; align-items: flex-start; overflow-y: auto; padding-block: clamp(2.5rem, 7vh, 5rem); background: var(--login-card); }
+  .login-content { min-height: 100dvh; align-items: flex-start; overflow-y: auto; padding-block: clamp(2.5rem, 7vh, 5rem); background: var(--login-card); }
   .login-panel { width: 100%; max-width: 440px; margin: auto; padding-block: 1.5rem; background: transparent; border: 0; box-shadow: none; }
   .login-orb { position: absolute; border-radius: 999px; filter: blur(1px); pointer-events: none; }
   .login-orb-one { width: 360px; height: 360px; right: -150px; top: 12%; background: color-mix(in srgb, var(--gold-dark) 8%, transparent); }

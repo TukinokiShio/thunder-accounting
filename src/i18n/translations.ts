@@ -31,6 +31,23 @@ export const T: Record<string, string> = {
   // ── Layout ──
   '记一笔': 'Add Bill',
 
+  // ── 安卓底部导航（P2-1） ──
+  '首页': 'Home',
+  '我的': 'Me',
+  '底部导航': 'Bottom navigation',
+
+  // ── 安卓分类编辑模式（P2-3） ──
+  '完成': 'Done',
+  '进入编辑模式': 'Enter edit mode',
+  '退出编辑模式': 'Exit edit mode',
+  '拖动排序': 'Drag to reorder',
+  '将删除分类「{name}」及其 {n} 个二级分类。已使用该分类的账单不会被删除，只会变为「未分类」。': 'Category "{name}" and its {n} subcategories will be deleted. Bills already using this category are NOT deleted — they become "Uncategorized".',
+
+  // ── 安卓本地模式降级文案（P2-5） ──
+  '本版本为本地模式，未接入云端账号服务，因此「修改密码」不可用。': 'This build runs in local mode without cloud accounts, so password changes are unavailable.',
+  '本版本为本地模式，未接入云端账号服务，因此邮箱/手机绑定不可用。': 'This build runs in local mode without cloud accounts, so email/phone binding is unavailable.',
+  '本版本为本地模式，未接入云端账号服务，因此「注销账号」不可用。': 'This build runs in local mode without cloud accounts, so account deletion is unavailable.',
+
   // ── 首页 ──
   '今日支出': 'Today',
   '本月支出': 'This Month',

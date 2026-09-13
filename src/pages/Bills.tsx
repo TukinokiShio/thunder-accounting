@@ -295,7 +295,7 @@ export function Bills() {
                   type="button"
                   onClick={() => openEditDialog(bill.id)}
                   aria-label={t('编辑')}
-                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
                   title={t('编辑')}
                 >
                   <Pencil size={14} />
@@ -305,7 +305,7 @@ export function Bills() {
                   type="button"
                   onClick={() => setDeleteTarget(bill)}
                   aria-label={t('删除')}
-                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--danger)] hover:bg-[var(--danger-dim)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--danger)] hover:bg-[var(--danger-dim)] opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
                   title={t('删除')}
                 >
                   <Trash2 size={14} />

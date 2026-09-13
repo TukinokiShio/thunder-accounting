@@ -34,7 +34,8 @@
 | RL-A6 | 项目交付纪律（AGENTS.md + 用户级记忆） | 桌面端**行为零变化**：既有测试套件全绿；`git diff` 不触及 62 处生产调用点 | `npm test` 全绿 + diff 审查 |
 | RL-A7 | 项目踩坑 KI-001 | **修正原措辞**（原「`package.json` 只允许 version 行差异」在 Capacitor 依赖必须登记时**字面不可满足**，会逼执行者破戒）：① `scripts`/`devDependencies`/`build` 三段结构**完整无损** ② 新增依赖显式登记、人工可审，**禁止**写入嵌套 `package.json` 造成双份 node_modules（React 重复实例化 → hooks 报错） | `node -e` 逐段断言 + `git diff package.json` 人工审 |
 | RL-A8 | 独立 Judge（`agent-d9dfa538`）发现的「死线」 | 安卓端**不伪造用户身份**，顶栏**不得谎报「已同步」** | 断言 `user === null` 且 `syncStatus === 'offline'`；顶栏渲染未登录态 |
-| RL-A9 | 独立 Judge + 红队共同指出 | **云能力门真正接线**：`Profile.tsx:115` 的 `cloudAvailable` 下传至 `:426/:706/:1226` 但**三个消费组件零引用**，且 `:121-125` 挂载期**无条件**调 `:91/:103/:114` 三个云 API | 断言 `cloudAvailable === false` 时三个挂载期云调用**不被触发** |
+| RL-A9 | 独立 Judge + 红队共同指出 | **云能力门真正接线**：`Profile.tsx` 的 `cloudAvailable` 下传至 `:426/:706/:1226` 但**三个消费组件零引用**，且 `:121-125` 挂载期**无条件**调 `CloudbaseContract` 三个接口。<br>⚠️ **2026-09-13 需求修正（原措辞有误）**：原写「`:91/:103/:114` 三个**云**调用」是错的 —— 已独立核实 `:103` 对应的 `getUserStats` 在桌面（`cloudbase.ts:1382-1402`）与安卓适配器（`android-adapter.ts:389-395`）**都是读本地库聚合** → **它不是云调用**。按事实修正为：**门控范围 = 2 个真云调用（`getAccountBindings` / `isCloudSyncEnabled`）+ `getUserStats` 必须移出云门**（否则安卓「我的 → 数据概览」恒为空态，属用户可见功能缺失）。 | 断言本地模式下：`getAccountBindings` / `isCloudSyncEnabled` **未被调用**，且 `getUserStats` **被调用并返回真实本地数值** |
+| RL-A9b | Phase 2 执行者提出 + Supervisor 采纳 | 门控的**实现方式**不按云状态短路 | **采用平台短路（`if (localMode) {…return}`）**。理由：按 `cloudAvailable === false` 短路会让桌面在 `checkCloud()` 返回后 **effect 重跑** → 云可用时重复发起 IPC、云不可用时把 `loadAccount` 的错误态覆盖成 ready，**两者都破坏「桌面零变化」不变量**。平台短路在安卓侧可观测行为等价，且更好地守住不变量 | 断言桌面路径的挂载期调用次数与顺序**不变** |
 
 ## 不变量（must-keep，违反即 P0）
 

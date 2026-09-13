@@ -15,13 +15,18 @@ import { SettingsDialog } from '@/components/SettingsDialog'
 import { AuthGuard } from '@/components/AuthGuard'
 import { ToastContainer } from '@/components/Toast'
 import { useStore } from '@/store'
+import { isAndroid } from '@/platform'
 import { LanguageProvider } from '@/i18n/LanguageContext'
 
 export default function App() {
   const activePage = useStore((s) => s.activePage)
   const openAddDialog = useStore((s) => s.openAddDialog)
   const user = useStore((s) => s.user)
+  const isCheckingSession = useStore((s) => s.isCheckingSession)
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  /** 安卓首版纯本地：无账号体系，user 恒为 null，必须改用「会话已判定」作为加载门 */
+  const localMode = isAndroid()
 
   // 启动时恢复持久化会话；只有 CloudBase 明确判定会话失效时才回到登录页。
   useEffect(() => {
@@ -45,13 +50,14 @@ export default function App() {
     return () => { cancelled = true }
   }, [])
 
-  // 登录后加载账单和分类数据
+  // 登录后加载账单和分类数据（桌面）；安卓本地模式在「会话已判定」后加载 ——
+  // 否则 user 恒为 null → 分类恒空、「记一笔」不可用（P2-5）。桌面条件逐位不变：仍是 !!user。
   useEffect(() => {
-    if (user) {
+    if (user || (localMode && !isCheckingSession)) {
       useStore.getState().refreshBills()
       useStore.getState().refreshCategories()
     }
-  }, [user])
+  }, [user, isCheckingSession, localMode])
 
   // 监听全局快捷键
   useEffect(() => {

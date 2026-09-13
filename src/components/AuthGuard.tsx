@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { useStore } from '@/store'
+import { isAndroid } from '@/platform'
 import { LoginPage } from '@/pages/Login'
 
 interface Props {
@@ -21,6 +22,10 @@ export function AuthGuard({ children }: Props) {
       </div>
     )
   }
+
+  // 安卓首版是纯本地单机（无云端账号体系）：不做登录门禁，也不出现登录页（RL-A5）。
+  // 桌面分支保持原样，逐字不变。
+  if (isAndroid()) return <>{children}</>
 
   if (!user) return <LoginPage />
 

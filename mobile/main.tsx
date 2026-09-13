@@ -1,16 +1,22 @@
 /**
  * 安卓端渲染进程入口（Capacitor WebView 的 webDir 入口）。
  *
- * 四步顺序**固定且必须串行 await**，任一步提前都会破坏下列前提：
- * - ① 安装适配器必须在 ④ 之前 —— `src/main.tsx` 渲染首帧时 `src/App.tsx:33/34/58` 立刻读
- *   `window.electronAPI`，适配器缺位即整页崩。
- * - ② 必须**先 `hydrate()` 成功再 `setStoragePort()`**：hydrate 把已有 DB 读进内存副本；
+ * 五个步骤（其中 ② 含三个**不可拆分、不可换序**的子步）**固定且必须串行 await**，
+ * 任一步提前都会破坏下列前提：
+ * - ⓪ 给 `<html>` 打上 `platform-android` 类：必须在 ④ 之前 —— `src/platform.isAndroid()`
+ *   靠它做运行时平台判定（`src/` 不得 import `mobile/`，平台信息只能由入口侧单向写入 DOM）。
+ * - ① 安装适配器到 `window.electronAPI`，必须在 ④ 之前 —— `src/main.tsx` 渲染首帧时
+ *   `src/App.tsx:33/34/58` 立刻读 `window.electronAPI`，适配器缺位即整页崩。
+ * - ② 安装安卓持久化端口，三个子步 **必须按 ②ⓐ → ②ⓑ → ②ⓒ 顺序**：
+ *   ②ⓐ `createAndroidStoragePort()` → ②ⓑ `await storage.hydrate()` → ②ⓒ `setStoragePort(storage)`。
+ *   必须**先 `hydrate()` 成功再 `setStoragePort()`**：hydrate 把已有 DB 读进内存副本；
  *   若顺序反了或跳过，`exists()` 会拿到空副本，紧接着的 `saveDb()` 会用空库
  *   **覆盖用户真实数据**（`android-storage.ts` 对此有 fail-loud 保护：未 hydrate 直接抛错）。
  * - ③ 初始化数据库必须在 ④ 之前 —— 首页挂载即调 `getBills` / `getCategories`。
  * - ④ 动态 import 共享 UI 入口：方向只允许 mobile → src（`src/` 不得反向 import `mobile/`，
  *   否则桌面包会被污染）。
  */
+import './android.css'
 import { installAndroidBridge } from './bridge/android-adapter'
 import { createAndroidStoragePort } from './bridge/android-storage'
 import { setStoragePort } from '../main-process/database/storage'
@@ -33,6 +39,10 @@ function renderBootstrapError(error: unknown): void {
 }
 
 async function bootstrap(): Promise<void> {
+  // ⓪ 标记平台：必须在动态 import 共享 UI 之前完成，否则首帧 `isAndroid()` 会读到 false。
+  //    这是**新类名**，既有 CSS 规则零命中它 → 桌面样式不可能被改写。
+  document.documentElement.classList.add('platform-android')
+
   // ① 安装适配器到 window.electronAPI（内部用 ??=，不覆盖已存在的宿主）
   installAndroidBridge()
 

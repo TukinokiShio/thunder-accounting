@@ -4,9 +4,11 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
+import { AndroidTabBar } from './AndroidTabBar'
 import { Plus, Cloud, CloudOff, CloudCog, Moon, Sun } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { isAndroid } from '@/platform'
 
 interface Props {
   children: ReactNode
@@ -79,6 +81,9 @@ export function Layout({ children, onOpenSettings }: Props) {
           </div>
         </main>
       </div>
+
+      {/* 安卓竖屏底部导航（P2-1）：桌面不渲染该节点，DOM 与视觉逐位不变 */}
+      {isAndroid() && <AndroidTabBar />}
     </div>
   )
 }
