@@ -23,18 +23,62 @@ interface MemoryFs {
   writes: Array<{ path: string; base64: string }>
   failNextWrite: Error | null
   failRead: Error | null
+  /** 注入 readdir 失败（模拟瞬时 IO 错误 / 目录被移除等不一致状态） */
+  failList: Error | null
+  /** 注入 mkdir 失败（按契约解释：只有「已存在」且确实已存在才幂等放行） */
+  failEnsureDir: Error | null
+  /** 目录是否已存在（ensureDir 成功后会置 true） */
+  dirExists: boolean
+  ensureDirCalls: number
+  listCalls: number
+  /** remove 调用次数（「非空目录不得发生探测」的断言依据） */
+  removeCalls: number
+  failRemove: Error | null
+  /**
+   * 模拟 acc3 设备实测到的上游缺陷：`File.listFiles() === null` 被静默变成空列表。
+   * 置 true 时 list 永远**看不到探测文件**（但写入仍然成功）—— 即危险的「能写但列不出来」。
+   */
+  hideProbeFromList: boolean
 }
 
 function createMemoryFs(store: Map<string, string> = new Map()): MemoryFs {
-  return { store, writes: [], failNextWrite: null, failRead: null }
+  return {
+    store,
+    writes: [],
+    failNextWrite: null,
+    failRead: null,
+    failList: null,
+    failEnsureDir: null,
+    dirExists: true,
+    ensureDirCalls: 0,
+    listCalls: 0,
+    removeCalls: 0,
+    failRemove: null,
+    hideProbeFromList: false
+  }
 }
 
 function createMemoryBackend(fs: MemoryFs): AndroidDbBackend {
   return {
-    ensureDir: async () => {},
+    ensureDir: async () => {
+      fs.ensureDirCalls++
+      const error = fs.failEnsureDir
+      if (!error) {
+        fs.dirExists = true
+        return
+      }
+      // 与生产后端同契约：只有「目录已存在」允许幂等放行，且目录必须**确实已存在**。
+      // 声称「已存在」但实际不存在 ⇒ 不一致状态 ⇒ 必须抛出（不得当成首次启动）。
+      if (!/exist/i.test(error.message) || !fs.dirExists) throw error
+    },
     list: async (dirRelative) => {
+      fs.listCalls++
+      if (fs.failList) throw fs.failList
       const prefix = `${dirRelative}/`
-      return [...fs.store.keys()].filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length))
+      return [...fs.store.keys()]
+        .filter((k) => k.startsWith(prefix))
+        .map((k) => k.slice(prefix.length))
+        .filter((name) => !(fs.hideProbeFromList && name === PROBE_FILE_NAME))
     },
     read: async (relativePath) => {
       if (fs.failRead) throw fs.failRead
@@ -50,9 +94,24 @@ function createMemoryBackend(fs: MemoryFs): AndroidDbBackend {
       }
       fs.writes.push({ path: relativePath, base64 })
       fs.store.set(relativePath, base64)
+    },
+    remove: async (relativePath) => {
+      fs.removeCalls++
+      if (fs.failRemove) throw fs.failRemove
+      fs.store.delete(relativePath)
     }
   }
 }
+
+/**
+ * 探测文件名**写死字面量**（不从生产代码 import）：这个名字是安全相关的线上契约 ——
+ * 它必须「以 . 开头且不以 .db 结尾」，否则可能被 `hydrate()` 的 `.db` 过滤当成数据库读进来。
+ * 写死可以让任何改名都在这里打红，而不是悄悄生效。
+ */
+const PROBE_FILE_NAME = '.hydrate-probe'
+const PROBE_RELATIVE = `thunder-accounting/${PROBE_FILE_NAME}`
+/** 探测内容（base64 of ASCII "probe"）：与生产代码一致，故意非空 */
+const PROBE_BASE64 = 'cHJvYmU='
 
 const DB_PATH = `${VIRTUAL_DATA_DIR}/thunder-accounting.db`
 
@@ -153,6 +212,207 @@ describe('P1-5A hydrate', () => {
     const first = port.readDbFile(DB_PATH)
     first[0] = 99
     expect(Array.from(port.readDbFile(DB_PATH))).toEqual([1, 2, 3])
+  })
+})
+
+// ─── P0 数据安全：严格 hydrate（绝不把「读失败」当成「空库」） ──
+
+describe('P0 严格 hydrate：ensureDir 成功后 readdir 的任何失败都必须抛出', () => {
+  it('瞬时 readdir 失败（EIO）→ hydrate rejects；exists 绝不静默返回 false', async () => {
+    const fs = createMemoryFs()
+    fs.store.set('thunder-accounting/thunder-accounting.db', bytesToBase64(bytes(1, 2, 3)))
+    fs.failList = new Error('EIO: i/o error, readdir')
+
+    const port = makePort(fs)
+    await expect(port.hydrate()).rejects.toThrow(/EIO/)
+
+    // 关键断言：失败后**不能**出现「空副本」这条路径。
+    // 若 exists 返回 false，下游 initDatabase 就会建空库并 saveDb() 覆写真实数据。
+    expect(() => port.exists(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(() => port.readDbFile(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(() => port.writeDbFile(DB_PATH, bytes(9))).toThrow(AndroidStorageNotHydratedError)
+    // 且绝没有把「读失败」写进磁盘
+    await expect(port.flush()).resolves.toBeUndefined()
+    expect(fs.store.get('thunder-accounting/thunder-accounting.db')).toBe(bytesToBase64(bytes(1, 2, 3)))
+    expect(fs.writes).toHaveLength(0)
+  })
+
+  it('readdir 以「目录不存在」文案失败 → 仍须 throw（因为 ensureDir 刚成功）', async () => {
+    const fs = createMemoryFs()
+    // Capacitor 在目录缺失时的真实文案形态
+    fs.failList = new Error("Directory does not exist at '/data/user/0/x/files/thunder-accounting/'")
+
+    const port = makePort(fs)
+    await expect(port.hydrate()).rejects.toThrow(/does not exist/)
+    expect(() => port.exists(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(fs.listCalls).toBe(1)
+    expect(fs.ensureDirCalls).toBe(1)
+  })
+
+  it('mkdir 因「目录已存在」失败且目录确实存在 → 幂等放行，继续 hydrate', async () => {
+    const fs = createMemoryFs()
+    fs.store.set('thunder-accounting/thunder-accounting.db', bytesToBase64(bytes(7, 7)))
+    fs.dirExists = true
+    fs.failEnsureDir = new Error(
+      "Directory at '/data/user/0/com.thunder.accounting/files/thunder-accounting/' already exists, cannot be overwritten."
+    )
+
+    const port = makePort(fs)
+    await expect(port.hydrate()).resolves.toBeUndefined()
+    expect(port.exists(DB_PATH)).toBe(true)
+    expect(Array.from(port.readDbFile(DB_PATH))).toEqual([7, 7])
+  })
+
+  it('mkdir 声称「已存在」但目录其实不存在 → 仍须抛出（不一致状态，不得当首次启动）', async () => {
+    const fs = createMemoryFs()
+    fs.dirExists = false
+    fs.failEnsureDir = new Error("Directory at '/data/.../thunder-accounting/' already exists.")
+    const port = makePort(fs)
+    await expect(port.hydrate()).rejects.toThrow(/already exists/)
+    expect(fs.listCalls).toBe(0)
+    expect(() => port.exists(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+  })
+
+  it('mkdir 因非「已存在」原因失败 → 立刻抛出（不当作首次启动）', async () => {
+    const fs = createMemoryFs()
+    fs.failEnsureDir = new Error('EACCES: permission denied')
+    const port = makePort(fs)
+    await expect(port.hydrate()).rejects.toThrow(/EACCES/)
+    // mkdir 都没成功，绝不能去 readdir
+    expect(fs.listCalls).toBe(0)
+    expect(() => port.exists(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+  })
+
+  it('hydrate 中途（第二个文件）失败 → 不留半份副本，且重试时可完整重读', async () => {
+    const fs = createMemoryFs()
+    fs.store.set('thunder-accounting/a.db', bytesToBase64(bytes(1)))
+    fs.store.set('thunder-accounting/b.db', bytesToBase64(bytes(2)))
+    // 让第二次 read 失败（第一次成功）
+    const originalRead = createMemoryBackend(fs).read
+    let reads = 0
+    const flakyBackend: AndroidDbBackend = {
+      ...createMemoryBackend(fs),
+      read: async (p) => {
+        reads++
+        if (reads === 2) throw new Error('EIO: i/o error, read')
+        return originalRead(p)
+      }
+    }
+    const port = createAndroidStoragePort({
+      backend: flakyBackend,
+      registerBackgroundFlush: () => {},
+      debounceMs: 0
+    })
+
+    await expect(port.hydrate()).rejects.toThrow(/EIO/)
+    // 半份副本必须被丢弃：a.db 不能残留成「唯一存在的库」
+    expect(() => port.exists(`${VIRTUAL_DATA_DIR}/a.db`)).toThrow(AndroidStorageNotHydratedError)
+
+    // 重试（这次不再失败）应能完整读到两个库
+    reads = 0
+    const port2 = createAndroidStoragePort({
+      backend: createMemoryBackend(fs),
+      registerBackgroundFlush: () => {},
+      debounceMs: 0
+    })
+    await port2.hydrate()
+    expect(port2.exists(`${VIRTUAL_DATA_DIR}/a.db`)).toBe(true)
+    expect(port2.exists(`${VIRTUAL_DATA_DIR}/b.db`)).toBe(true)
+  })
+})
+
+// ─── P0 数据安全：空目录必须被「正面证明」（上游会把列不出来静默变成空列表） ──
+
+describe('P0 空目录正面证明：readdir 返回空不等于「首次启动」', () => {
+  it('(a) 空目录 + 健康 ⇒ 放行，且探测文件「已写、已列出、已删」不留残留', async () => {
+    const fs = createMemoryFs()
+    const port = makePort(fs)
+
+    await expect(port.hydrate()).resolves.toBeUndefined()
+
+    // 放行 = 真·首次启动（存在性为 false，且此时**已经**是 hydrated 状态，不是抛错）
+    expect(port.exists(DB_PATH)).toBe(false)
+    expect(port.lastFlushError()).toBeNull()
+    // 探测确实执行过：唯一一次写就是探测文件，内容是空字节
+    expect(fs.writes).toEqual([{ path: PROBE_RELATIVE, base64: PROBE_BASE64 }])
+    // 探测文件已从磁盘删除（不留垃圾）
+    expect(fs.store.has(PROBE_RELATIVE)).toBe(false)
+    expect(fs.removeCalls).toBe(1)
+    // 两次 list：一次判空、一次复核探测文件是否出现
+    expect(fs.listCalls).toBe(2)
+  })
+
+  it('(b) 空目录 + 探测写入失败（EACCES）⇒ hydrate rejects，绝不当作首次启动', async () => {
+    const fs = createMemoryFs()
+    fs.failNextWrite = new Error("'writeFile' failed with: Permission denied")
+    const port = makePort(fs)
+
+    await expect(port.hydrate()).rejects.toThrow(/Permission denied/)
+
+    // 写失败 ⇒ 不能放行：下游一旦拿到「空副本」就会建空库并 saveDb() 覆写真实数据
+    expect(() => port.exists(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(() => port.readDbFile(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(() => port.writeDbFile(DB_PATH, bytes(9))).toThrow(AndroidStorageNotHydratedError)
+    // 没写成功过任何东西
+    expect(fs.writes).toHaveLength(0)
+  })
+
+  it('(c) 空目录 + 写得进却列不出来 ⇒ hydrate rejects（acc3 实测的危险组合）', async () => {
+    const fs = createMemoryFs()
+    // 上游把 File.listFiles()===null 静默变成 []：写入成功，但列表里永远看不到探测文件
+    fs.hideProbeFromList = true
+    const port = makePort(fs)
+
+    await expect(port.hydrate()).rejects.toThrow(/不一致状态/)
+
+    // 这条路径若放行，就是「读到空 + 写盘成功」⇒ 空库覆写真实数据（P0 的原始后果）
+    expect(() => port.exists(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(() => port.readDbFile(DB_PATH)).toThrow(AndroidStorageNotHydratedError)
+    expect(() => port.writeDbFile(DB_PATH, bytes(9))).toThrow(AndroidStorageNotHydratedError)
+    // 关键：写**是成功的**（这正是危险之处，也是普通「写失败」用例覆盖不到的）
+    expect(fs.writes).toEqual([{ path: PROBE_RELATIVE, base64: PROBE_BASE64 }])
+    // 收尾仍尽力删除（删除与否不影响上面的判定）
+    expect(fs.removeCalls).toBe(1)
+  })
+
+  it('(d) 非空目录 ⇒ 不得发生任何探测（零额外插件调用）', async () => {
+    const fs = createMemoryFs()
+    const payload = bytesToBase64(bytes(4, 5, 6))
+    fs.store.set('thunder-accounting/thunder-accounting.db', payload)
+
+    const port = makePort(fs)
+    await port.hydrate()
+
+    expect(Array.from(port.readDbFile(DB_PATH))).toEqual([4, 5, 6])
+    // 探测的三步（写 / 再列举 / 删）一步都没发生
+    expect(fs.writes).toHaveLength(0)
+    expect(fs.removeCalls).toBe(0)
+    expect(fs.listCalls).toBe(1)
+  })
+
+  it('残留探测文件（上次删不掉）不会让探测被永久跳过；且它不会被当成 .db 读入', async () => {
+    const fs = createMemoryFs()
+    // 上次启动删失败留下的残留：目录里只有它
+    fs.store.set(PROBE_RELATIVE, bytesToBase64(bytes(0xff)))
+    const port = makePort(fs)
+
+    await expect(port.hydrate()).resolves.toBeUndefined()
+
+    // 仍然走了完整探测（覆盖写同一名字 + 复核 + 删除），所以残留被顺手清掉
+    expect(fs.writes).toEqual([{ path: PROBE_RELATIVE, base64: PROBE_BASE64 }])
+    expect(fs.store.has(PROBE_RELATIVE)).toBe(false)
+    expect(port.exists(DB_PATH)).toBe(false)
+  })
+
+  it('删除失败不影响判定：探测已证明成功后仍放行（残留由下次探测清理）', async () => {
+    const fs = createMemoryFs()
+    fs.failRemove = new Error("'deleteFile' failed with: Permission denied")
+    const port = makePort(fs)
+
+    await expect(port.hydrate()).resolves.toBeUndefined()
+    expect(port.exists(DB_PATH)).toBe(false)
+    // 残留存在，但下次探测会剔除它再判空 —— 见上一条用例
+    expect(fs.store.has(PROBE_RELATIVE)).toBe(true)
   })
 })
 
