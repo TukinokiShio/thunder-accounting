@@ -373,9 +373,36 @@
 6. **62 处零改动是 grep 口径，不是类型级证明**；且 `mobile/` 不在 tsconfig → 适配器的 `AppAPI` 注解只是编辑器护栏，真正拦漂移的是运行时 C1 断言
 7. 指出我误提交 `6325b1a` 使其 `git diff` 基线非开工前状态
 
-### 待办（验证完成后再动这些文件）
+### 独立验证结果（验证者 `general-purpose-2`，非执行者本人）
 
-> ⚠️ 独立验证者正在读 `main-process/database/**` / `mobile/**` / tsconfig / `app-out` —— **在其出结果前不得让任何 Worker 改动这些文件**，否则污染实验。
+**放行建议：conditional（在我实测范围内成立）** —— 命题「桌面端行为零变化」经**四路独立证据**证实。
+
+| 阶段 | 结果 |
+|---|---|
+| **Step 0 负对照（必须先过，否则方法论失效）** | ✅ 旧版跑**两次**、`.db` 哈希**完全相同**（`014d5cdc…` / `328259de…` / 空库 `e3b0c442…`）→ 哈希方法论可用 |
+| **方法学关键发现** | `bills.created_at DEFAULT (datetime('now','localtime'))` 使**墙钟成为 `.db` 字节的真实输入** → 跨版本比对**必须冻结时钟**（该代理实测冻结有效：`b1.created_at=2026-01-01 08:00:00`） |
+| **Step 1 字节级** | ✅ **4 次独立干净运行（旧×2 / 新×2）哈希完全一致** —— `.db.migrated` 与用户库均如此；额外覆盖「dataDir 预先不存在」分支（触发 mkdirp），亦逐字节相同 |
+| **Step 2 语义级** | ✅ 全字段 `ORDER BY id` 导出 + `sqlite_master` 全部 DDL 文本逐行一致 |
+| **构建产物** | ✅ 重建后 renderer 资源文件名 `index-B2TpF02e.js` **与改动前完全相同**（即 renderer 产物逐字节一致）；`app-out/main/main.js` 中 `Buffer.from` = **0**；renderer 中 `androidAdapter`/`CloudUnavailableError` = **0**，且附**反向对照**（这两个标识符在 `mobile/` 中确实存在 → 该 grep 非空检验） |
+
+**逐条核实「已知差异点」5 项**：① `mkdirp` guard 确实保留（`desktop-storage.ts:28-30`）且幂等、对不存在路径正常创建 ② `saveDb()` 的 catch **未改**（diff 中为上下文中性行） ③ `saveDb()` 仍同步、`export()` 仍是 try 内首句、`last_insert_rowid()` 仍先取后存（实测 `[ROWID] b1=1 b2=2 b3=3 b4=4 c1=18 c2=19 c3=20`，**未退化为 0**） ④ `app.getPath` 在 `index.ts` 中 **0 命中** ⑤ `Buffer` 已消失（仅剩注释与局部变量名 `sharedBuffer`）。**附加强证据**：剥离全部注释后全文件 diff，**逻辑差异仅端口替换数处，其余 580+ 行零差异**。
+
+**另外三项核查**：① 两个既有测试的 `expect(` 计数 `21/7` 未变、**每一行文本 diff 为空** ② `mobile/` 确实不在任何 tsconfig；C1 断言确实存在于 `mobile/bridge/contract.test.ts:50-55`（3 条 `toEqual` 比对键名集合）—— **但该代理指出漏洞：C1 只比键名集合、不比签名，且 `mobile/` 不在 tsconfig 使 `android-adapter.ts:90` 的 `: AppAPI` 注解不参与 tsc → 参数/返回类型级漂移目前无人拦**（已立 P1-6） ③ 桌面包无污染（见上表）
+
+### 验证者新发现的问题（我逐条处置）
+
+| # | 发现 | 我的处置 |
+|---|---|---|
+| ① | 「改动集比描述大」 | **这是我的责任，不是 Worker 的** —— 我给验证者的 brief 只列了一部分文件，而 Worker 自己的报告是列全的。已补完整清单进提交信息 |
+| ② | **两处注释与事实不符**：`main-process/main.ts:59` 与 `storage.ts:10-11` 断言「安卓在 `mobile/main.tsx` 安装实现」，但 `mobile/` 内**只有测试**调 `setStoragePort`（且用的是桌面端口），`mobile/main.tsx` **从未调用** → 会误导接手者 | ✅ **已修**（我直接改的，属放行条件）：两处均改为明确标注「安卓侧端口**尚未实现**（P1-5），故 `initDatabase()` 会 fail-loud」 |
+| ③ | **pre-existing**：`initDatabase` 打印「数据库迁移失败（添加 `categories.updated_at` 列）：`no such table: categories`」—— `ALTER TABLE` 跑在建表之前；新旧逐字相同 | **报告不擅改**（非本次引入、与安卓无关） |
+| ④ | **pre-existing**：迁移后共享库被写成 **0 字节**文件；重启时 sql.js 读取 0 字节是否抛错**未验证** | **报告不擅改**；记入待查项 |
+| ⑤ | **未覆盖**：`clearAllData` / `exportCSV` / `exportAllJSON` / `importAllJSON` / `insertCloudCategories` 冲突 UPDATE 分支 | 接受为已知覆盖缺口 |
+
+### 残余风险（环境限制，不可在本沙箱消除）
+
+验证者明确要求而**无法完成**的实验：**真实 Electron 端到端烟测**（真实 `app.getPath('userData')`、真实 preload/IPC、真实 `will-quit`）—— 本沙箱**无法启动 Electron**，其 harness 用 electron stub 替代宿主。
+→ **「零行为变化」尚未在真实运行时闭环**。处置：列为**交付前用户侧烟测项**（启动桌面应用 → 增删改若干账单 → 退出 → 重启 → 断言数据仍在）；Phase 3 的真机验证会覆盖安卓侧路径。
 
 ---
 

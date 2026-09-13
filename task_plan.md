@@ -107,8 +107,12 @@ Phase 3 打包与验收
 
 ### Phase 1 — 适配层抽取（**桌面零行为变化**）
 
-> **执行进度（2026-09-13）**：P1-1 / P1-2 / P1-3 / P1-4 代码层**已交付**（详见 `findings.md#Phase 1 交付与独立复核`）。
-> **遗留两块 → 新增 P1-5 / P1-6**（不完成则安卓端在真机上是"fail-loud 的不可用"，属已知未闭环项，非缺陷）：
+> **执行状态（2026-09-13）**：P1-1 / P1-2 / P1-3 / P1-4 代码层 **已交付并经独立验证后提交**（commit `8b75018`，15 文件）。
+> 独立验证（`general-purpose-2`，非执行者本人）结论：**字节级 + 语义级 + 构建产物 + 356 测试 四路证据一致 → 「桌面行为零变化」在实测范围内成立**，判 **conditional**，两处放行条件（错误注释）已修。
+> **未闭环两块 → P1-5 / P1-6 已派发**（不完成则安卓端在真机上是"fail-loud 的不可用"，属已知未闭环项，非缺陷）：
+
+> 📌 **方法论沉淀（验证者实测发现，务必沿用）**：`bills.created_at DEFAULT (datetime('now','localtime'))` 使**墙钟成为 `.db` 字节的真实输入** → 任何跨版本/跨平台的落盘字节比对**必须先冻结时钟**，否则会把时间差异误判为行为差异。
+> 📌 **残余风险（环境限制）**：本沙箱**无法启动 Electron**，故「真实宿主 + preload/IPC + will-quit」端到端烟测**未做**，验证用 electron stub 替代 → 已列为**交付前用户侧烟测项**。
 - **P1-1**：`src/types/index.ts` 的 `ElectronAPI` 提取为平台无关契约 `AppAPI`（**同 41 方法名**，`ElectronAPI = AppAPI` 别名保持兼容）
 - **P1-2**：DB 纯逻辑与持久化解耦（注入 `StoragePort`）；桌面实现 = 现有 `fs` 路径，**行为逐位不变**
 - **P1-3**：android 适配器实现 41 方法；云/账号/文件对话框类方法返回明确「不可用」语义
@@ -116,10 +120,10 @@ Phase 3 打包与验收
 - **门禁**：`npm test` 全绿 + `git diff` 调用点零改动（**实测 62 → 62**）+ C1 契约三方集合相等断言
   > ⚠ **门禁补强（2026-09-13）**：**「测试全绿」不能证明类型正确** —— vitest/esbuild 会剥掉类型不做检查，且本项目**没有 `typecheck` 脚本**，而 `mobile/` **不在任何 tsconfig include 内**。→ 门禁必须增加 **`tsc --noEmit` + 基线对比**（把既有配置噪音与新引入错误逐条分开），否则"改名漏改引用"这类错误会静默通过测试（本轮已真实发生一次）。
 
-| # | 遗留项 | 内容 | 前置 |
-|---|---|---|---|
-| **P1-5** | **安卓 StoragePort + 文件通道** | ① 实现安卓侧 `StoragePort`：Capacitor Filesystem/Preferences **全是异步 API**，无法满足 `saveDb()` 的同步签名 → 采用 **「同步入队 + 异步 flush」写队列**（`appStateChange` 进后台/退出时 flush）② 实现 `showSaveDialog`/`showOpenDialog`/`writeFile` 的真实通道（Capacitor Share / Filesystem），使 **RL-A2 的备份导出/导入**真正可用 ③ 安装 `@capacitor/filesystem` / `share` / `preferences` 依赖 | P1-2 的 `StoragePort` 已就绪；Phase 3 的 Capacitor 工程 |
-| **P1-6** | **`mobile/` 纳入类型门禁** | 把 `mobile/**` 加入 tsconfig include（或独立 tsconfig），使适配器的 `AppAPI` 注解**参与 CI**；否则它只是编辑器级护栏（当前拦漂移的只有运行时 C1 断言） | P1-5 |
+| # | 遗留项 | 内容 | 前置 | 状态 |
+|---|---|---|---|---|
+| **P1-5** | **安卓 StoragePort + 文件通道** | ① 实现安卓侧 `StoragePort`：Capacitor Filesystem/Preferences **全是异步 API**，无法满足 `saveDb()` 的同步签名 → 采用 **「启动期 hydrate + 内存副本 + 写合并队列」**：`await port.hydrate()` 异步预读 DB 进内存 Map → 同步方法读 Map；`writeDbFile` 同步更新 Map + 标脏 + 调度异步 flush（**按 path 合并、保序、失败不静默**），并在 `appStateChange` 切后台时强制 flush ② 实现文件通道使 **RL-A2b 备份导出/导入**真正可用：`showSaveDialog` → 返回 cache 虚拟路径；`writeFile` → 写 cache 后 `Share.share()`；`showOpenDialog` → **隐藏 `<input type="file">` + FileReader**（不引第三方插件），取消返回 `null` ③ 装 `@capacitor/filesystem` / `app` / `share`（写根 `package.json` 的 `dependencies`） | P1-2 的 `StoragePort`；Phase 3 的 Capacitor 工程 | **已派发** |
+| **P1-6** | **让契约注解参与 CI** | ① `mobile/**` 纳入类型检查（新增 `tsconfig.mobile.json` 或并入 `tsconfig.web.json`）② 加 `typecheck` script ③ 建**类型检查基线**（区分既有噪音与新引入错误）④ 补**签名级**契约断言 —— 现有 C1 **只比键名集合、不比签名**，故参数/返回类型漂移无人拦 | P1-5 | **已派发** |
 
 > **决策记录（Supervisor 自定，非 OQ）**：v1 本地库名**保持默认共享库名**，v2 首登走 `migrateSharedData=true` —— 见上文 C4 修订。
 
