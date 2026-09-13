@@ -244,6 +244,28 @@
 - **顺带修掉一个自身缺陷**：C/D 机制原先**不会**移除基础样式里的指示线（`mechStyle` 只替换注入样式，基础 `.tab.on::before` 仍在）→ 已在 C/D 显式加 `::before{display:none}`，并由上面的断言覆盖
 - 证据：`artifacts/spike-android/demo-tab-indicator-result.json` + `verify-demo-tab-indicator.mjs`
 
+### S5 —— `user === null` 下 Profile / 顶栏渲染路径 ✅ **PASS（但更正了 Judge 的一处错误归因）**
+
+**核验结果（逐条对源码取证）**：
+
+| 结论 | 证据 |
+|---|---|
+| 三个云调用**在挂载时无条件触发**，与是否登录无关 | `Profile.tsx:121-125` → `useEffect(() => { loadAccount(); loadStats(); checkCloud() }, [...])` |
+| `cloudAvailable` 是**死线**（算出来、传下去、没人读） | 定义 `:81`；下发 `:207/:214/:249`；三个消费组件全部解构成 **`_cloudAvailable`**（下划线＝故意不用）→ `:426` SecurityTab、`:706` BindingTab、`:1226` DangerTab |
+| 侧栏有 `profile` 入口，本地模式下 Profile **必然可达** | `Sidebar.tsx:18` `{ id: 'profile', label: '个人中心', icon: User }`；`App.tsx` 按 id 渲染 `<ProfilePage/>` |
+
+> ⚠️ **更正独立 Judge（`agent-d9dfa538`）的一处归因错误**：Judge 断言「合成 user 会把 `syncStatus` 由 `offline` 抬成 `idle` → `Layout.tsx:35-37` 落 default 分支渲染绿色 `Cloud` +『已同步』」。
+> **实测不成立**：`Layout.tsx:31` 有 `if (!user) return <未登录 CloudOff/>` **先短路**，`user === null` 时走不到那个 switch，顶栏显示的是**「未登录」**，不会谎报。
+> **但结论不变、且理由更硬**：真正的风险是**注入合成 user 会绕过 `Layout.tsx:31` 的 `!user` 守卫**，之后才会掉进 switch 的 `default` 分支渲染绿色「已同步」。即 —— **假身份的害处不在于同步状态字段，而在于它拆掉了那道 `!user` 短路**。这反而**加强**了「不注入合成 user」的裁决。
+
+**对 Phase 1 / P2-5 的定论（写入执行依据）**：
+
+1. `src/components/AuthGuard.tsx`：加平台分支（electron 分支保持现状 `:25` 不动）
+2. `src/App.tsx:49-54`：数据加载门由 `if (user)` 改为「会话已判定」（`isCheckingSession` 在 `:40` 的 `finally` 恒置假）
+3. `src/pages/Profile.tsx`：**真正消费 `cloudAvailable`** —— 把 `:426/:706/:1226` 的 `_cloudAvailable` 改为实际使用，并在 `cloudAvailable === false` 时**跳过 `:91/:103/:114` 三个挂载期云调用**（`loadAccount` / `checkCloud`；`loadStats` 走本地库可保留）
+4. `mobile/` 适配器：`isCloudSyncEnabled → false`，`getAccountBindings → null`，`loadCredentials → {identifier:'', rememberAccount:false, autoLogin:false}`（**必须返回对象、不可抛错** —— `App.tsx:33` 直接读 `.autoLogin`）
+5. **不注入合成 user**（RL-A8）
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失
