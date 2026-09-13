@@ -65,6 +65,17 @@ subagent_usage:
       duty: 裁决 W/R 相反结论 + 双门槛打分
       status: completed
       verdict: conditional（裁决=机制甲+接上能力门，否决合成 user；找到 W/R 都漏的 Profile cloudAvailable 死线）
+  round_2:
+    - name: agent-2517692a
+      role: Worker
+      duty: Phase 1 适配层抽取（P1-1 契约 AppAPI / P1-2 StoragePort 解耦 / P1-3 安卓适配器 41 方法 / P1-4 mobile 入口 + C1 契约三方一致性测试 + 云降级语义测试）
+      status: running
+      hard_constraints: 不改 62 处调用点；src/ 不得 import mobile/；禁构建期平台分支；saveDb() 保持同步签名与 export 顺序；Buffer 不得进安卓路径；保留 getDb() 惰性调用以解循环依赖；不得 git commit/push
+    - name: agent-d9d7dc60
+      role: Explore
+      duty: S3 触屏不可达元素清单（只读；功能阻断 vs 体验降级分类 + 量化统计 + 首版最小集）
+      status: running
+  round_2_note: 两个子代理并行在后台执行；Worker 的改动须由 Supervisor 独立复核后才可提交（本轮尚未提交）
 requirement_ledger_required: true
 requirement_ledger:
   - id: RL-A1
@@ -153,8 +164,16 @@ knowledge:
   project_wiki: wiki/错误精粹.md
   rag_tier: OFFLINE
   receipt: artifacts/knowledge/knowledge-receipt.json
-  entries_added: []
-  skill_updates: []
+  entries_added:
+    - "KI-2026-09-13-004（P1）安卓构建的 Gradle/AGP/SDK 版本必须随宿主框架重新对齐，不能照搬 skill 或历史固化值"
+    - "KI-2026-09-13-005（P2）Gradle wrapper 默认拉 -all 发行版导致构建形似卡死；国内镜像可用性实测"
+    - "KI-2026-09-13-006（P1）沙箱内既不能解析 Maven 依赖也不能运行安卓模拟器；设备链路须单进程串行"
+    - "KI-2026-09-13-007（P1）品牌色不能直接当小字色；可读性阈值必须实算而非目测，状态区分优先用形状"
+  entries_target: E:/Code/shio-al-ecosystem/wiki/错误精粹.md（经 shio-wiki-writer 单写者事务，4 条均 committed；终态 93 条 / 93 唯一 ID；index 计数与 domain 列表、KNOWLEDGE_GATE 路由已补）
+  wiki_push_status: NOT_PUSHED（生态库同步 GitHub 须用户确认，按红线未推送）
+  wiki_pre_existing_changes: "发现 wiki/成功方案.md +246 行、wiki/错误精粹.md +659 行为**历史会话遗留的未提交改动**（非本轮所写）→ 只报告不擅改"
+  skill_updates:
+    - "C:/Users/d8502/.workbuddy/skills/android-packager/SKILL.md → v1.1.0（用户授权）：新增「版本矩阵必须现查」铁律 + 「构建速度与国内镜像」+「沙箱边界」三节，Troubleshooting +6 行，修正 v1.0 把 Gradle 8.10.2/AGP 8.5.2 当通用值的误导"
   capability_declaration:
     exposed: [受管 Node/Python, headless Chromium, Android SDK(E:/Code/Android/sdk), JBR 21, Gradle 8.10.2, 子代理编排, npm registry]
     missing: [androidx.webkit(Gradle 缓存未命中，需非沙箱联网), Capacitor(npm 未安装)]
