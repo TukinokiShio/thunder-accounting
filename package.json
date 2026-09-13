@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.mobile.json",
-    "build:android": "vite build --config vite.mobile.config.mjs && cap sync android"
+    "build:android": "vite build --config vite.mobile.config.mjs && cap sync android",
+    "android:accept": "bash scripts/android-acceptance.sh"
   },
   "dependencies": {
     "@cloudbase/cloudbase-mcp": "^2.24.1",
