@@ -3,6 +3,8 @@ import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories } from './database/index'
+import { setStoragePort } from './database/storage'
+import { createDesktopStoragePort } from './database/desktop-storage'
 import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
 import { logoutAndDisableAutoLogin } from './auth-preferences'
 
@@ -55,6 +57,10 @@ function createWindow(): void {
 // ─── App lifecycle ─────────────────────────────────
 
 app.whenReady().then(async () => {
+  // 安装桌面平台的持久化端口（数据库落盘唯一一跳）。
+  // ⚠ 安卓侧端口**尚未实现**（见 task_plan P1-5）：`mobile/main.tsx` 目前**不会**调用
+  //   `setStoragePort`，因此在安卓上 `initDatabase()` 会以明确错误失败（fail-loud，不静默丢数据）。
+  setStoragePort(createDesktopStoragePort())
   await initDatabase()
   initCloudBase()
   registerIpcHandlers()

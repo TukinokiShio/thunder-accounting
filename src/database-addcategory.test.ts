@@ -22,9 +22,13 @@ vi.mock('electron', () => ({
 }))
 
 import { initDatabase, addCategory, addBill, getBills, getCategories } from '../main-process/database/index'
+import { setStoragePort } from '../main-process/database/storage'
+import { createDesktopStoragePort } from '../main-process/database/desktop-storage'
 
 describe('database: addCategory/addBill rowid 时序回归（saveDb 后 last_insert_rowid 被重置）', () => {
   beforeAll(async () => {
+    // 平台入口职责：DB 模块本身不含任何平台依赖，落盘端口由入口安装（此处 = 桌面实现）
+    setStoragePort(createDesktopStoragePort())
     await initDatabase()
   })
 

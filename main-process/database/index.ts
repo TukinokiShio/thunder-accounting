@@ -1,8 +1,10 @@
-import path from 'path'
-import fs from 'fs'
-import { app } from 'electron'
+// 注意：本模块**不得**引入 electron / fs / path / Buffer —— 它同时被桌面与安卓复用。
+// 所有落盘/读盘走 StoragePort（`./storage`），由平台入口安装实现。
+// 保留 `./export` 的静态导入形态：`index.ts` ↔ `export.ts` 是真实的（值级）循环依赖，
+// 靠 `getDb()` 的惰性调用绕过静态求值顺序问题，不得为「看起来干净」重排。
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js'
 import { escapeCSV, exportCSV, exportAllJSON, importAllJSON } from './export'
+import { getStoragePort } from './storage'
 
 let db: SqlJsDatabase
 let dbPath: string
@@ -56,12 +58,13 @@ function convertNamedParams(
  * 包含：建表、索引创建、预设分类写入、旧版本数据库迁移（添加 type 列）。
  */
 export async function initDatabase(): Promise<void> {
-  dbPath = path.join(app.getPath('userData'), 'thunder-accounting.db')
+  const storage = getStoragePort()
+  dbPath = storage.joinPath(storage.getDataDir(), 'thunder-accounting.db')
 
   // 尝试加载已有数据库文件；不存在则创建空库
   const SQL = await initSqlJs()
-  if (fs.existsSync(dbPath)) {
-    const buffer = fs.readFileSync(dbPath)
+  if (storage.exists(dbPath)) {
+    const buffer = storage.readDbFile(dbPath)
     db = new SQL.Database(buffer)
   } else {
     db = new SQL.Database()
@@ -176,29 +179,30 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
   }
 
   const SQL = await initSqlJs()
-  const userDbPath = path.join(app.getPath('userData'), `thunder-accounting-${userId}.db`)
-  const sharedDbPath = path.join(app.getPath('userData'), 'thunder-accounting.db')
+  const storage = getStoragePort()
+  const userDbPath = storage.joinPath(storage.getDataDir(), `thunder-accounting-${userId}.db`)
+  const sharedDbPath = storage.joinPath(storage.getDataDir(), 'thunder-accounting.db')
 
   // 2. 尝试加载用户专有数据库
-  if (fs.existsSync(userDbPath)) {
-    const buffer = fs.readFileSync(userDbPath)
+  if (storage.exists(userDbPath)) {
+    const buffer = storage.readDbFile(userDbPath)
     db = new SQL.Database(buffer)
   } else {
     // 首次登录：创建新数据库
     db = new SQL.Database()
 
     // 如果需要迁移旧共享数据（仅 163 用户首次登录）
-    if (migrateSharedData && fs.existsSync(sharedDbPath)) {
+    if (migrateSharedData && storage.exists(sharedDbPath)) {
       try {
-        const sharedBuffer = fs.readFileSync(sharedDbPath)
+        const sharedBuffer = storage.readDbFile(sharedDbPath)
         db = new SQL.Database(sharedBuffer)
         console.log(`[DB] 已从共享数据库迁移数据到用户 ${userId}`)
 
         // 备份旧共享数据库，防止重复迁移
-        const backupPath = path.join(app.getPath('userData'), 'thunder-accounting.db.migrated')
-        fs.copyFileSync(sharedDbPath, backupPath)
+        const backupPath = storage.joinPath(storage.getDataDir(), 'thunder-accounting.db.migrated')
+        storage.copyFile(sharedDbPath, backupPath)
         // 清空共享 DB 内容（保留文件以兼容旧版本检测）
-        fs.writeFileSync(sharedDbPath, Buffer.from(new SQL.Database().export()))
+        storage.writeDbFile(sharedDbPath, new SQL.Database().export())
       } catch (e) {
         console.error('[DB] 共享数据迁移失败，使用空数据库:', e)
         db = new SQL.Database()
@@ -299,11 +303,10 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
 export function saveDb(): void {
   try {
     const data = db.export()
-    const dir = path.dirname(dbPath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(dbPath, Buffer.from(data))
+    const storage = getStoragePort()
+    const dir = storage.dirname(dbPath)
+    storage.mkdirp(dir)
+    storage.writeDbFile(dbPath, data)
   } catch (e) {
     console.error('数据库写入磁盘失败：', e)
     throw new Error('数据库保存失败，磁盘空间可能不足')

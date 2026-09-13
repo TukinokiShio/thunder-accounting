@@ -16,9 +16,13 @@ vi.mock('electron', () => ({
 }))
 
 import { initDatabase, addCategory, deleteCategory, getCategories } from '../main-process/database/index'
+import { setStoragePort } from '../main-process/database/storage'
+import { createDesktopStoragePort } from '../main-process/database/desktop-storage'
 
 describe('database: deleteCategory 回归（分类删除操作）', () => {
   beforeAll(async () => {
+    // 平台入口职责：DB 模块本身不含任何平台依赖，落盘端口由入口安装（此处 = 桌面实现）
+    setStoragePort(createDesktopStoragePort())
     await initDatabase()
   })
 

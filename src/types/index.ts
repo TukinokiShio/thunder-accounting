@@ -112,6 +112,12 @@ export interface AppAPI {
   isCloudSyncEnabled: () => Promise<boolean>
 }
 
+/**
+ * 兼容别名：既有代码仍以 `ElectronAPI` 引用该契约。
+ * **类型别名而非新接口** —— 不存在第二份定义，因此不可能与前文 AppAPI 漂移。
+ */
+export type ElectronAPI = AppAPI
+
 /** 数据库分类行（children 为 JSON 字符串，需调用处手动解析） */
 export interface CategoryRow {
   id: number
