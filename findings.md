@@ -404,6 +404,53 @@
 验证者明确要求而**无法完成**的实验：**真实 Electron 端到端烟测**（真实 `app.getPath('userData')`、真实 preload/IPC、真实 `will-quit`）—— 本沙箱**无法启动 Electron**，其 harness 用 electron stub 替代宿主。
 → **「零行为变化」尚未在真实运行时闭环**。处置：列为**交付前用户侧烟测项**（启动桌面应用 → 增删改若干账单 → 退出 → 重启 → 断言数据仍在）；Phase 3 的真机验证会覆盖安卓侧路径。
 
+## Phase 2 前置：源码文本契约「雷区地图」（只读代理 `agent-6ba699c2`，2026-09-13）
+
+> **为什么必须先做这件事**：本项目有一批测试**不是行为测试，而是对「源码字符串」做断言**（`readSource(...)` / `readFileSync(...)` + `.toContain(...)`）。它们会在**功能完全正常**的情况下因改了字符串而**变红** → 极易被误判为「回归」。Phase 2 要动 Layout / Sidebar / index.css / Profile / Bills，**不先拿这张地图就会自己吓自己**。
+
+### 真正读源码做断言的文件共 **6 个**（不是 2 个）
+
+`src/components/Layout.test.tsx`、`src/index.test.ts`、`src/theme-contract.test.ts`、`src/cloudbase-contract.test.ts`、`src/components/modal-portal-contract.test.ts`、`mobile/bridge/contract.test.ts`（新）。共约 **40 条**断言已逐条登记（位置 / 目标文件 / 原字符串 / 意图）。
+
+### ⚠️ 直接影响 Phase 2 的「硬地雷」（必须遵守）
+
+| # | 断言 | 约束 |
+|---|---|---|
+| 1 | `Layout.test.tsx:129` —— `index.css` **不得含** `overflow-x: hidden`；`:130` 不得含 `scrollbar-gutter: stable both-edges` | **移动端样式里绝不能出现 `overflow-x: hidden`**（这是全局负向禁令，全文任意位置） |
+| 2 | `Layout.test.tsx:139` —— `Profile.tsx` 根元素须含**整串连续**的 `profile-layout page-view w-full min-w-0 flex min-h-full flex-col`；`:140` 须含 `md:flex-row` | **只能在该串末尾追加**，不得重排/改动前 6 个 token；**`md:flex-row` 必须保留**（移动端列布局本就是默认，无需改） |
+| 3 | `theme-contract.test.ts:102/103/104` —— `Profile.tsx` 中三组 className **精确计数 = 7 / 4 / 4** | **不得在 `className="profile-field-shell"`、`className="profile-code-field flex items-center"`、`className="profile-input min-w-0 flex-1 px-3 text-sm"` 这三串内插入任何 token**（会破坏精确匹配使计数归零） |
+| 4 | `theme-contract.test.ts:67` —— `Bills.tsx` 中 `bill-filter-select` **必须恰好出现 2 次**；`:68` **不得**出现 `bill-filter-select-shell` | 移动端重排筛选栏时**不得增删 select**、不得改这两个类名 |
+| 5 | **`cloudbase-contract.test.ts:133` —— `Profile.tsx` 明确不得出现 `disabled={!cloudAvailable}`** | **直接约束 P2-5 的云能力门实现**：必须改用**条件渲染 / 隐藏 / 降级文案**，**不得**写成那个 `disabled` 字面量 |
+| 6 | `mobile/bridge/contract.test.ts:90-96` —— **`src/` 生产文件不得出现 `import ... '...mobile/'`** | 平台分支必须用**运行时探测**（`window.electronAPI` 有无 / `src/` 内独立平台模块），**绝不从 `mobile/` import** |
+| 7 | `mobile/bridge/contract.test.ts:34/50-54` —— 三方键集相等且**恰好 41** | 若要给 `AppAPI` 加能力，必须走**可选成员 + 能力探测**，不破坏 41 键契约 |
+| 8 | `theme-contract.test.ts:28-30` —— 扫描名单含 `Layout.tsx` / `CategoryList.tsx` / `Bills.tsx` / `Profile.tsx` / `index.css`：**禁蓝 hex 与 `blue-*` / `primary-*` 工具类** | 新导航/新样式一律用语义 token（`--accent*`） |
+| 9 | `theme-contract.test.ts:35/36/39/40/56/59/69-73/81-83/92-95/106`、`modal-portal-contract.test.ts:97/98`、`cloudbase-contract.test.ts:89-91` —— 大量脆弱正则与 `.aurora-main` / `.aurora-shell.aurora-portal-root` / `.card:hover` / bill-filter / profile-focus / toast 断言块 | **`index.css` 只做末尾追加**，不碰上述既有块 |
+| 10 | `Layout.test.tsx:109/110/105-107/98-125` —— `app-shell`/`app-main`/`page-frame` 三个 testid 与 `aurora-main`/`page-frame` className；且 rerender 后**必须同实例** | 保留这些 className 与 testid 原样；**不要给这三个节点加 `key` 触发重挂载** |
+
+### 「正当更新」vs「掩盖回归」判据（该代理给出，我采纳）
+
+**绝对必须保持不变（要改就改方案，不能改测试）—— 命中任一判据即哨兵**：
+- **A｜负向回归防护**：断言含 `not.toContain` / `not.toMatch`（如 `Layout.test:129/130`、`theme-contract:28-30`、`cloudbase-contract:133`、`mobile contract:90-96`）
+- **B｜精确计数/长度**：`theme-contract:67/102/103/104`、`mobile contract:46-54/76`
+- **C｜顺序比较 `indexOf`**：`cloudbase-contract:45-48`、`mobile contract:130-133/150-154`
+- **D｜注释明写"回归防护/防静默变空"**：`modal-portal-contract` 全篇、`mobile contract` 全篇
+
+**可能属正当更新**：断言的是**纯桌面视觉快照**且 Phase 2 是有意的产品级变更（需同时保留桌面断点行为）。
+**自问判据**：*"不改测试，用户可见功能是否真的坏了？"* 只有功能正常、仅字符串不再匹配，才有资格谈"正当更新"。
+
+### 移动端样式放哪：**独立文件 `mobile/android.css`**（决定）
+
+该代理建议放独立文件（它提的是 `src/mobile.css`）。**我改为 `mobile/android.css`，由 `mobile/main.tsx` import** —— 理由更强：
+- `index.css` 被 **5 处文本契约**直接扫描，任何追加都暴露在两条全局负向禁令与多处脆弱正则之下；
+- 放 `mobile/` 则**桌面构建完全不加载该 CSS**（比"加载但被平台类遮蔽"更干净），且不触碰 `src/main.tsx`；
+- 独立文件不被任何契约读取。
+
+> ⚠️ **前提**：`@tailwind` 指令仍留在 `index.css`；且 Phase 2 与 P1-5 **不能并行**（会抢 `mobile/` 与 `package.json`）。
+
+### 该代理给出的一句话安全边界
+
+> **新增移动端样式与布局里绝不能出现 `overflow-x: hidden`；且 `Profile.tsx` 根元素那串 `profile-layout page-view w-full min-w-0 flex min-h-full flex-col … md:flex-row` 必须逐字保留、只能在末尾追加。**
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失
