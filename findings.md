@@ -433,6 +433,7 @@
 | 8 | `theme-contract.test.ts:28-30` —— 扫描名单含 `Layout.tsx` / `CategoryList.tsx` / `Bills.tsx` / `Profile.tsx` / `index.css`：**禁蓝 hex 与 `blue-*` / `primary-*` 工具类** | 新导航/新样式一律用语义 token（`--accent*`） |
 | 9 | `theme-contract.test.ts:35/36/39/40/56/59/69-73/81-83/92-95/106`、`modal-portal-contract.test.ts:97/98`、`cloudbase-contract.test.ts:89-91` —— 大量脆弱正则与 `.aurora-main` / `.aurora-shell.aurora-portal-root` / `.card:hover` / bill-filter / profile-focus / toast 断言块 | **`index.css` 只做末尾追加**，不碰上述既有块 |
 | 10 | `Layout.test.tsx:109/110/105-107/98-125` —— `app-shell`/`app-main`/`page-frame` 三个 testid 与 `aurora-main`/`page-frame` className；且 rerender 后**必须同实例** | 保留这些 className 与 testid 原样；**不要给这三个节点加 `key` 触发重挂载** |
+| 11 | **（2026-09-13 新增，已实测）注释的代价取决于「该文件是否进产物 + 产物是否被压缩」** | 实测：**安卓链会剥离注释**（`dist-android/assets/index-*.css` 4,261B 中 `/*` = 0、中文关键词 = 0，而 `platform-android` = 32），**桌面渲染链不压缩**（`app-out/renderer/assets/index-*.css` 83,498B 中 `/*` = 97、且保留缩进）。→ **平台专属说明注释只能写在 `mobile/android.css`**（它既不在桌面依赖图内、注释又被安卓链剥掉 ⇒ 零字节代价）；同样的注释写进任何**共享文件**（`src/index.css` / `src/**` / `Toast.tsx`）都会**真实改变桌面产物字节**。<br>⚠️ **不要写成机制断言**（"因为 electron-vite 设了 X"）—— 只实测到"产物未压缩"这个事实；机制可能随版本变，事实可复验。 |
 
 ### 「正当更新」vs「掩盖回归」判据（该代理给出，我采纳）
 
