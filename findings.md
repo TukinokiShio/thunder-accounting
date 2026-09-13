@@ -126,6 +126,8 @@
 ## Phase 0 可行性 spike 实测记录（EXEC，2026-09-13）
 
 > 计划见 `task_plan.md#Phase 0`。**规则：先证后建，任一 P0 级 spike 失败即回流 PLAN 重选方案，不硬推。**
+>
+> ⚠️ **证据位置说明（勿在 git 里找）**：本节引用的 `artifacts/spike-android/**` **只存在于本机**。本项目 `.gitignore:10` 主动忽略了 `artifacts/`（该目录历史上有 3.3 万+ 文件），`progress.log` 亦被 `.gitignore:42` 的 `*.log` 忽略 —— **均未进仓库**，与上一轮 `artifacts/repro-portal-scope/` 的处理方式一致。仓库内可追溯的是**结论与量化数字**（本节 + `task_plan.md` + `wiki/错误精粹.md`），脚本与原始产物为本地可复现件。
 
 ### S2 —— `saveDb()` 全量落盘成本量化 ✅ **PASS（证伪了红队 R2）**
 
