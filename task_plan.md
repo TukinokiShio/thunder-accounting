@@ -26,7 +26,8 @@
 | id | 来源（用户原话） | 可验收标准 | 验证方式 |
 |---|---|---|---|
 | RL-A1 | 「安卓端一定要实现和 windows 端数据同步，否则毫无意义，当然，首版可以先暂时不做这一步」 | ① 首版**无**云依赖即可完整使用全部核心功能 ② 适配层**已为云同步预留位**：41 个方法名与返回契约与桌面**完全一致**，云相关方法在未开启时返回「不可用」而非抛错 | ① APK 断网可用全流程 ② 契约一致性测试（方法名集合 == 桌面 `ElectronAPI`） |
-| RL-A2 | 同上 | 记账 → 统计 → 分类管理 → 备份导出/导入 全链路在安卓端可用 | 真机/模拟器端到端冒烟 |
+| RL-A2a | 同上 | 记账 → 统计 → 分类管理 全链路在安卓端可用 | 真机/模拟器端到端冒烟 |
+| RL-A2b | 同上（**2026-09-13 拆分**） | **备份导出/导入**：真实文件通道（Capacitor Share / Filesystem）可用 | 属 **P1-5**。**在其完成前，UI 必须明确标注「不可用」，不得呈现为可用** —— 当前适配器 `showSaveDialog`/`showOpenDialog` → `null`、`writeFile` → `false`，是"明确不可用"而非"假成功"（符合 C2），但确实**未满足本项** |
 | RL-A3 | 「参考上一点 oq」（跨端互通） | 安卓导出的 JSON 备份可被桌面端 `importBackup` 导入，反之亦然 | 双向实测：安卓导出 → 桌面导入 → 数据一致 |
 | RL-A4 | 「暂且仅做标准竖屏」 | 360/390/430px 宽下**无横向溢出**；触控目标 ≥44px；无平板断点 | headless Chromium 多档视口 + 几何断言 |
 | RL-A5 | （自证，非用户原话）纯本地前提 | 安卓端**不出现登录页**，也不因 `user === null` 卡在加载态 | 冷启动直达首页 |
@@ -105,11 +106,22 @@ Phase 3 打包与验收
 > **关键环境结论（已写入项目 wiki）**：Capacitor 8 要求 **Gradle 8.14.3 + AGP 8.13.0**（`android-packager` skill 固化的 8.10.2/8.5.2 对 Capacitor 项目**不成立**）；wrapper 应用 `-bin` + 腾讯镜像；**沙箱内既不能解析 Maven 也不能跑模拟器** —— 完整链路必须非沙箱单命令串行。
 
 ### Phase 1 — 适配层抽取（**桌面零行为变化**）
+
+> **执行进度（2026-09-13）**：P1-1 / P1-2 / P1-3 / P1-4 代码层**已交付**（详见 `findings.md#Phase 1 交付与独立复核`）。
+> **遗留两块 → 新增 P1-5 / P1-6**（不完成则安卓端在真机上是"fail-loud 的不可用"，属已知未闭环项，非缺陷）：
 - **P1-1**：`src/types/index.ts` 的 `ElectronAPI` 提取为平台无关契约 `AppAPI`（**同 41 方法名**，`ElectronAPI = AppAPI` 别名保持兼容）
 - **P1-2**：DB 纯逻辑与持久化解耦（注入 `StoragePort`）；桌面实现 = 现有 `fs` 路径，**行为逐位不变**
 - **P1-3**：android 适配器实现 41 方法；云/账号/文件对话框类方法返回明确「不可用」语义
 - **P1-4**：启动时注入（`window.electronAPI ??= androidAdapter`），**不改任何调用点**
-- **门禁**：`npm test` 268 用例全绿 + `git diff` 调用点零改动 + 审计「是否有方法缺失」一致性测试
+- **门禁**：`npm test` 全绿 + `git diff` 调用点零改动（**实测 62 → 62**）+ C1 契约三方集合相等断言
+  > ⚠ **门禁补强（2026-09-13）**：**「测试全绿」不能证明类型正确** —— vitest/esbuild 会剥掉类型不做检查，且本项目**没有 `typecheck` 脚本**，而 `mobile/` **不在任何 tsconfig include 内**。→ 门禁必须增加 **`tsc --noEmit` + 基线对比**（把既有配置噪音与新引入错误逐条分开），否则"改名漏改引用"这类错误会静默通过测试（本轮已真实发生一次）。
+
+| # | 遗留项 | 内容 | 前置 |
+|---|---|---|---|
+| **P1-5** | **安卓 StoragePort + 文件通道** | ① 实现安卓侧 `StoragePort`：Capacitor Filesystem/Preferences **全是异步 API**，无法满足 `saveDb()` 的同步签名 → 采用 **「同步入队 + 异步 flush」写队列**（`appStateChange` 进后台/退出时 flush）② 实现 `showSaveDialog`/`showOpenDialog`/`writeFile` 的真实通道（Capacitor Share / Filesystem），使 **RL-A2 的备份导出/导入**真正可用 ③ 安装 `@capacitor/filesystem` / `share` / `preferences` 依赖 | P1-2 的 `StoragePort` 已就绪；Phase 3 的 Capacitor 工程 |
+| **P1-6** | **`mobile/` 纳入类型门禁** | 把 `mobile/**` 加入 tsconfig include（或独立 tsconfig），使适配器的 `AppAPI` 注解**参与 CI**；否则它只是编辑器级护栏（当前拦漂移的只有运行时 C1 断言） | P1-5 |
+
+> **决策记录（Supervisor 自定，非 OQ）**：v1 本地库名**保持默认共享库名**，v2 首登走 `migrateSharedData=true` —— 见上文 C4 修订。
 
 ### Phase 2 — 移动端 UI 适配（竖屏）
 | 子项 | 现状（取证位置） | 目标（**已按 2026-09-13 终审定稿**） |
@@ -180,7 +192,7 @@ Phase 3 打包与验收
 | C1 | 适配器方法名集合 == `preload.ts` 的 41 个（不多不少） | 测试断言两侧集合相等 |
 | C2 | 云方法返回**明确降级值或抛 `CloudUnavailableError`**，**绝无"假成功"** | 逐方法 await 断言 |
 | C3 | 沿用桌面 `cloud_id` 生成规则（`bills.cloud_id`/`categories.cloud_id` + 唯一索引已存在，`database/index.ts:87/125/139/147`） | 源码契约断言同一生成函数 |
-| C4 | 本地库名落在既有合法 `userId` 字符集 `/^[a-zA-Z0-9_-]+$/`（`database/index.ts:174`）内（如 `local`），使其能走既有 `switchToUserDatabase` 路径 | 断言库名匹配该正则 + 断言 `switchToUserDatabase` 未被修改 |
+| C4 | **（2026-09-13 修订）** v1 必须使用**默认共享库名** `thunder-accounting.db`（**不得**自定为 `local` 等其它名字）；v2 首次登录必须走既有 `switchToUserDatabase(uid, migrateSharedData=**true**)` | 断言 v1 不传自定义库名 + 断言 v2 传 `true` + 断言迁移会**先备份原库**（`index.ts:186-198` 既有逻辑）。**修订理由**：原 C4 要求库名取 `local` 以便 v2 走 `switchToUserDatabase('local')`，属**新增特殊分支**；而用默认共享库名可**直接复用桌面已测试的迁移代码**（含 `.migrated` 备份），是零新机制路径。Android 无 admin 概念，共享库语义无副作用 |
 | C5 | **远端读写抽为 `RemoteStore` port**（`@cloudbase/node-sdk` + 服务端 accessKey 实现**只留 Windows 构建**）—— 密钥不能进可反编译的 App，这是**安全边界**不是移植问题 | 断言安卓构建树不含 `@cloudbase/node-sdk` |
 | C6 | 每个写方法内**预留 `trySync()` 调用点**（首版 no-op），与桌面 `main.ts:200-214` 的 IPC handler 一一对应 | 对应关系断言 |
 | C7 | **首版本地数据认领路径必须被设计并落文档**（v2 首次登录时把 `local` 库迁移进用户库），v1 至少留出可接的钩子 | 设计文档 + 钩子存在性断言 |

@@ -321,6 +321,62 @@
 - **「测试全绿」不能证明类型正确**：本项目 `npm test` 走 vitest/esbuild，**会剥掉类型不做检查**；且项目**没有 `typecheck` 脚本** → 必须另建类型门禁（`tsc --noEmit` + 基线对比），否则「改名漏改引用」这类错误会静默通过测试。
 - **并行子代理工作时禁用 `git add -A`**：会把中间态、未复核产物一起带走，且时间点上无法区分责任来源。
 
+## Phase 1 交付与独立复核（EXEC，2026-09-13）
+
+### 交付内容（Worker `agent-2517692a`，未提交）
+
+**新增 9 个文件**：
+| 文件 | 作用 |
+|---|---|
+| `main-process/database/storage.ts` | `StoragePort` 契约（`getDataDir/joinPath/dirname/readDbFile/writeDbFile/exists/copyFile/mkdirp`）+ 注册表（未安装端口即**明确报错**，不隐式回退） |
+| `main-process/database/desktop-storage.ts` | 桌面实现（`fs` + `app.getPath('userData')`）—— **全仓唯一允许把 electron/fs/path/Buffer 带入持久化链路的文件** |
+| `mobile/bridge/android-adapter.ts` | 41 方法安卓适配器 + `CloudUnavailableError` + `installAndroidBridge()`（`??=`） |
+| `mobile/main.tsx` | 安卓入口：① 装适配器 → ② `await initDatabase()` → ③ `await import('../src/main')`（串行 + 启动失败兜底） |
+| `mobile/bridge/contract.test.ts` | **C1 三方集合相等** + 平台隔离 + C6 `trySync` 对应 + 入口三步顺序 |
+| `mobile/bridge/cloud-degradation.test.ts` | **C2 降级语义**（33 用例） |
+| `mobile/bridge/install.test.ts` | 安装前 `window.electronAPI === undefined` / 幂等 / 不覆盖既有宿主 |
+| `mobile/bridge/local-delegation.test.ts` | 15 个本地方法**真实 sql.js + 真实落盘**端到端 |
+| `src/database-switchuser.test.ts` | `switchToUserDatabase` 端口等价（per-user 库 + 共享库迁移/备份/清空）—— **此前零覆盖** |
+
+**修改 6 个文件**：`src/types/index.ts`（`AppAPI` + `export type ElectronAPI = AppAPI` 别名）、`main-process/database/index.ts`（去 electron/fs/path/Buffer）、`main-process/main.ts`（`whenReady` 内注入端口，`will-quit` 未动）、`vitest.config.ts`（include 加 `mobile/**`，否则安卓侧测试不真跑）、两个既有 DB 测试（各 +4 行端口注入）。
+
+### 我方独立复核（不采信转述，逐条实测）
+
+| 复核项 | 实测结果 | 判定 |
+|---|---|---|
+| 测试套件 | 我**自己重跑** `npm test` → **35 文件 / 356 用例全绿，8.00s** | ✅ 与 Worker 声称一致 |
+| 既有测试是否回退 | 基线 30 文件 / 291 用例 → 既有 **291 个全部仍通过** | ✅ |
+| 生产调用点 | **62 → 62**（正确口径：`grep -ro` + 按 `*.test.*` 过滤文件名） | ✅ 零漂移 |
+| **我误提交造成的类型断裂** | `src/types/index.ts:119` 已有 `export type ElectronAPI = AppAPI` | ✅ **已修复** |
+| `package.json` | `git diff HEAD -- package.json` 为空 | ✅ 三段结构完整 |
+| 两个既有测试改动性质 | `git diff` 逐行确认：仅 `beforeAll` 加 `setStoragePort(createDesktopStoragePort())`，**断言字符串与数量一行未改** | ✅ Worker 的 ⑤-3 自陈属实 |
+| `getUserStats` 语义（Worker ④-4 存疑项） | 桌面 `cloudbase.ts:1382-1402` **本身就是读本地库聚合**（`getBills`/`getCategories`）→ 安卓同算法**语义一致**，**不是假成功** | ✅ 判断正确 |
+| `mobile/` 是否在 tsconfig include 内 | **不在任何 tsconfig** | ⚠️ Worker 的 ⑤-6 属实 → 已立 **P1-6** |
+
+### Worker 自报的未闭环项（我的处置）
+
+| # | 未闭环项 | 我的裁定 |
+|---|---|---|
+| ④-1 | **安卓 StoragePort 未实现** → P1-4 第 ② 步在真机会**明确报错**（fail-loud，不白屏、不丢数据） | **接受该判断**。Capacitor Filesystem/Preferences 全异步，无法满足 `saveDb()` 的同步签名；**拒绝用 localStorage 顶替是正确工程判断**（Android WebView 配额 2.5–5M 字符，而 S2 实测 5 万行库 9.27MB→base64 12.96MB，必然溢出且会伪装成"能跑"）→ 立 **P1-5**（同步入队 + 异步 flush 写队列） |
+| ④-2 | 本地库名 / 首版本地数据认领路径未设计 | **我已决策（非 OQ，属实现路径）**：v1 **保持默认共享库名** `thunder-accounting.db`，v2 首登走既有 `switchToUserDatabase(uid, migrateSharedData=true)` → **复用桌面已测试的迁移代码（含 `.migrated` 备份），零新机制**。已修订 C4。**v1 侧零额外改动** |
+| ④-3 | RL-A2 的「备份导出/导入」首版不可用（文件对话框降级 `null`） | **接受并按事实拆分 RL-A2 → RL-A2a/RL-A2b**。属 P1-5；**完成前 UI 必须明确标注不可用，不得呈现为可用** |
+| ④-4 | `getUserStats` 是否应返回降级值 | **确认 Worker 实现正确**（见上表） |
+| ④-5 | 未跑真机/模拟器 | 阶段范围外，Phase 3 补 |
+
+### 代码层自陈（Worker ⑤，全部记入）
+
+1. 沙箱**无法启动 Electron** → 只有 356 单测 + 构建产物，无端到端证据；`setStoragePort` 早于 `initDatabase` 的**运行时时序**仅源码级保证
+2. **"写盘字节逐位相同"是推理而非测量** → 已据此**派独立验证者执行哈希等价实验**（含强制负对照：旧版跑两次必须同哈希，否则方法论失效）
+3. 改动了 2 个既有测试的**初始化方式**（断言未改）—— 取舍成立：不改则只能让 DB 模块自带隐式桌面默认端口，而那会把 electron **重新拉回安卓可达路径**
+4. `mkdirp` 从「必要时 guard」变为「每次调用端口」，桌面实现据称保留同一 guard —— **无测试钉住**，已交验证者核实
+5. `saveDb()` 的 catch 会把任何存储异常统一改写为「数据库保存失败，磁盘空间可能不足」（**预存在、未改**）→ 安卓将来的配额/权限错误在 UI 上只会看到泛化文案
+6. **62 处零改动是 grep 口径，不是类型级证明**；且 `mobile/` 不在 tsconfig → 适配器的 `AppAPI` 注解只是编辑器护栏，真正拦漂移的是运行时 C1 断言
+7. 指出我误提交 `6325b1a` 使其 `git diff` 基线非开工前状态
+
+### 待办（验证完成后再动这些文件）
+
+> ⚠️ 独立验证者正在读 `main-process/database/**` / `mobile/**` / tsconfig / `app-out` —— **在其出结果前不得让任何 Worker 改动这些文件**，否则污染实验。
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失
