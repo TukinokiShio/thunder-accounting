@@ -1,3 +1,202 @@
+# Thunder Accounting Android v1.0.0 Task Plan — 安卓端移植（Capacitor）
+
+> Run 2026-09-13 · SACW v5.6.1 · 状态机 `TASK_CLASSIFY→…→PLAN`（**当前停点 = PLAN 人为终审**）
+
+## 执行形态：多 Agent 编排（三证之二）
+
+| 状态 | 模式 | 选型依据（loop-spec §7.2 决策树） |
+|---|---|---|
+| `KNOWLEDGE_GATE` | Supervisor + **Explore 子代理**（已执行 `agent-a6a9459b`） | 摸底必须派 Explore，主 Agent 只收摘要 |
+| `PLAN` | Supervisor 汇总（**非黑板**） | 移植路径已由事实收敛，非开放方案探索 |
+| `EXEC` | **Supervisor 流水线**（分 4 阶段派 Worker） | 阶段可分解、依赖清晰、无并行冲突模块 |
+| `REVIEW` | **辩论**（独立 Reviewer，R ≠ W） | 移植正确性无唯一答案（行为等价性 + 视觉），需独立证伪 |
+| `EVAL` | Supervisor 网关 + **独立 Judge**（J ≠ W ≠ R） | 双门槛 eval ≥90 / quality ≥70 |
+| `FINAL` | Supervisor + 独立 quality 审查 | 按项目交付纪律 |
+
+**编排落盘**：`contracts/orchestration/android-*.json`（Worker 回执必须落盘，禁止只有声明无文件）
+
+## 版本与范围
+
+- **安卓版本线独立**：`androidVersionName = 1.0.0`，`versionCode = 1`（与桌面 v1.17.x 解耦）
+- **首版范围（用户答复 D1–D3）**：纯本地单机 · 竖屏手机（360–430px）· 不做平板/横屏 · 不做云端登录与同步
+- **桌面版本线**：本次若改动共享 `src/`，桌面按 SemVer 判定 bump 并走完整交付链；仅 `android/` 内改动不触发桌面发布
+
+## 需求（用户答复 → 可验收标准）
+
+| id | 来源（用户原话） | 可验收标准 | 验证方式 |
+|---|---|---|---|
+| RL-A1 | 「安卓端一定要实现和 windows 端数据同步，否则毫无意义，当然，首版可以先暂时不做这一步」 | ① 首版**无**云依赖即可完整使用全部核心功能 ② 适配层**已为云同步预留位**：41 个方法名与返回契约与桌面**完全一致**，云相关方法在未开启时返回「不可用」而非抛错 | ① APK 断网可用全流程 ② 契约一致性测试（方法名集合 == 桌面 `ElectronAPI`） |
+| RL-A2 | 同上 | 记账 → 统计 → 分类管理 → 备份导出/导入 全链路在安卓端可用 | 真机/模拟器端到端冒烟 |
+| RL-A3 | 「参考上一点 oq」（跨端互通） | 安卓导出的 JSON 备份可被桌面端 `importBackup` 导入，反之亦然 | 双向实测：安卓导出 → 桌面导入 → 数据一致 |
+| RL-A4 | 「暂且仅做标准竖屏」 | 360/390/430px 宽下**无横向溢出**；触控目标 ≥44px；无平板断点 | headless Chromium 多档视口 + 几何断言 |
+| RL-A5 | （自证，非用户原话）纯本地前提 | 安卓端**不出现登录页**，也不因 `user === null` 卡在加载态 | 冷启动直达首页 |
+| RL-A6 | 项目交付纪律（AGENTS.md + 用户级记忆） | 桌面端**行为零变化**：既有测试套件全绿；`git diff` 不触及 62 处生产调用点 | `npm test` 全绿 + diff 审查 |
+| RL-A7 | 项目踩坑 KI-001 | **修正原措辞**（原「`package.json` 只允许 version 行差异」在 Capacitor 依赖必须登记时**字面不可满足**，会逼执行者破戒）：① `scripts`/`devDependencies`/`build` 三段结构**完整无损** ② 新增依赖显式登记、人工可审，**禁止**写入嵌套 `package.json` 造成双份 node_modules（React 重复实例化 → hooks 报错） | `node -e` 逐段断言 + `git diff package.json` 人工审 |
+| RL-A8 | 独立 Judge（`agent-d9dfa538`）发现的「死线」 | 安卓端**不伪造用户身份**，顶栏**不得谎报「已同步」** | 断言 `user === null` 且 `syncStatus === 'offline'`；顶栏渲染未登录态 |
+| RL-A9 | 独立 Judge + 红队共同指出 | **云能力门真正接线**：`Profile.tsx:115` 的 `cloudAvailable` 下传至 `:426/:706/:1226` 但**三个消费组件零引用**，且 `:121-125` 挂载期**无条件**调 `:91/:103/:114` 三个云 API | 断言 `cloudAvailable === false` 时三个挂载期云调用**不被触发** |
+
+## 不变量（must-keep，违反即 P0）
+
+1. **`src/` 的 62 处生产调用点（`grep -o 'electronAPI\.[a-zA-Z]*' src` 排除 `*.test.*`）一个都不改** —— UI↔宿主契约冻结在「方法名 + 返回结构」
+2. **`src/` 不得 import `mobile/` 任何东西** —— 适配器只在 `mobile/` 入口安装；违反 = 桌面包被污染 + 10 个 UI 测试可能看见真实适配器。**须写成可 grep 的门禁断言**
+3. **禁止构建期平台分支** —— 绝不在构建时改 renderer 入口或注入代码（`electron.vite.config.mjs:28` renderer `outDir = app-out/renderer`，而 `package.json:60` 把 `app-out/**/*` 打进桌面包 → 构建期分支会**覆盖桌面产物**，属 KI-003 式静默污染）。平台分支一律**运行时**判定
+5. **桌面分支行为逐位等价** —— 新增平台分流必须默认走 electron 分支；`saveDb()` 必须保持**同步签名**（`main.ts:72-79` 的 `will-quit` 只 `unregisterAll`，**无 flush** → 若改 async 会丢最后一批写）
+6. **模态层 Portal + 作用域替身不得回退**（KI-003；本轮重排 DOM 祖先极易复发）
+7. **`saveDb()` 顺序语义不得变** —— 取 `last_insert_rowid()` 必须在 saveDb **之前**（踩坑 #1；本机实测 `db.export()` 后 rowid `1 → 0`）
+8. **不 fork `src/`**，不产生第二份 UI 真源
+9. **`android/`（Capacitor 宿主工程）与 Electron 打包链物理隔离** —— 不污染 `release/`、`exe/`、`app-out/`、`out/`
+10. **`Buffer` 不得出现在安卓可达路径上** —— `main-process/database/index.ts:306` 用 `Buffer.from(data)`，Android WebView **无 `Buffer`**
+
+## 拓扑（DAG）
+
+```
+Phase 0 可行性 spike ──┐
+  P0-1 sql.js@WebView   │  任一失败 → 回流 PLAN 换方案（不硬推）
+  P0-2 Gradle 非沙箱构建 ┘
+        │
+        ▼
+Phase 1 适配层抽取（桌面零行为变化）
+  P1-1 平台无关契约 AppAPI ──→ P1-2 DB 纯逻辑 + StoragePort ──→ P1-3 android 适配器 ──→ P1-4 启动注入
+        │
+        ▼
+Phase 2 移动端 UI 适配（竖屏）
+  P2-1 底部导航  ┃  P2-2 hover→常显  ┃  P2-3 拖拽→按钮  ┃  P2-4 安全区/100dvh  ┃  P2-5 本地模式门禁
+  （P2-2/P2-3/P2-4 相互独立 → 可并行派 Worker）
+        │
+        ▼
+Phase 3 打包与验收
+  P3-1 Gradle 工程配置 ──→ P3-2 assembleDebug ──→ P3-3 模拟器/真机冒烟 ──→ P3-4 用户真机验收
+```
+
+**关键路径（AOE）**：`P0-1 → P0-2 → P1-1 → P1-2 → P1-3 → P3-1 → P3-2 → P3-3 → P3-4`
+（P1-2 为最长单点；P2 全系列可与 P1 后半并行，但需 P1-1 契约先冻结）
+
+## Phase 细节与验证门禁
+
+### Phase 0 — 可行性 spike（最高风险前置，先证后建）
+
+> **本轮经独立方案（`agent-4d7fad9d`）+ 红队（`agent-ee67cb48`）+ Judge（`agent-d9dfa538`）三方证伪后重排**：原方案只有 2 项 spike，遗漏 5 项被证伪出的高危面。
+
+| # | 要证/要证伪的事 | 通过判据 | 成本 |
+|---|---|---|---|
+| **S1** | Capacitor 8 + 本机 Gradle 8.10.2 / AGP 8.5.2 / JBR 21 组合可用（空工程，不含本项目代码） | `assembleDebug` 产出 APK → `adb install` 到 Pixel_8 → 启动无白屏。失败则降级试 Capacitor 7 | 中（需非沙箱联网补 `androidx.webkit`/`coordinatorlayout`） |
+| **S2** | `saveDb()` **全量落盘**在安卓上可接受（每次记账 `db.export()` 全库 + base64 往返 ≈ +33%） | **纯 Node 即可先测**：造 50k 行库测 `export + Buffer + base64` 耗时 <50ms 可忽略；再在 Pixel_8 连做 100 次写，**无 UI 卡顿 >100ms、无 ANR** | 低（前段不需安卓） |
+| **S3** | 触屏下「仅 hover 可达」与「HTML5 拖拽」类交互的**完整清单** | headless Chromium 375×812 加载现有构建，枚举所有依赖 `:hover` 才可见/可用的元素 + 布局塌陷位置，**逐条给出「首版必改 / 推 2.0」处置决定**（判据不是"清单为空"，它一定不空） | 低 |
+| **S4** | 适配器契约与云降级语义（零成本，与 S1 并行） | 41 方法集合与 `preload.ts` **全等**；逐个 await 全部云方法，断言「文档化降级值 **或** `CloudUnavailableError`」，**任何"假成功"判失败**（尤其 `loadCredentials` 必须返回对象不可抛错——`App.tsx:33` 直接读 `.autoLogin`）；断言安装前 `window.electronAPI` 为 `undefined` | **零** |
+| **S5** | `user === null` 下 `Profile` 与顶栏的渲染路径不崩、不谎报 | 断言不抛异常；`syncStatus === 'offline'`；顶栏为未登录态（RL-A8） | 低 |
+| **S6** | **循环依赖**在换打包器后的求值顺序（`database/index.ts:5` ↔ `export.ts:2`） | 抽出共享模块后 `getDb()` 不因静态求值得 `undefined` | 低 |
+| **S7** | `sql.js` 在 WebView 下解析到的是 **browser 变体**（`sql-wasm-browser.js`），其 `.wasm` 资源如何进 APK | 产物级断言：APK 内**存在** wasm 资源且运行时可加载（不是"能 init"就算过） | 中 |
+
+- **失败处置**：任一 P0 级 spike 失败 → 记录归因 → **回流 PLAN 重选方案**（不硬推；不得降级成"只出 Web 版"充数）
+- **S1/S2 为阻塞项**：未通过不得进入 Phase 1
+
+### Phase 1 — 适配层抽取（**桌面零行为变化**）
+- **P1-1**：`src/types/index.ts` 的 `ElectronAPI` 提取为平台无关契约 `AppAPI`（**同 41 方法名**，`ElectronAPI = AppAPI` 别名保持兼容）
+- **P1-2**：DB 纯逻辑与持久化解耦（注入 `StoragePort`）；桌面实现 = 现有 `fs` 路径，**行为逐位不变**
+- **P1-3**：android 适配器实现 41 方法；云/账号/文件对话框类方法返回明确「不可用」语义
+- **P1-4**：启动时注入（`window.electronAPI ??= androidAdapter`），**不改任何调用点**
+- **门禁**：`npm test` 268 用例全绿 + `git diff` 调用点零改动 + 审计「是否有方法缺失」一致性测试
+
+### Phase 2 — 移动端 UI 适配（竖屏）
+| 子项 | 现状（取证位置） | 目标 |
+|---|---|---|
+| P2-1 底部导航 | 固定 224px 侧栏不收缩（`index.css:140-141`、`Sidebar.tsx:37`） | <640px 改底部 Tab，保留桌面侧栏 |
+| P2-2 hover→常显 | **删除按钮靠 `group-hover` 才可见**（`CategoryList.tsx:91`）；51 处 CSS `:hover` + 19 处 Tailwind `hover:` | 触屏常显 / `:active` 反馈；**单列删除按钮点不到 = 功能性阻断，优先修** |
+| P2-3 拖拽排序 | HTML5 DnD（`CategoryList.tsx:66-71`、`CategoryManager.tsx:284-285`） | 上/下移按钮（触屏可靠，且更可测） |
+| P2-4 安全区/视口 | 无 `viewport-fit=cover`、无 `env(safe-area-inset-*)`、`100vh`（`index.css:233,259,410,414`） | `viewport-fit=cover` + `100dvh` + 安全区内边距 |
+| P2-5 本地模式门禁（**按 Judge 裁决定稿**） | `AuthGuard.tsx:25` `if (!user) return <LoginPage/>`；**且** `App.tsx:49-54` 数据加载以 `if (user)` 为条件（漏改则分类恒空、记一笔不可用）；**且** `Profile.tsx` 云能力门是死线 | **机制 = 平台门 + 诚实 `null` user + 接上能力门**（**否决合成 user**：`store/index.ts:166` 会把 `syncStatus` 抬成 `idle` → `Layout.tsx:35-37/52` 顶栏谎报「已同步」）。最小文件集：① `AuthGuard.tsx` 加平台分支（electron 保持现有行为）② `App.tsx:49-54` 加载门改为「会话已判定」（`isCheckingSession` 在 `:40` 的 `finally` 恒置假）③ `Profile.tsx` 真正消费 `cloudAvailable` 并在 false 时跳过 `:91/:103/:114` 三个挂载期云调用 ④ `mobile/` 适配器 `isCloudSyncEnabled → false` |
+- **门禁**：`aurora_lint.py` 无 error + headless Chromium 360/390/430px **几何断言**（无横向溢出、44px 触控、底部导航可见）+ 独立 UI/UX Reviewer（UX 轴）
+
+### Phase 3 — 打包与验收
+
+> **打包 skill 强制激活（用户确认 2026-09-13）**：`android-packager` 是**安卓打包的专用 skill**（对标 `inno-packager`，同样固化本机环境、带 helper 脚本与版本发布纪律）。
+> **SACW §5.11 第 9 条对 APK 豁免 inno 门禁** —— Windows exe 才走 `inno-packager` + `artifacts/inno/inno-receipt.json`；**APK 走 `android-packager`，两者互不替代、互不冒充**。
+
+- **P3-1**：包名 `com.thunder.accounting`、`versionName 1.0.0`/`versionCode 1`、图标、**本地 keystore 签名配置**（密码走 `gradle.properties` 或环境变量，**不入库**）
+- **P3-2**：激活 `android-packager` skill 出包 —— 优先用其 helper `scripts/build_apk.py`（自动配 `ANDROID_HOME` / `JAVA_HOME` / `PATH`），必要时 `--gradle "E:/Code/Android/HelloApp/gradle/gradle-home/gradle-8.10.2/bin/gradle.bat"`。产物落 `release-android/`（**不污染 `release/`**）
+- **P3-3**：模拟器（`Pixel_8` / API 37）安装 + 冒烟（冷启动直达首页、记一笔、统计、分类编辑模式、备份导出）；`adb shell dumpsys package <包名> | grep versionName` 验证版本
+- **P3-4**：**用户真机验收**（三证：端到端实跑 + APK 产物 + 用户回填签字）
+- **门禁（全部来自 android-packager 的实测结论）**：
+  - **JDK 必须 JBR 21**（`E:/Code/Android Studio/AS/jbr`）——系统 JDK 24 会报 `Unsupported class file major version`
+  - `gradlew` 会尝试联网下发行版 → 用已解压的 **Gradle 8.10.2**（`--gradle` 指定）
+  - 改代码/版本号后先 `clean` 再构建（防缓存污染）
+  - 新增 `androidx.webkit` / `coordinatorlayout` 等未缓存依赖时，Gradle 需**非沙箱**联网（沙箱内 Maven 返回 200 但 0 字节）
+  - 版本纪律：`versionCode` **必须单调递增**，否则无法覆盖升级
+
+## 反模式清单（本轮强制禁止）
+
+1. ❌ 改 `src/` 里 62 处生产 `window.electronAPI.xxx` 调用点（契约冻结）
+2. ❌ 在 `db.export()` / `saveDb()` **之后**取 `last_insert_rowid()`（踩坑 #1）
+3. ❌ 把 `dark` 类提到 `<html>`（会让历史失效规则突然生效，blast radius 不可控）
+4. ❌ 去掉模态的 Portal 或作用域替身（KI-003，本轮重排祖先极易复发）
+5. ❌ fork `src/` 产生第二份 UI 真源
+6. ❌ 在 `src/` 内直调 Capacitor 原生插件（会让 10 个 UI 测试全部失效）
+7. ❌ 用系统 JDK 24 构建安卓（AGP `Unsupported class file major version`）
+8. ❌ 把 keystore 密码写进版本库
+9. ❌ 把 Capacitor/Gradle 产物写进 `release/` / `exe/` / `app-out/`
+10. ❌ 以「只出 Web 版」替代 APK 交付（属降级冒名）；亦禁止把 `capacitor.config` 的 `server.url` 指向远程页面来"产出"一个只是远程页壳的 APK
+11. ❌ 在 `src/` 里 import `mobile/`（破坏解耦、污染桌面包）
+12. ❌ **构建期**平台分支（改 renderer 入口/注入）—— 会覆盖 `app-out/renderer`，而它被打进桌面包
+13. ❌ 用**合成 user** 绕过登录门（谎报身份 + 顶栏谎报已同步；见 RL-A8）
+14. ❌ 把 `Buffer` 留在安卓可达路径（`database/index.ts:306`）
+15. ❌ 在 `mobile/` 或安卓侧**零测试**就交付（红队认定的最大门禁漏洞）
+16. ❌ 用 `file://` 加载页面（sql.js 的 `.wasm` 无法 fetch）—— 必须 `androidScheme: 'https'`
+
+## 目录与依赖落点（消除歧义，自定并留痕）
+
+| 路径 | 角色 | 是否进桌面包 |
+|---|---|---|
+| `mobile/` | **安卓前端接入层（源）**：唯一入口 `mobile/main.tsx`、适配器 `mobile/bridge/`、移动端 CSS 覆盖层 `mobile/android.css` | **否**（`src/` 不得 import 它） |
+| `dist-android/` | 安卓 renderer 构建产物 = Capacitor `webDir` | 否 |
+| `android/` | Capacitor 生成的原生 Gradle 工程（签名、图标、包名） | 否 |
+| `release-android/` | APK 产物 | 否 |
+
+- **Capacitor 依赖落点 = 根 `package.json` 的 `dependencies`**（已否决嵌套 `mobile/package.json`：会导致双份 `node_modules` → React 重复实例化 → hooks 报错）。RL-A7 已据此改写措辞
+- **页面来源必须 `androidScheme: 'https'`（`https://localhost`）**，禁用 `file://`（sql.js 的 `.wasm` 靠 fetch）
+- **后端共享策略**：`main-process/database/index.ts` 的 DB 逻辑抽为共享模块，**只换最后一跳**（`StoragePort`：`getDataDir/readDbFile/writeDbFile/exists/copyFile/mkdirp`）；`saveDb()` 内 `db.export()` 的位置与副作用**一字节不动**，且**保持同步签名 + 内部写队列**（`main.ts:72-79` 无 flush）
+
+## 云同步「预留位」的真实判据（修正：原方案只冻结方法名 = 假预留）
+
+红队与 Judge 共同认定：**方法名冻结 ≠ 迁移路径存在**。41 方法里**没有** `claimLocalData` 类入口，而 `main-process/database/index.ts:186-188` 在首次登录且 `migrateSharedData=false` 时**直接 `new SQL.Database()`** → 首版用户的本地数据会被**静默遗弃**。故「预留住」必须满足：
+
+| # | 判据 | 可检验方式 |
+|---|---|---|
+| C1 | 适配器方法名集合 == `preload.ts` 的 41 个（不多不少） | 测试断言两侧集合相等 |
+| C2 | 云方法返回**明确降级值或抛 `CloudUnavailableError`**，**绝无"假成功"** | 逐方法 await 断言 |
+| C3 | 沿用桌面 `cloud_id` 生成规则（`bills.cloud_id`/`categories.cloud_id` + 唯一索引已存在，`database/index.ts:87/125/139/147`） | 源码契约断言同一生成函数 |
+| C4 | 本地库名落在既有合法 `userId` 字符集 `/^[a-zA-Z0-9_-]+$/`（`database/index.ts:174`）内（如 `local`），使其能走既有 `switchToUserDatabase` 路径 | 断言库名匹配该正则 + 断言 `switchToUserDatabase` 未被修改 |
+| C5 | **远端读写抽为 `RemoteStore` port**（`@cloudbase/node-sdk` + 服务端 accessKey 实现**只留 Windows 构建**）—— 密钥不能进可反编译的 App，这是**安全边界**不是移植问题 | 断言安卓构建树不含 `@cloudbase/node-sdk` |
+| C6 | 每个写方法内**预留 `trySync()` 调用点**（首版 no-op），与桌面 `main.ts:200-214` 的 IPC handler 一一对应 | 对应关系断言 |
+| C7 | **首版本地数据认领路径必须被设计并落文档**（v2 首次登录时把 `local` 库迁移进用户库），v1 至少留出可接的钩子 | 设计文档 + 钩子存在性断言 |
+
+> **诚实的返工点声明**：加云时以下三处必然要动 —— ① 远端读写由 node-sdk 换为「用户 access_token + 安全规则」的 HTTP 路径 ② WebView 的 `Origin: https://localhost` 会撞 CloudBase Auth 的 CORS/来源校验（故**首版就应决定**云请求走 Capacitor 原生 HTTP 插件）③ 会话恢复时序。已写入 `progress.state.open_unknowns`。
+
+## 三方独立审查记录（本轮 PLAN 阶段真实编排产出）
+
+| 角色 | 子代理 | 职责 | 结论 |
+|---|---|---|---|
+| **Worker（方案）** | `agent-4d7fad9d` | 独立产出安卓移植方案（不与主方案对照，避免锚定） | 推荐 Capacitor；提出 `mobile/` 独立入口 + CSS 覆盖层 + 只换末跳 StoragePort + 否决合成 user；给出 R1–R4 风险与 S1–S5 spike |
+| **Reviewer（红队）** | `agent-ee67cb48` | 对抗攻击 `task_plan.md` | **conditional**；证伪出 4 项 P0/P1（`App.tsx:49-54` user 门禁、`Buffer`、`package.json` 措辞自相矛盾、安卓侧零测试）；纠正调用点计数 80 → **62** |
+| **Judge（裁决）** | `agent-d9dfa538` | 裁决 A/B 分歧 + 双门槛打分 | **conditional**；裁决 = **机制甲 + 接上能力门**，**否决合成 user**；找到 A/B 都漏的 `Profile.tsx:426/706/1226` **云能力死线** |
+
+**Judge 双分数（对原方案，已据此修正）**：`eval_score = 72`（取证扎实但 62 写成 80、P2-5 机制未定稿）／`quality_score = 68`（先证后建与 `saveDb()` 冻结正确，但云能力门缺失 + `package.json` 措辞不可满足）。
+**`score_semantics`**：`n = 2`（A 方案 / B 红队）；`gap_note` = **门通过 ≠ 任务成功** —— 即使门禁方案正确，本地数据认领缺口、`Buffer` 兼容、无 flush、安卓侧零测试仍会导致交付失败。
+
+
+
+## 人为终审点（当前停点 = PLAN，等待用户确认）
+
+- **必须用户确认**：① 阶段划分与范围 ② **移动端视觉方案**（底部导航形态 / hover 替代反馈 / 列表操作交互）③ 交付纪律口径（`android/` 隔离是否认可）
+- 确认后才可进入 EXEC
+
+## 交付纪律（本轮新增口径，自定并留痕）
+
+- **仅 `android/**` 内改动** → 不触发桌面版本 bump 与安装验收（不改桌面产物）
+- **触及共享 `src/**` 或 `main-process/**`** → 桌面按 SemVer 判定 bump，走完整链路（clean build → electron-builder → ISCC → 静默安装 `exe/` → asar 校验 → commit/push）
+- 理由：AGENTS.md 的意图是「桌面交付物完整性」，而非「任何目录的文件变动都发桌面版」
+
+---
+
 # Thunder Accounting v1.17.5 Task Plan — 缺陷轮：Portal 作用域替身
 
 ## 执行形态：多 Agent 编排（DEFECT_TRIAGE→Supervisor 归因；EXEC→Worker 流水线；REVIEW→独立 Reviewer 双轴；EVAL→独立 Judge）——选型依据：根因机制已确定（无需黑板探索）、写集收敛、无并行模块 → Supervisor 流水线；上一轮同源修复被用户实机证伪一次 → 审查必须独立证伪（辩论收敛）。

@@ -1,0 +1,14 @@
+{
+  "schema": "sacw-orchestration-request/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Reviewer",
+  "worker_id": "Reviewer",
+  "duty": "对抗性红队审查 task_plan.md 安卓移植方案（只读）",
+  "expected_output": "产出隐藏假设清单 / 会直接失败的场景 / 被忽略的耦合 / 「桌面行为零变化」验证结果 / 云预留判定 / 测试诱饵分析 / 门禁绕过路径 / 放行建议",
+  "constraints": [
+    "只读，不修改任何文件",
+    "每条结论须带文件路径+行号证据",
+    "不确定处明确标注"
+  ]
+}

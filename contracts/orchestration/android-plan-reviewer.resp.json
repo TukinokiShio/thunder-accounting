@@ -1,0 +1,203 @@
+{
+  "schema": "sacw-orchestration-receipt/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Reviewer",
+  "agent_id": "agent-ee67cb48",
+  "subagent_type": "general-purpose",
+  "duty": "对抗性红队审查 task_plan.md 安卓移植方案（只读）",
+  "status": "completed",
+  "independence": "独立子代理，R ≠ W（未参与方案编写），未与 Worker 共享上下文",
+  "summary": {
+    "diff_summary": "未改动任何文件。产出 7 节红队报告：隐藏假设 5 条 / 会直接失败场景 5 条 / 被忽略的耦合 5 条（含 1 条明确标注攻击失败）/ 「桌面行为零变化」验证结果 / 云预留判定 / 测试诱饵分析 / 门禁绕过路径；另列 5 条「攻击失败」明示未硬凑",
+    "evidence_paths": [
+      "findings.md#三方独立审查记录（本轮 PLAN 阶段真实编排产出）",
+      "task_plan.md#Phase 细节与验证门禁",
+      "src/App.tsx:49-54",
+      "main-process/database/index.ts:306,186-188,5",
+      "main-process/database/export.ts:2",
+      "main-process/main.ts:72-79,358",
+      "src/Layout.test.tsx:9,12,128-141",
+      "src/index.test.ts:7",
+      "electron.vite.config.mjs:11,28",
+      "package.json:29-41,60"
+    ],
+    "open_risks": [
+      "P0：App.tsx:49-54 数据加载以 user 为条件 → 纯本地下分类恒空、记一笔不可用",
+      "P0/P1：main-process/database/index.ts:306 用 Buffer.from → Android WebView 无 Buffer",
+      "P1：原 RL-A7「git diff package.json 只允许 version 行」字面不可满足（Capacitor 依赖必须落盘）→ 会逼执行者破戒",
+      "P1：Layout.test.tsx / index.test.ts 是源码文本契约测试，改 index.css 或 Profile 根 className 会打成红（非回归但门禁会拦）",
+      "P1：sql.js 在 node 与 browser 下解析到不同构建（sql-wasm-browser.js），WASM 资源进 APK 无产物级门禁",
+      "P1：安卓侧零测试是最大门禁漏洞（RL-A6 只盯桌面）",
+      "P1：云预留是假预留——无数据认领/迁移路径；index.ts:186-188 首次登录直接 new SQL.Database() → 首版用户数据被静默遗弃",
+      "P1：database/index.ts:5 ↔ export.ts:2 循环依赖，换打包器后静态求值可能得 undefined",
+      "P1：main.ts:72-79 will-quit 无 flush → saveDb() 若改 async 会丢最后一批写"
+    ]
+  },
+  "review_verdict": {
+    "verdict": "conditional",
+    "findings": [
+      {
+        "id": "RT-01",
+        "severity": "P0",
+        "title": "App.tsx:49-54 数据加载 user 门禁未处理",
+        "file": "src/App.tsx",
+        "lines": "49-54"
+      },
+      {
+        "id": "RT-02",
+        "severity": "P0",
+        "title": "Buffer 在 WebView 不存在",
+        "file": "main-process/database/index.ts",
+        "lines": "306"
+      },
+      {
+        "id": "RT-03",
+        "severity": "P1",
+        "title": "调用点计数 80 与自身取证 62 矛盾（同一错误贯穿 task_plan 三处）",
+        "file": "task_plan.md",
+        "lines": "不变量/门禁/反模式"
+      },
+      {
+        "id": "RT-04",
+        "severity": "P1",
+        "title": "package.json 措辞自相矛盾，字面不可满足",
+        "file": "task_plan.md",
+        "lines": "RL-A7"
+      },
+      {
+        "id": "RT-05",
+        "severity": "P1",
+        "title": "源码文本契约测试会拦住 index.css / Profile 改动",
+        "file": "src/Layout.test.tsx",
+        "lines": "9,12,128-141"
+      },
+      {
+        "id": "RT-06",
+        "severity": "P1",
+        "title": "WASM 资源无产物级门禁",
+        "file": "electron.vite.config.mjs",
+        "lines": "11,28"
+      },
+      {
+        "id": "RT-07",
+        "severity": "P1",
+        "title": "安卓侧零测试 = 最大门禁漏洞",
+        "file": "task_plan.md",
+        "lines": "RL-A6"
+      },
+      {
+        "id": "RT-08",
+        "severity": "P1",
+        "title": "云预留为假预留（无认领路径）",
+        "file": "main-process/database/index.ts",
+        "lines": "186-188"
+      },
+      {
+        "id": "RT-09",
+        "severity": "P1",
+        "title": "循环依赖在换打包器后可能求值失败",
+        "file": "main-process/database/index.ts",
+        "lines": "5"
+      },
+      {
+        "id": "RT-10",
+        "severity": "P1",
+        "title": "will-quit 无 flush，saveDb 不得改 async",
+        "file": "main-process/main.ts",
+        "lines": "72-79"
+      }
+    ],
+    "failed_attacks": [
+      "注入 window.electronAPI 与 contextBridge 冲突 → 不成立（preload.ts:172 已定义属性，??= 不覆盖；测试用 Object.defineProperty 覆盖 → 注入 no-op）",
+      "改 AppAPI 别名会打挂 types.test.ts → 不成立（types.test.ts:2 未 import ElectronAPI）",
+      "schema 未预留云 → 不成立（cloud_id 列与唯一索引均在）",
+      "saveDb() 顺序语义是伪命题 → 不成立（本机实测 export 后 rowid 1 → 0）",
+      "P2-2/P2-3 会打挂既有测试 → 不成立，反转为「零覆盖」"
+    ],
+    "release_precondition": "把 P2-5 扩为「本地模式必须处理 App.tsx:49-54 的 user 门禁」，补安卓适配器行为测试与构建期污染/WASM 资源产物门禁，并把 80 修正为 62",
+    "p0_p3_findings": [
+      {
+        "id": "RT-01",
+        "severity": "P0",
+        "title": "App.tsx:49-54 数据加载 user 门禁未处理",
+        "file": "src/App.tsx",
+        "lines": "49-54"
+      },
+      {
+        "id": "RT-02",
+        "severity": "P0",
+        "title": "Buffer 在 WebView 不存在",
+        "file": "main-process/database/index.ts",
+        "lines": "306"
+      },
+      {
+        "id": "RT-03",
+        "severity": "P1",
+        "title": "调用点计数 80 与自身取证 62 矛盾（同一错误贯穿 task_plan 三处）",
+        "file": "task_plan.md",
+        "lines": "不变量/门禁/反模式"
+      },
+      {
+        "id": "RT-04",
+        "severity": "P1",
+        "title": "package.json 措辞自相矛盾，字面不可满足",
+        "file": "task_plan.md",
+        "lines": "RL-A7"
+      },
+      {
+        "id": "RT-05",
+        "severity": "P1",
+        "title": "源码文本契约测试会拦住 index.css / Profile 改动",
+        "file": "src/Layout.test.tsx",
+        "lines": "9,12,128-141"
+      },
+      {
+        "id": "RT-06",
+        "severity": "P1",
+        "title": "WASM 资源无产物级门禁",
+        "file": "electron.vite.config.mjs",
+        "lines": "11,28"
+      },
+      {
+        "id": "RT-07",
+        "severity": "P1",
+        "title": "安卓侧零测试 = 最大门禁漏洞",
+        "file": "task_plan.md",
+        "lines": "RL-A6"
+      },
+      {
+        "id": "RT-08",
+        "severity": "P1",
+        "title": "云预留为假预留（无认领路径）",
+        "file": "main-process/database/index.ts",
+        "lines": "186-188"
+      },
+      {
+        "id": "RT-09",
+        "severity": "P1",
+        "title": "循环依赖在换打包器后可能求值失败",
+        "file": "main-process/database/index.ts",
+        "lines": "5"
+      },
+      {
+        "id": "RT-10",
+        "severity": "P1",
+        "title": "will-quit 无 flush，saveDb 不得改 async",
+        "file": "main-process/main.ts",
+        "lines": "72-79"
+      }
+    ],
+    "release_recommendation": "conditional",
+    "rebuttal_refs": [
+      "反驳对象：Worker 方案 agent-4d7fad9d 的「冻结 41 方法名即等于云同步已预留」——反驳成立，41 方法无 claimLocalData，且 database/index.ts:186-188 首次登录直接 new SQL.Database() 会静默遗弃首版本地数据",
+      "反驳对象：Worker 方案「只处理 AuthGuard 即可放行本地模式」——反驳成立，App.tsx:49-54 数据加载以 user 为条件，漏改则分类恒空",
+      "自陈攻击失败项：注入 window.electronAPI 与 contextBridge 冲突不成立（preload.ts:172 已定义属性）"
+    ]
+  },
+  "worker_id": "Reviewer",
+  "artifacts": [
+    "findings.md",
+    "task_plan.md"
+  ]
+}

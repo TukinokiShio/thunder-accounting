@@ -1,0 +1,14 @@
+{
+  "schema": "sacw-orchestration-request/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Worker",
+  "worker_id": "Worker",
+  "duty": "独立产出安卓端移植技术方案（黑板模式，不参照主方案以避免锚定）",
+  "expected_output": "产出宿主框架选型与逐候选否决代价 / UI 复用机制 / 数据层候选与取舍 / 云预留可检验判据 / 登录门禁候选 / 风险与证伪方式 / 可行性 spike 与通过判据",
+  "constraints": [
+    "只读，不修改任何文件",
+    "每条结论须带文件路径+行号证据",
+    "不确定处明确标注"
+  ]
+}

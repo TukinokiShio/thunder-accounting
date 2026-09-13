@@ -1,0 +1,37 @@
+{
+  "schema": "sacw-orchestration-receipt/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Worker",
+  "agent_id": "agent-4d7fad9d",
+  "subagent_type": "general-purpose",
+  "duty": "独立产出安卓端移植技术方案（不参照主方案，避免锚定）—— 黑板模式并行方案分支",
+  "status": "completed",
+  "independence": "独立子代理，未获知主 Agent 的方案内容；只读仓库自主取证",
+  "summary": {
+    "diff_summary": "未改动任何文件（只读方案设计）。产出：宿主框架选型（推荐 Capacitor 8，逐项给出 Tauri v2 mobile / React Native / 原生 Kotlin+WebView 壳 / TWA 的具体否决代价）／mobile/ 独立入口 + 适配器只在 mobile 安装／androidScheme:'https' 禁用 file://／移动端 CSS 覆盖层替代改造 index.css 断点／StoragePort 只换最后一跳且 saveDb() 的 db.export() 位置与副作用一字节不动／云预留 5 条可检验判据 C1-C5／登录门禁 4 候选（推荐移除 AuthGuard + 改数据加载门，明确否决合成用户）／R1-R4 风险与证伪方式／S1-S5 spike 与通过判据",
+    "evidence_paths": [
+      "findings.md#三方独立审查记录（本轮 PLAN 阶段真实编排产出）",
+      "task_plan.md#Phase 细节与验证门禁",
+      "contracts/orchestration/android-plan-worker.resp.json"
+    ],
+    "open_risks": [
+      "R1：Capacitor 8 与本机 Gradle 8.10.2 / AGP 8.5.2 / JBR 21 组合未验证；androidx.webkit 未缓存",
+      "R2：saveDb() 全量落盘（每次 export 全库 + base64 +33%）在安卓上的性能未量化",
+      "R3：触屏下依赖 hover / HTML5 拖拽的交互不可达，清单未穷尽",
+      "R4：bridge 契约缺失（方法集合不全 / 云方法假成功 / 安装时机早于调用）"
+    ]
+  },
+  "divergences": [
+    "反对在 src/ 里 import 适配器（会污染桌面包 + 与 contextBridge 竞争同一键）——只从 mobile/ 入口安装",
+    "反对首版换 @capacitor-community/sqlite（会丢掉可 CI 运行的 database-*.test.ts 回归网，且需重验 27 处 rowid 时序）",
+    "反对用合成用户绕过 AuthGuard",
+    "反对把 @cloudbase/node-sdk 原样带进安卓（服务端 accessKey 进可反编译 App = 安全边界问题）",
+    "反对用多断点响应式复用桌面 UI（会让桌面侧回归；应用 mobile/ 覆盖层）"
+  ],
+  "worker_id": "Worker",
+  "artifacts": [
+    "findings.md",
+    "task_plan.md"
+  ]
+}

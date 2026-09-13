@@ -1,0 +1,14 @@
+{
+  "schema": "sacw-orchestration-request/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Explore",
+  "worker_id": "Explore",
+  "duty": "安卓移植影响面摸底（只读）",
+  "expected_output": "产出 41 个 ElectronAPI 方法的底层依赖矩阵 / cloudbase.ts 的 Node 依赖清单 / 桌面专属 UI 假设清单 / 测试基线 / 源码不可判定未知项 / 三大障碍",
+  "constraints": [
+    "只读，不修改任何文件",
+    "每条结论须带文件路径+行号证据",
+    "不确定处明确标注"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "schema": "sacw-orchestration-receipt/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Judge",
+  "agent_id": "agent-d9dfa538",
+  "subagent_type": "general-purpose",
+  "duty": "裁决 Worker/Reviewer 在登录门禁机制上的相反结论 + 双门槛打分（只读，独立于 W 与 R）",
+  "status": "completed",
+  "independence": "独立子代理，J ≠ W ≠ R —— 未参与方案编写，未参与红队审查",
+  "summary": {
+    "diff_summary": "未改动任何文件。产出裁决书：裁决两机制各自失败模式（均带源码取证）／提出第三机制「平台门 + 诚实 null user + 接上能力门」／核验 Profile 云区块是否已用云能力门收敛／核验 deleteAccount 可达性／双分数与口径声明／指出两位子代理各自最正确与最可疑的一条／指出两人都漏掉的 5 个问题",
+    "evidence_paths": [
+      "findings.md#三方独立审查记录（本轮 PLAN 阶段真实编排产出）",
+      "task_plan.md#需求（用户答复 → 可验收标准）",
+      "contracts/orchestration/android-plan-judge.resp.json",
+      "src/components/AuthGuard.tsx:10-27",
+      "src/App.tsx:40,49-54,68-78",
+      "src/store/index.ts:166",
+      "src/pages/Profile.tsx:91,103,114,115,121-125,128,136,158,207,214,243,249,426,706,1226,1244,1311,1360",
+      "src/components/Layout.tsx:31,35-37,52",
+      "src/components/Sidebar.tsx:18,72,80,84",
+      "src/components/Sidebar.test.tsx:81-83",
+      "src/types/index.ts:46-52,101"
+    ],
+    "open_risks": [
+      "Profile.tsx:426/706/1226 的 cloudAvailable 是死线（算出来却零引用）—— A 与 B 都漏",
+      "生产死代码 SyncStatus.tsx 无任何生产 import（SettingsDialog.tsx:13-14 仅引 BackupRestore/About），照它理解本地态会误判",
+      "循环依赖 database/index.ts:5 ↔ export.ts:2 未列入原 spike 验证项",
+      "调用点真值 62，且「80」同时出现在 task_plan 三处，改一处不够"
+    ]
+  },
+  "review_verdict": {
+    "verdict": "conditional",
+    "adjudication": "采纳机制甲（移除 AuthGuard 平台分流）+ 补齐能力门；明确否决合成 user",
+    "rationale_sources": [
+      "否决合成 user 的硬证据链：store/index.ts:166 setUser 会把 syncStatus 由 offline 抬成 idle → Layout.tsx:35-37 落 default 分支 → Layout.tsx:52 顶栏渲染绿色 Cloud + title「已同步」（纯本地首版会宣称已同步）",
+      "Profile.tsx:91/103/114 由 :121-125 的 useEffect 在挂载时无条件触发，与 user 是否合成物无关 → 红队「合成 user 才让 16 处云调用发生」属错误归因",
+      "deleteAccount 可达性取决于 Profile.tsx:1244 的 verifyTarget（来自 getAccountBindings），最小合成对象下不可达 → 双方均过度断言",
+      "真正缺口是云能力未接线（Profile.tsx:426/706/1226 死线），正确杠杆是接上 cloudAvailable"
+    ],
+    "minimal_change_set": [
+      "src/components/AuthGuard.tsx — 增加平台分支（electron 分支保持现状 :25）",
+      "src/App.tsx — :49-54 加载门改为「会话已判定」（isCheckingSession 在 :40 的 finally 恒置假）",
+      "src/pages/Profile.tsx — 真正消费 cloudAvailable，并在 false 时跳过 :91/:103/:114 三个挂载期云调用",
+      "mobile/（或 android/）适配器 — isCloudSyncEnabled 返回 false；目录名须与 task_plan 统一",
+      "新增安卓侧行为测试，不改既有 261 例"
+    ],
+    "release_precondition": "把 P2-5 从「平台分流 AuthGuard」改写为「平台分流 + 诚实 null user + 真正消费 Profile.tsx 的 cloudAvailable（:426/:706/:1226）」，并把 80 修正为 62、明确 Capacitor 依赖落点",
+    "p0_p3_findings": [],
+    "release_recommendation": "conditional",
+    "rebuttal_refs": [
+      "反驳对象：Reviewer agent-ee67cb48 主张「合成 user 应作为放行前提」——反驳成立并否决之，硬证据链为 store/index.ts:166 setUser 会把 syncStatus 由 offline 抬成 idle，Layout.tsx:35-37/52 据此渲染绿色云图标 + 标题「已同步」，会让纯本地首版谎报已同步",
+      "反驳对象：Reviewer 主张「合成 user 才让 Profile 16 处云 API 被调用」——反驳成立，属错误归因：Profile.tsx:91/103/114 由 :121-125 的 useEffect 在挂载时无条件触发，与 user 是否合成物无关",
+      "反驳对象：Worker agent-4d7fad9d 主张「移除 AuthGuard + 改数据加载门即可」——部分反驳成立：该机制下 Profile 仍可达且云能力门是死线（Profile.tsx:426/706/1226 的 cloudAvailable 零引用），W 与 R 均漏",
+      "部分采纳 Worker：否决合成 user 的结论与 Worker 一致"
+    ]
+  },
+  "scores": {
+    "eval_score": 72,
+    "quality_score": 68,
+    "eval_reason": "取证扎实（RL-A1~A7 可验收、前置 spike、反模式清单、AOE 关键路径齐全），但把 62 写成 80 是贯穿不变量/门禁/反模式的同源错误，且 P2-5 机制未定稿、目录名不一致——流程完备但自洽性有硬伤",
+    "quality_reason": "Phase 0 先证后建、StoragePort 只换末跳、saveDb() 顺序冻结都对；但云能力门缺失会让首版在 Profile 暴露 16 处云调用与顶栏假象，且 package.json 措辞字面不可满足",
+    "score_semantics": {
+      "eval_samples": 2,
+      "quality_samples": 2,
+      "gap_note": "门通过 ≠ 任务成功；本裁决只覆盖登录门禁一个分歧点。即使门禁方案正确，本地数据认领缺口、Buffer 兼容、无 flush、安卓侧零测试仍会导致交付失败。P2-5 门禁通过不代表 RL-A1「云同步预留位」成立：41 方法里无 claimLocalData，方法名冻结 ≠ 迁移路径存在"
+    }
+  },
+  "missed_by_both": [
+    "Profile.tsx:426/706/1226 的 cloudAvailable 死线（云收敛开关本来就有、只是没接上）",
+    "Layout.test.tsx:9/12/128-141 与 index.test.ts:7 的源码文本契约会拦门禁（:139 要求 profile-layout page-view w-full min-w-0 flex min-h-full flex-col；:129 禁止 overflow-x: hidden）",
+    "生产死代码 SyncStatus.tsx：无生产 import，仅被文本契约测试引用",
+    "database/index.ts:5 ↔ export.ts:2 循环依赖未列入 spike",
+    "调用点真值 62，且 80 在 task_plan 出现三处"
+  ],
+  "worker_id": "Judge",
+  "artifacts": [
+    "findings.md",
+    "task_plan.md"
+  ]
+}

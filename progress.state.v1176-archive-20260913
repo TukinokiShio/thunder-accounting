@@ -1,0 +1,246 @@
+project: thunder-accounting
+task: 缺陷轮 v1.17.5/v1.17.6 —— 修复 v1.17.3/v1.17.4 Portal 化引入的两处回归（记一笔选择分类后弹窗塌缩 / 深色主题下弹窗仍为浅色）；根因 = Portal 丢失 `.aurora-shell` 版式作用域与 `.dark` 主题上下文；修复 = Portal 根自带作用域替身（不撤销 Portal）+ 可执行回归门禁 verify:modal-scope；限制修改范围、禁止修改用户数据
+task_class:
+  ui_task: true
+  incremental: true
+  simplified_tier: false
+workflow_version: 5.5.1
+run_receipt_required: true
+state: USER_ACCEPT_FINAL
+round: 4
+defect_round: 4
+max_rounds: 12
+max_edit_rounds: 8
+step_chain:
+  - TASK_CLASSIFY
+  - KNOWLEDGE_GATE
+  - PRD_GATE
+  - HOOK_REF
+  - HOOK_UI
+  - HOOK_ERR
+  - PLAN
+  - EXEC
+  - REVIEW
+  - EVAL
+  - DEFECT_TRIAGE
+  - EXEC
+plan_status: defect_rework_v1.17.5_root_cause_confirmed
+executor_llm: claude-opus-4.6 (WorkBuddy)
+orchestration_form: multi_agent_supervisor_pipeline
+subagent_usage:
+  Explore:
+    - name: explore-home-mockup
+      duty: 摸底 Home.tsx / ConfirmDialog / Stats 图表范式 / store / i18n / package.json 结构
+      status: done
+      natural_completion_evidence: Supervisor 亲读源码复核（Home.tsx / ConfirmDialog.tsx / Stats.tsx / store/index.ts / database/index.ts:635 / Bills.tsx）
+  Worker:
+    - name: worker-p1-dialog
+      duty: P0 修复 package.json 截断 + 版本升 1.17.0；P1 新建 StatCardDetailDialog.tsx；P2 Home 接线 + i18n；P3 测试
+      status: done
+      rounds: 3
+      outputs: [src/components/StatCardDetailDialog.tsx, src/components/StatCardDetailDialog.test.tsx, src/pages/Home.tsx, src/pages/Home.test.tsx, src/i18n/translations.ts, package.json, package-lock.json, scripts/thunder-setup.iss]
+      verify: vitest 29 文件 / 263 用例全绿
+  Reviewer:
+    - name: reviewer-v117
+      duty: 四轴独立审查（Standards / Spec / 安全 / UX）+ 定向复验
+      status: done
+      independence: 独立子代理，未分享 Worker 上下文
+      round1_verdict: conditional
+      round2_verdict: approve
+      receipt: contracts/orchestration/v117-reviewer.resp.json
+  Judge:
+    - name: judge-v117
+      duty: eval_score / quality_score 双门槛独立打分 + 主动证伪
+      status: running
+      independence: 独立子代理，未参与编写与审查
+requirement_ledger_required: true
+requirement_ledger:
+  - id: RL-1
+    source: 用户原话「点击这六个卡片可以弹窗其对应的数据」
+    acceptance: 6 张卡片均可点击并打开对应弹窗；弹窗标题与卡片语义一致
+    status: met
+    evidence: Home.tsx 卡片 role="button" + tabIndex + onClick/onKeyDown；buildView() 6 个 case 齐全；StatCardDetailDialog.test.tsx 10 例 + Home.test.tsx 12 例
+  - id: RL-2
+    source: 用户原话「要能够看到今天的每一笔支出」
+    acceptance: 弹窗内列出逐笔明细，且明细金额绝对值之和 = 顶部汇总
+    status: met
+    evidence: renderBillList + sumAbs 同源数组；测试断言 stat-dialog-total 文本 == 明细之和
+  - id: RL-3
+    source: 用户原话「最好使用环形图等图像直观展示」+ 拍板「日均显示计算过程、结余用进度条」
+    acceptance: 集合型卡片环形图；日均=公式条+柱状图；结余=进度条+计算式
+    status: met
+    evidence: 4 张环形图（todayExpense/monthExpense/monthIncome/monthRecords）+ dailyAvg 公式条+BarChart + monthBalance 进度条+计算式
+  - id: RL-4
+    source: 用户原话「这六个卡片已有点击动效，可以不改」+「不要改原有布局」
+    acceptance: 卡片 className 逐字符未变；不改布局
+    status: met
+    evidence: git diff 显示 className 字符串完全一致，仅追加 role/tabIndex/aria-label/onClick/onKeyDown 属性
+  - id: RL-5
+    source: 用户原话「本次升级版本号为 v1.17.0」
+    acceptance: package.json / package-lock.json / thunder-setup.iss / exe asar 四处一致
+    status: met
+    evidence: 四处实测均 1.17.0；注册表 DisplayVersion=1.17.0
+  - id: RL-6
+    source: 用户原话「限制修改范围、禁止修改用户数据」
+    acceptance: git diff --name-only 全在写集内；main-process/**、*.db、userData 零改动
+    status: met
+    evidence: git status 全部落在写集；无 *.db；未启动 App；已备份 userData（130/130 sha256 一致）
+  - id: RL-7
+    source: 用户拍板「累计记录口径 = 修正卡片为全部账单数」
+    acceptance: 卡片值 = 本月全部账单数；与弹窗 monthRecords 大字一致
+    status: met
+    evidence: Home.tsx monthRecords value=`${monthBills.length}`；弹窗 bigNumber=`${monthAll.length} 笔`；两者同源自 getBills 同区间
+  - id: RL-8
+    source: 用户拍板「首页筛选失真一并修」
+    acceptance: 账单页筛选不再影响首页任何数字
+    status: met
+    evidence: Home.tsx 删除 store.bills / refreshBills 订阅，改为一次无参 getBills() 派生全部；Reviewer 复验 pass
+  - id: RL-901
+    source: 用户实测反馈「选择分类后，弹窗塌缩」
+    acceptance: 记一笔弹窗在任意内容下宽度恒为 min(28rem, 100vw-2rem)；选中一级/二级分类后宽度不变
+    status: met
+    evidence: Supervisor 独立量测（真实构建 CSS index-B2g4uqCr.css + headless Chromium 1200×800）：无替身时面板宽随内容 250→308（极差 58，塌缩复现）；带替身恒为 448px=28rem（极差 0）。独立 Judge 复现在 500×600 / 900×600 / 1200×800 三档视口，同为 448 恒定。像素级复核：面板宽度 330px（内容驱动）→ 446px≈28rem（规则驱动）
+  - id: RL-902
+    source: 用户实测反馈「深色主题下显示的不是深色主题弹窗」
+    acceptance: 深色主题下模态面板底色 = --bg-card 深色值（亮度≈34），非浅色（≈251）；浅色主题仍为浅色
+    status: met
+    evidence: Supervisor 量测：带替身_深色 面板底色 rgb(32,34,36)=#202224（亮度 33）、标题色 rgb(238,231,218)；无替身_深色 为 rgb(255,250,242)（亮度 250，复现用户图③）。浅色组仍 rgb(255,250,242) 且根类不含 dark（双向无污染）。独立 Judge 复现一致；像素级复核见 artifacts/repro-portal-scope/scope-visual.png 的主导底色统计
+  - id: RL-903
+    source: 隐含不变量（v1.17.3 遮罩修复不得回退）
+    acceptance: 遮罩四边几何仍为 0，铺满视口；Portal 契约测试继续通过
+    status: met
+    evidence: 2×4 组量测 coversViewport 全 true（root 四边 0、尺寸=视口）；替身根 background 为 transparent（rootBg=rgba(0,0,0,0)，未把 shell 底色带到遮罩）；modal-portal-contract.test.ts 既有几何与 z-index 分层断言全部继续通过（ConfirmDialog 9500 / 其余 9000 未变）
+  - id: RL-904
+    source: 用户红线「限制修改范围」
+    acceptance: git diff --name-only 全在写集内；main-process/**、src/store/**、src/types/**、src/pages/** 零改动
+    status: met
+    evidence: git status --short 仅含 5 组件 + index.css + src/utils/modalScope.ts(新) + 2 测试 + 版本三处 + SACW 过程文档；main-process/**、src/store/**、src/types/**、src/pages/**、src/i18n/**、Layout.tsx、CategorySelect.tsx 零改动（Worker 回执 + Supervisor 复核 + Judge 独立复核三方一致）
+  - id: RL-905
+    source: 用户红线「禁止修改用户数据」
+    acceptance: 不碰 .db / userData；不启动 App
+    status: met
+    evidence: 无 .db / sqlite / userData 进入 diff；全程未启动 App（仅 vitest、electron-vite build、electron-builder、ISCC、静默安装）；安装落点为固定验收目录 exe\
+  - id: RL-906
+    source: 独立 Reviewer P3（is_this_round_regression=true）
+    acceptance: CategorySelect / AddBillDatePicker 的 portal 目标选择器排除替身根，不因模态根同名而失焦
+    status: met
+    evidence: 两处均改为 `.aurora-shell:not(.aurora-portal-root)` 并附原因注释；CategorySelect.test.tsx 13 例与 AddBillDialog.integration 1 例继续通过
+  - id: RL-907
+    source: 独立 Judge P2（主报 bug 无自动化防护）
+    acceptance: 存在可执行门禁，能对「替身下宽度极差=0、深色面板 #202224、浅色面板 #fffaf2、遮罩铺满、替身根透明底」逐项断言
+    status: met
+    evidence: 新增 scripts/verify-modal-scope.cjs + npm run verify:modal-scope；实测 1.3s 返回 VERIFY_MODAL_SCOPE: PASS（withShim 448/448 极差 0 + rgb(32,34,36)；四组 coversViewport 全 true）
+  - id: RL-908
+    source: 独立 Judge P2（防验证器退化为橡皮图章）
+    acceptance: 门禁必须含负对照自检 —— 无替身组不复现问题即报错
+    status: met
+    evidence: 断言组 E 要求 noShim 两种内容宽极差 > 0；实测 noShim 250/308（极差 58），负对照有效
+  - id: RL-909
+    source: 独立 Judge P3（契约清单硬编码）
+    acceptance: 模态清单从文件系统派生 + 保底断言，新增模态自动纳入且清单不得静默变空
+    status: met
+    evidence: modal-portal-contract.test.ts 改为 readdirSync 派生 + MODALS.length>=5 与两条具名保底断言；vitest 30 文件 291 用例全绿
+  - id: RL-910
+    source: 独立 Judge P3（证据存档不可复现）
+    acceptance: 证据存档可复现并说明命令与预期输出
+    status: met
+    evidence: artifacts/repro-portal-scope/evidence/README.md（三步复现 + 实测输出 + 两个工具陷阱说明）+ scope-measure.json 实测落盘
+  - id: RL-911
+    source: 项目交付纪律
+    acceptance: 四处版本一致 = 1.17.6；UsePreviousAppDir=no 保留
+    status: met
+    evidence: package.json / package-lock.json(两处) / thunder-setup.iss 均 1.17.6；exe\resources\app.asar = 1.17.6；注册表 DisplayVersion = 1.17.6；UsePreviousAppDir=no 计数 1
+  - id: RL-912
+    source: 用户红线（延续）
+    acceptance: 写集零越界；不碰 .db / userData；不启动 App
+    status: met
+    evidence: 提交 57ee93f 共 19 文件（5 模态 + 2 选择器 + index.css + modalScope.ts + 2 测试 + verify 脚本 + 版本三处 + 4 流程文档），无 .db/userData/preload/main-process 改动
+reflow_counts:
+  EXEC: 3
+  REVIEW: 2
+reflow_reason:
+  - Supervisor 复核发现 monthRecords 语义偏差 + 4 个未使用 i18n 键 → 退回 EXEC
+  - Reviewer 第 1 轮 conditional（1×P1 + 2×P2 + 3×P3）→ 退回 EXEC；其中 2 项产品口径冲突上交用户拍板
+  - 交付验证阶段发现 Inno UsePreviousAppDir 导致装错目录 → 修 iss + 重编 + 重装
+last_reflect:
+  action: 完成 6 卡片明细弹窗实现（新组件 + 环形图/柱状图/进度条 + i18n + 测试）；修复 package.json 截断 P0；修复首页数据源筛选污染；修复 Inno 安装落点缺陷；知识沉淀入项目 wiki 与 inno-packager skill
+  verify_result: vitest 29 文件 / 263 用例全绿；tsc 本次改动文件 0 错误；exe/resources/app.asar=1.17.0；注册表 DisplayVersion=1.17.0 / InstallLocation=exe\；桌面+开始菜单快捷方式 16:16 重建；Reviewer 复验 approve
+  decision: awaiting_judge
+  next: USER_ACCEPT_FINAL
+token_used: "未统计(宿主不提供精确 token 计数)"
+elapsed: 0
+budget:
+  max_rounds: 12
+  max_tokens: 200000
+  max_wall_clock: 21600
+knowledge:
+  sync_pending: false
+  wiki: E:/Code/shio-al-ecosystem/wiki/错误精粹.md
+  project_wiki: wiki/错误精粹.md
+  entries_added:
+    - KI-2026-09-12-001 (P0) package.json 被截断
+    - KI-2026-09-12-002 (P1) Inno UsePreviousAppDir 默认 yes 导致装错目录
+  skill_updates:
+    - .workbuddy/skills/inno-packager/SKILL.md
+acceptance_evidence:
+  status: delivered_pending_user_signoff
+  items:
+    - 用户实机启动 v1.17.6，打开「记一笔」→ 选择一级/二级分类，确认**弹窗宽度不再塌缩**（RL-901）
+    - 用户切换深色主题，确认「记一笔」与首页卡片明细弹窗**均为深色**（RL-902）
+    - 用户切换回浅色主题，确认未出现反向污染
+    - 用户确认首页遮罩仍铺满整个视口（RL-903，不得回退）
+    - 用户回填验收结论（不得由执行者代填）
+  verified_by: null
+  date: null
+  delivery_verified_by_supervisor:
+    - vitest 29 文件 / 265 用例通过（Supervisor 亲自重跑，exit 0）
+    - exe/resources/app.asar version = 1.17.1
+    - 注册表 DisplayVersion = 1.17.1；InstallLocation = E:\Code\CodeProduct\thunder-accounting\exe\
+    - 桌面 D:\Users\d8502\Desktop\雷霆记账.lnk 与开始菜单 lnk 均 16:34 重建
+    - 安装包 release/雷霆记账_Inno_v1.17.1.exe
+  evidence_paths:
+    - contracts/orchestration/v117-orchestration.json
+    - contracts/orchestration/v117-reviewer.resp.json
+    - contracts/orchestration/v117-judge.resp.json
+    - wiki/错误精粹.md
+    - release/雷霆记账_Inno_v1.17.1.exe
+    - findings.md
+data_safety:
+  user_data_read: false
+  user_data_modified: false
+  app_launched: false
+  backup_path: C:\Users\d8502\thunder-accounting-userdata-backup-20260912-1606
+  backup_verification: "130/130 文件 sha256 一致，0 不一致，0 缺失"
+  deletions:
+    - rm -rf app-out dist node_modules/.vite（可重建构建缓存，非用户数据）
+  disclosed_side_effects:
+    - 首次误落点的安装把旧安装目录 雷霆记账app\_exe 一并升级到 1.17.0（构建/安装产物目录，非用户数据）
+metrics:
+  eval_score: 94
+  quality_score: 87
+  violation_rate: 0.0
+  reflow_total: 6
+  budget_hit_rate: null
+  one_pass: false
+  score_semantics:
+    eval_samples: 1
+    quality_samples: 1
+    gap_note: 最新分数由独立 Judge judge-v1175 产出（eval 94 / quality 87，双门通过 verdict=RELEASE）；v1.17.5 修复亦经独立 Reviewer reviewer-v1175 approve（四轴全 pass）。两者各自独立以真实构建 CSS + headless Chromium 复现量测。其 2×P2 + 4×P3 已收口为 v1.17.6。门通过 ≠ 任务成功，最终验收结论须由用户实机回填
+  rag_tier: FULL
+  final_waiver: null
+judge_findings_disposition:
+  v1175_P2_contract_test_weak_source_assertion: fixed_in_1.17.6（清单改文件系统派生 + 行为级门禁）
+  v1175_P2_no_automated_guard_for_collapse: fixed_in_1.17.6（verify:modal-scope 含负对照自检）
+  v1175_P2_toast_outside_aurora_shell_dark_theme: reported_not_fixed（既有缺陷，非本轮回归；超出用户「限制修改范围」，待用户决定）
+  v1175_P3_boilerplate_in_5_modals: reported_not_fixed（建议抽 <ModalRoot>，本轮未重构）
+  v1175_P3_theme_read_from_localstorage_second_truth: documented（两个独立来源均判定实际不可达：遮罩覆盖主题按钮 + 模态有 Tab 焦点陷阱）
+  v1175_P3_evidence_archive_not_reproducible: fixed_in_1.17.6（README + JSON + 门禁）
+  v1175_P3_wrong_comment_and_pending_ledger: fixed_in_1.17.6
+  v1175_reviewer_P3_selector_not_unique: fixed_in_1.17.6（→ RL-906）
+  F1_P2_negative_balance_sign: fixed_in_1.17.1
+  F2_P3_loading_flash: fixed_in_1.17.1
+  F3_P3_mock_ignores_date_range: fixed_in_1.17.1
+  F4_P3_todayExpense_no_content_test: fixed_in_1.17.1
+  F5_P3_recent_sort_regression: fixed_in_1.17.1
+  F6_P3_duplicate_date_computation: fixed_in_1.17.1
+anti_evasion_log: []

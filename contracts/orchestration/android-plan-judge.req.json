@@ -1,0 +1,14 @@
+{
+  "schema": "sacw-orchestration-request/v1",
+  "run": "2026-09-13-android-port",
+  "phase": "PLAN",
+  "role": "Judge",
+  "worker_id": "Judge",
+  "duty": "裁决 Worker 与 Reviewer 在登录门禁机制上的相反结论 + 双门槛打分（只读）",
+  "expected_output": "产出两机制各自失败模式的源码取证 / 第三机制建议 / Profile 云区块收敛核验 / deleteAccount 可达性核验 / 双分数与口径声明 / 放行建议",
+  "constraints": [
+    "只读，不修改任何文件",
+    "每条结论须带文件路径+行号证据",
+    "不确定处明确标注"
+  ]
+}
