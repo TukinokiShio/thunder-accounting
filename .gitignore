@@ -49,3 +49,20 @@ npm-debug.log*
 # 质量门禁通过标记（本地生成，不入库）
 .claude/quality-gate/
 .workbuddy/
+
+# ── 安卓（Capacitor）链路 ─────────────────────────────────
+# 安卓 renderer 构建产物（Capacitor webDir，由 vite.mobile.config.mjs 生成）
+dist-android/
+# APK / AAB 产物
+release-android/
+# Gradle 构建中间产物（android/ 源码本身要提交，但这些不入库）
+android/app/build/
+android/.gradle/
+android/build/
+android/capacitor-cordova-android-plugins/
+# 本机 SDK 路径
+android/local.properties
+# 签名密钥与口令：绝不可入库
+android/keystore.properties
+android/*.keystore
+android/*.jks

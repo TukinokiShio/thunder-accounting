@@ -458,6 +458,66 @@
 
 > **新增移动端样式与布局里绝不能出现 `overflow-x: hidden`；且 `Profile.tsx` 根元素那串 `profile-layout page-view w-full min-w-0 flex min-h-full flex-col … md:flex-row` 必须逐字保留、只能在末尾追加。**
 
+## Phase 3 真机（模拟器）验收 ✅ **全项通过**（2026-09-13，Supervisor 亲自执行）
+
+> 执行方式：`release-android/acceptance.sh` + `acceptance2.sh`，**整条链在非沙箱单命令内串行**（沙箱内跑不了 Gradle 依赖解析与模拟器）。脚本与日志均在 gitignore 的 `release-android/` 下。
+
+### 构建
+| 项 | 结果 |
+|---|---|
+| `npm run build:android` | `BUILD_ANDROID_EXIT=0` |
+| `assembleDebug`（JBR 21） | `BUILD SUCCESSFUL in 24s`，`ASSEMBLE_EXIT=0` |
+| debug APK | 5,281,307 bytes；`apksigner` 签名正常 |
+| **wasm 落位** | `dist-android/sql-wasm-browser.wasm` = **659,730 bytes 在 webDir 根**；APK 内 `assets/public/sql-wasm-browser.wasm` 同尺寸 |
+
+### ⭐ 最脆一环：wasm 能否真被 fetch —— **通**
+- logcat：`D Capacitor: Handling local request: https://localhost/sql-wasm-browser.wasm`
+  → **与从 `sql-wasm-browser.js` 源码推出的 URL 完全一致**（ESM 下 `document.currentScript` 为 null → 目录取 `self.location.href`）
+- **无** `Failed to fetch`、**无** MIME 报错、**无**「SQL 初始化失败」
+- **更强旁证**：随即出现 `Capacitor/Console: 数据库迁移失败（添加 categories.updated_at 列）：Error: no such table: categories` —— **该错误只可能由 sql.js 真实例化并真的执行了 SQL 才产生**
+- 明确未拿到的东西：**响应 MIME 拿不到**（Capacitor 本地请求只打 URL、不打 header）—— 如实记录，不以推测代替
+
+### ⭐ 持久化闭环：机制级证据 + 数据级证据（双证）
+**机制级**：`pm clear` 保证全新首启 →
+- 首启 Filesystem 调用统计：`mkdir`×2 / `readdir`×2 / `writeFile`×2，**`readFile` = 0**（符合预期）
+- `am force-stop` → 重启后：**`methodName: readFile` 出现**，`{"path":"thunder-accounting/thunder-accounting.db","directory":"DATA"}`
+  → **证明 `hydrate()` 真的把设备上的旧库读回了内存**
+
+**数据级（最硬的一条）**：用 `adb exec-out run-as ... cat`（二进制安全）把设备上的库拉回本地，**用 sqlite3 直接打开**：
+- 32,768 bytes，头部 `SQLite format 3\0`，可正常打开
+- **4 个索引全在**：`idx_bills_date` / `idx_bills_category1` / `idx_bills_cloud_id` / `idx_categories_cloud_id`
+- `bills` / `categories` **表结构与项目数据模型逐字段一致**（含 `type` / `updated_at` / `cloud_id`）
+- **预设分类已落库：`expense` 11 + `income` 6 = 17**，与项目文档记载一致
+→ **P1-5 自我怀疑里最坏的一条「`writeFile({data: base64})` 若被当文本写入会把 `.db` 写坏」被彻底证伪**：写进去的是真 SQLite 字节且落库内容正确。
+
+### 冷启动与崩溃
+`topResumedActivity=com.thunder.accounting/.MainActivity`；进程存活；`logcat -b crash -d` **为空**；`versionName=1.0.0`；二次冷启动截图与首启一致（时钟 2:32→2:33），无白屏。
+
+### 🚨 真机发现并修复的缺陷（这是设备验收的净收益）
+**顶部安全区缺失** —— 首轮截图显示顶栏被状态栏压住（`Thunder Books` 与时钟重叠、`Add Bill` 压 `5G`），APK 内实测 CSS 计数 `env(safe-area-inset-bottom)` = 4 但 **`env(safe-area-inset-top)` = 0**。
+
+**根因（执行者读 `@capacitor/android@8.5.2` 源码取证，非猜测）**：`targetSdk 36` → Android 15+ **强制 edge-to-edge**；`viewport-fit=cover` 触发 `SystemBars` 的 **passthrough 分支**（`shouldPassthroughInsets = WebView>=140 && hasViewportCover`；插件在 `Bridge.java:664` 无条件注册，`insetsHandling` 默认 `INSETS_HANDLING_CSS`），该分支把 decorView 顶部内边距**显式置 0**、把真实 inset 交给 WebView。**两分支互斥 ⇒「页面确实被压住」本身就是 `env(safe-area-inset-top)` 非 0 的机制证明**（把"赌 env 值"变成"推论"）。
+
+**修复（三条，全在 `mobile/android.css` 且作用域 `html.platform-android`）**：
+- 顶栏：`height: calc(4rem + env(safe-area-inset-top,0px))` + `padding-top: env(safe-area-inset-top,0px)`（**必须同时撑高** —— `h-16` 是 border-box 固定高，只加 padding 会把内容挤进原 64px）
+- 满高模态：`margin-top: env(top)` **且同时** `max-height: calc(100dvh - 2rem - env(top) - env(bottom))`（**只加 margin 不行**：`max-height` 不减 inset 会两头均匀溢出、顶部照样被切）
+- Toast：`bottom: calc(74px + env(bottom) + 1rem)` —— **74 而非 56**，因为中央 FAB 有 `top: -18px`，比导航条再高 18px；且 Toast 与 FAB 都水平居中，不避让必然相撞
+
+**复验（第二轮，修复后）**：截图三张实测——顶栏完整落在状态栏下方（零重叠）；模态顶边落在状态栏下方且遮罩铺满；重启后一切正常。**修好了。**
+
+### 「桌面零变化」的精确口径（执行者纠正了我的过严约束）
+我原要求「桌面三产物哈希逐字节不变」，但 (b) 必须给**共享组件** `Toast.tsx` 加 hook 类 → 桌面 JS/HTML **必然**变化。**我的约束过严**。正确不变量：
+> **桌面 CSS 逐字节不变**（`fdb025cb`，83,498B，三轮不变）；桌面 JS/HTML 允许且仅允许「新增 hook 类带来的差异」，且必须证明 ① 差异量 = 类名长度 ② 源码 diff 只有那一行 ③ 无逻辑改动；**桌面行为零变化**。
+
+实测吻合：JS `36bdecff` → `c651517e`（**+20B = `"android-toast-stack "` 20 字符**），HTML 体积不变（2802B，哈希传播）。且执行者给出**四层「只影响安卓」证据**，决定性的一层是**产物层**：**桌面 CSS 中 `platform-android` 与 `env(safe-area-inset` 均为 0 → 规则在桌面产物中「不存在」而非「不生效」**。
+
+### 判据陷阱（已沉淀，务必沿用）
+- **APK 的 mtime 不是新鲜度判据**：`app-debug.apk` mtime 22:01 而构建在 22:08 —— 真因是**前一次构建源码已是最终态，重建产物内容相同 → gradle 判打包任务 up-to-date → 不重写 APK**。可靠判据 = **把 APK 内 web 资源与当前 `dist-android/` 产物逐文件比哈希**（实测 12/12 一致才认定有效）。
+- **不要把哈希写进源码注释**：执行者用"刚发生的反例"证明其必然过期（上轮 `36bdecff` → 本轮 `c651517e`）。**「不存在」是不变量，「哈希等于某值」不是**；过期注释会被误读成"哈希变了=出问题了"。
+
+### 仍未在真机验证的（如实保留）
+真机/真设备未跑（仅模拟器）｜`Share.share({files:[file://uri]})` 的厂商 ROM 兼容性｜切后台后立即杀进程的落盘完整性｜冷启动耗时｜`.add-bill-date-popover`（`index.css:259`，`max-height: calc(100dvh - 1rem)`）的顶部/横向 inset —— **未改**（它由 JS 定位，改 max-height 可能影响弹出位置），列为下一个候选｜另三个 `max-h-[85vh]` 模态余量 ≈68px（竖屏恒 >24px，故未动）｜`AuthGuard.tsx:17` 会话判定帧仍 `100vh`（极短，抓不到则不动）。
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失

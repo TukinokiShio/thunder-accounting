@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">雷霆记账</string>
+    <string name="title_activity_main">雷霆记账</string>
+    <string name="package_name">com.thunder.accounting</string>
+    <string name="custom_url_scheme">com.thunder.accounting</string>
+</resources>

@@ -36,10 +36,54 @@ html.platform-android body {
   overscroll-behavior-y: none;
 }
 
-/* 弹窗（含 Portal 模态）底部让位系统手势条：只加外边距，不改内边距/尺寸 */
+/* 弹窗（含 Portal 模态）上下都让位系统栏：只加外边距，不改内边距/尺寸。
+   四个模态遮罩都是 `flex items-center justify-center` + `position: fixed; inset: 0`，
+   即**垂直居中**（取证：`SettingsDialog.tsx:179`、`StatCardDetailDialog.tsx:525`、
+   `CategoryManager.tsx:466`、`AddBillDialog.tsx:217`）。
+   对居中项加**对称**的上下外边距不会移动它，只是把「可用于居中的区域」收进安全区内。 */
 html.platform-android .aurora-dialog,
 html.platform-android .add-bill-dialog {
+  margin-top: env(safe-area-inset-top, 0px);
   margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 满高模态必须**同时**扣减 max-height —— 只加边距会溢出。
+   只有 `.add-bill-dialog` 有风险：它的 `max-height: calc(100dvh - 2rem)`（`index.css:233`）
+   恰好等于「视口高 − 上下各 1rem」，而 `100dvh` **包含**状态栏与手势条 → 实际高度 = 可用空间
+   → 顶边停在 16px 处，被约 24px 的状态栏压住。
+   只加 `margin-top` 不改 max-height 的话，「高度 + 上下边距」超出视口，居中项会**两头均匀溢出**，
+   顶部依旧被切 —— 所以必须把 top+bottom inset 一并从 max-height 里扣掉。
+   扣减后顶边 = inset_top + 1rem（Pixel 8 上 24 + 16 = 40px），完整落在状态栏下方。
+   另外三个模态用的是 Tailwind `max-h-[85vh]`，而 85vh < 100dvh − 2rem 在任何竖屏都成立，
+   顶边本就有 7.5vh ≈ 68px 余量 → 不需要、也不应改动它们的几何。 */
+html.platform-android .add-bill-dialog {
+  max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+/* ── P2-4b 顶部安全区（真机验收发现的缺陷：标题与「记一笔」被状态栏压住）──
+
+   `targetSdk 36` 在 Android 15+ 强制 edge-to-edge，页面会绘制到状态栏之下，必须自己让位。
+   机制（不是猜，链路由 `@capacitor/android@8.5.2` 源码逐行取证）：
+   - 核心插件 `com.getcapacitor.plugin.SystemBars` 在 `Bridge.java:664` **无条件注册**；
+     `SystemBars.load() → initSystemBars()` 自动调 `initWindowInsetsListener()`，
+     `insetsHandling` 默认 `INSETS_HANDLING_CSS`（本工程 `capacitor.config.ts` 未覆盖它）。
+   - 该监听器里 `shouldPassthroughInsets = getWebViewMajorVersion() >= 140 && hasViewportCover`。
+     `hasViewportCover` 读的就是 `viewport-fit=cover`（本工程已在 `index.html` 加上）。
+   - **走 passthrough 分支**时 decorView 的顶部内边距被显式设为 0（页面画到状态栏下），
+     真实 `systemBars|displayCutout` inset 转交 WebView → 此时 `env(safe-area-inset-top)`
+     就是状态栏高度、`env(safe-area-inset-bottom)` 就是手势条高度。
+   - **不走 passthrough 分支**时 decorView 被系统栏 inset 撑开 → 页面根本不会画到状态栏下。
+   两个分支互斥，所以「真机上确实被压住」本身就是 passthrough 分支成立的**证明**，
+   `env(safe-area-inset-top)` 必然非 0 —— 不需要靠肉眼判断。
+
+   顶栏是 `h-16`（Tailwind `height: 4rem`，且 preflight 是 border-box），所以**必须同时撑高**，
+   否则内边距只会把内容挤进原来的 64px 里。
+   这两条是**纯新增**：`.aurora-topbar` 在 `index.css` 里只有 `min-width/background/border-color`
+   （`:145`），垂直方向没有任何 padding；`--content-gutter-block` 作用在**兄弟节点** `.aurora-main`
+   上（`:147-149`），与本规则既非父子也不叠加。 */
+html.platform-android .aurora-topbar {
+  height: calc(4rem + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* ─────────────── P2-1 底部导航（4 Tab + 中央凸起「记一笔」） ─────────────── */
@@ -170,6 +214,15 @@ html.platform-android .android-fab {
 html.platform-android .android-fab:active {
   background: var(--accent-h);
   border-color: var(--accent-h);
+}
+
+/* Toast 容器（`Toast.tsx`）在桌面是 `fixed bottom-4`（距底 1rem）。安卓上那会直接压在底部导航上，
+   而且 Toast 与 FAB 都是**水平居中**，不抬高就会叠在「记一笔」按钮上。
+   需要的净空 = 导航条 56px + 中央凸起的 FAB 再往上凸出 18px（`.android-fab { top: -18px }`）
+   + 手势条 inset + 1rem 间距 → `74px + env(safe-area-inset-bottom) + 1rem`。
+   桌面不加载本文件，故桌面 Toast 位置逐位不变。 */
+html.platform-android .android-toast-stack {
+  bottom: calc(74px + env(safe-area-inset-bottom, 0px) + 1rem);
 }
 
 /* ─────────────── P2-2 hover → 触屏可达（功能性阻断常显） ─────────────── */
