@@ -8,14 +8,21 @@
  * - **纯本地可用**：记账 / 统计 / 分类 / 备份导入导出 / 数据概览，共 15 个方法直接走共享 DB 层。
  * - **云与账号类**：不存在的能力一律「明确不可用」——返回文档化降级值或抛
  *   `CloudUnavailableError`，**绝不返回假成功**（不伪造登录态、不谎报已同步）。
- * - **文件对话框类**：安卓无原生模态文件对话框，返回「用户取消」语义的降级值
- *   （`null` / `false`）。调用方（`SettingsDialog.tsx:41-48`、`Stats.tsx:144-150`）已按
- *   `null` 分支处理，故不抛错、不谎报导出成功；真正的导出/导入通道属 Phase 3
- *   （Capacitor Share/Filesystem）。
+ * - **文件通道（P1-5B）**：安卓无原生模态文件对话框，故复用桌面 UI 的既有调用序列
+ *   （`exportCSV/exportBackup` → `showSaveDialog` → `writeFile` / `showOpenDialog` → `importBackup`）
+ *   而不改 UI：
+ *   - `showSaveDialog` 不弹窗，直接在 **cache 目录**生成目标文件名并返回**虚拟路径**
+ *     （`share://<文件名>`，仅由本文件的 `writeFile` 消费，非真实文件系统路径）；
+ *   - `writeFile` 写入 cache 后立即拉起系统 **分享面板**（"保存到文件 / 发送到其它 App"），
+ *     失败**必须返回 false** 并记录真因，绝不在未写成功时返回 true；
+ *   - `showOpenDialog` 用 WebView 内隐藏的 `<input type="file">` + `FileReader` 读文本，
+ *     用户取消 → `null`（既有合法语义），**不引入第三方文件选择插件**。
  *
  * 与桌面的「一一对应」：本地写方法内的 `trySync(...)` 调用点与
  * `main-process/main.ts:200-214` 的 IPC handler 逐条对应（首版 no-op，见文件末尾）。
  */
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 import type { AppAPI, Bill, CategoryRow } from '../../src/types'
 
 // ─── 错误类型 ──────────────────────────────────────
@@ -84,6 +91,75 @@ export const DEGRADED_CREDENTIALS = Object.freeze({
   rememberAccount: false,
   autoLogin: false
 })
+
+// ─── 文件通道（P1-5B） ─────────────────────────────
+
+/**
+ * 分享通道的虚拟路径前缀。
+ * `showSaveDialog()` 返回它，`writeFile()` 消费它 —— 该字符串**不是**真实文件系统路径，
+ * 只在本文件内部往返；真实落点是 `Directory.Cache` 下的同名文件（file:// uri 由 Filesystem 给出）。
+ */
+export const SHARE_PATH_SCHEME = 'share://'
+
+/** 从对话框默认名里取一个安全的文件名；无法得到合法名时返回 null（调用方走「已取消」分支） */
+function sanitizeFileName(defaultName: string): string | null {
+  const base = defaultName.split(/[\\/]/).pop() ?? ''
+  const cleaned = base.replace(/[\u0000-\u001f<>:"|?*]/g, '').replace(/^\.+/, '').trim()
+  return cleaned.length > 0 ? cleaned : null
+}
+
+/** 打开系统文件选择器并读回文本内容；取消 → null */
+function pickTextFile(): Promise<{ filePath: string; content: string } | null> {
+  if (typeof document === 'undefined') return Promise.resolve(null)
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'application/json,.json,text/csv,.csv,text/plain'
+    input.style.display = 'none'
+    document.body.appendChild(input)
+
+    let settled = false
+    const finish = (value: { filePath: string; content: string } | null): void => {
+      if (settled) return
+      settled = true
+      input.remove()
+      resolve(value)
+    }
+
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      if (!file) {
+        finish(null)
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        finish({ filePath: file.name, content: typeof reader.result === 'string' ? reader.result : '' })
+      }
+      reader.onerror = () => {
+        console.error('[android-adapter] 读取所选文件失败：', reader.error)
+        finish(null)
+      }
+      reader.readAsText(file)
+    })
+
+    // 取消：现代 Chromium 支持 file input 的 cancel 事件
+    input.addEventListener('cancel', () => finish(null))
+    // 兜底：部分 WebView 无 cancel 事件 —— 窗口重新获得焦点且仍无文件 ⇒ 视为取消，
+    // 否则 Promise 永不 settle 会让 UI 永久停留在「导入中」。
+    window.addEventListener(
+      'focus',
+      () => {
+        setTimeout(() => {
+          if (!settled && !input.files?.length) finish(null)
+        }, 500)
+      },
+      { once: true }
+    )
+
+    input.click()
+  })
+}
 
 // ─── 适配器本体（41 方法） ─────────────────────────
 
@@ -180,23 +256,42 @@ export const androidAdapter: AppAPI = {
     db.clearAllData()
   },
 
-  // ── 文件对话框（安卓无原生模态对话框 → 返回「用户取消」语义） ──
+  // ── 文件通道（安卓无原生模态对话框 → 走 cache + 系统分享 / 隐藏 file input） ──
   //
-  // 说明：不抛错、也不返回伪路径。调用方拿到 null 会走「已取消」分支（`SettingsDialog.tsx:46`
-  // 的 else 分支），既不会崩、也不会谎报导出成功。真正的保存/分享通道属 Phase 3。
-  showSaveDialog: async (_defaultName: string) => {
-    return null
+  // 说明：不改桌面 UI 的调用序列（`exportCSV/exportBackup` → `showSaveDialog` → `writeFile`）。
+  // `showSaveDialog` 返回虚拟分享路径（非真实文件路径），仅由 `writeFile` 消费。
+  showSaveDialog: async (defaultName: string) => {
+    const fileName = sanitizeFileName(defaultName)
+    if (!fileName) return null
+    return SHARE_PATH_SCHEME + fileName
   },
 
-  writeFile: async (_filePath: string, _content: string) => {
-    // 仅会在 showSaveDialog 返回真实路径后被调用；首版恒为 null，故此处不可达。
-    // 返回 false（而非 true）以保证：万一被调用也绝不谎报写入成功。
-    return false
+  writeFile: async (filePath: string, content: string) => {
+    if (!filePath.startsWith(SHARE_PATH_SCHEME)) {
+      // 非分享通道的路径在安卓端没有对应落点 —— 明确失败，绝不谎报写入成功
+      console.error('[android-adapter] writeFile 拒绝非分享通道路径：', filePath)
+      return false
+    }
+    const fileName = filePath.slice(SHARE_PATH_SCHEME.length)
+    try {
+      await Filesystem.writeFile({
+        path: fileName,
+        directory: Directory.Cache,
+        data: content,
+        encoding: Encoding.UTF8
+      })
+      const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache })
+      await Share.share({ title: fileName, files: [uri] })
+      // ⚠ 已知语义差：`Share.share` 在用户**取消**分享面板时也会 resolve（拿不到可靠的取消信号），
+      // 故此处返回 true 表示「文件已写入 cache 且分享面板已拉起」，不代表用户确实保存成功。
+      return true
+    } catch (e) {
+      console.error('[android-adapter] 导出分享失败：', e)
+      return false
+    }
   },
 
-  showOpenDialog: async () => {
-    return null
-  },
+  showOpenDialog: async () => pickTextFile(),
 
   // ── 快捷键（安卓无全局快捷键） ───────────────────
   onShortcut: (_callback: (action: string) => void) => {

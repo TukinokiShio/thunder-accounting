@@ -6,7 +6,12 @@
  * **任何「假成功」判失败**（不伪造登录态、不谎报已同步、不谎报写入成功）。
  */
 import { describe, expect, it } from 'vitest'
-import { androidAdapter, CloudUnavailableError, DEGRADED_CREDENTIALS } from './android-adapter'
+import {
+  androidAdapter,
+  CloudUnavailableError,
+  DEGRADED_CREDENTIALS,
+  SHARE_PATH_SCHEME
+} from './android-adapter'
 
 /** 读方法：必须返回文档化降级值（可安全 await，不得抛错） */
 const DEGRADED_READERS: Array<{ method: string; call: () => Promise<unknown>; expected: unknown }> = [
@@ -14,11 +19,10 @@ const DEGRADED_READERS: Array<{ method: string; call: () => Promise<unknown>; ex
   { method: 'getSyncStatus', call: () => androidAdapter.getSyncStatus(), expected: { isLoggedIn: false } },
   { method: 'loadCredentials', call: () => androidAdapter.loadCredentials(), expected: DEGRADED_CREDENTIALS },
   { method: 'checkSession', call: () => androidAdapter.checkSession(true), expected: null },
-  { method: 'getAccountBindings', call: () => androidAdapter.getAccountBindings(), expected: null },
-  { method: 'showSaveDialog', call: () => androidAdapter.showSaveDialog('backup.json'), expected: null },
-  { method: 'showOpenDialog', call: () => androidAdapter.showOpenDialog(), expected: null },
-  { method: 'writeFile', call: () => androidAdapter.writeFile('/tmp/a.json', '{}'), expected: false }
+  { method: 'getAccountBindings', call: () => androidAdapter.getAccountBindings(), expected: null }
 ]
+// 注：showSaveDialog / showOpenDialog / writeFile 自 P1-5B 起不再是「降级为 null/false」，
+// 而是真实的 cache + 系统分享通道，其行为断言在 `file-channel.test.ts`。
 
 /** 写方法：必须抛 CloudUnavailableError，绝不允许 resolve */
 const UNAVAILABLE_WRITERS: Array<{ method: string; call: () => Promise<unknown> }> = [
@@ -95,11 +99,16 @@ describe('C2 降级语义：无「假成功」', () => {
     expect(session).toBeNull()
   })
 
-  it('文件导出链路不会谎报成功（showSaveDialog 为 null ⇒ 调用方走「已取消」分支）', async () => {
+  it('文件通道：非分享通道路径绝不谎报写入成功', async () => {
+    // 桌面会传入真实的绝对路径（showSaveDialog 的返回值）；安卓端没有对应落点 ⇒ 必须 false
+    await expect(androidAdapter.writeFile('/tmp/anything.json', '{}')).resolves.toBe(false)
+    await expect(androidAdapter.writeFile('file:///sdcard/x.json', '{}')).resolves.toBe(false)
+  })
+
+  it('showSaveDialog 返回虚拟分享路径而非空值或伪真实路径', async () => {
     const filePath = await androidAdapter.showSaveDialog('ThunderBooks_Backup.json')
-    expect(filePath).toBeNull()
-    // writeFile 若被误调用也不得返回 true
-    await expect(androidAdapter.writeFile('/anywhere.json', '{}')).resolves.toBe(false)
+    expect(filePath).not.toBeNull()
+    expect(filePath?.startsWith(SHARE_PATH_SCHEME)).toBe(true)
   })
 
   it('createShortcut 明确失败而非假装成功', async () => {
