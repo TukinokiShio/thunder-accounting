@@ -297,6 +297,30 @@
 
 **体验降级（不阻断，列 2.0 或顺带优化）**：32 条 CSS hover 与 53 处 Tailwind hover 多为纯背景/边框反馈（注意 Android 点按后可能残留"粘滞 hover"高亮）；`cursor-*` 与 `title` 提示在触屏语义弱；`::-webkit-scrollbar` 与 `scrollbar-gutter: stable`（`index.css:110-113/149`）无功能影响；`100vh`（`:233/259/410/414`）建议统一为 `100dvh`（`:546` 已用）；**无安全区适配**（`index.html:5` 缺 `viewport-fit=cover`）；多处触控目标 <44px（`CategoryList.tsx:89-95` ≈20px、`EmojiPicker.tsx:34-50` 32px、`Sidebar.tsx:90`、`ConfirmDialog.tsx:110`、`Profile.tsx:636`），而 `index.css:170/193/282` 已有 44px 规范可对齐；`useClickOutside` 走 `mousedown` 建议改 `pointerdown`。
 
+## 流程失误自陈（Supervisor，2026-09-13）
+
+**失误**：提交 S3 文档时使用了 `git add -A`，把后台 Worker **尚未完成**的 Phase 1 改动（`src/types/index.ts` 的 `ElectronAPI` → `AppAPI` 改名）一并提交并推送（commit `6325b1a`）。这**违反了本项目 task_plan 中我自己定的「Worker 产物须由 Supervisor 独立复核后才可提交」**。
+
+**查清的后果（不夸大也不掩盖）**：
+
+| 项 | 实际情况 |
+|---|---|
+| 被误提交的改动内容 | `src/types/index.ts` 接口 `ElectronAPI` → `AppAPI`（+17/−3，**方向正确**，注释也写对了） |
+| **该状态的完整性** | ❌ **类型层面是坏的** —— 同文件 `:128` 的 `declare global { interface Window { electronAPI: ElectronAPI } }` 仍引用 `ElectronAPI`，而**全文件没有** `export type ElectronAPI = AppAPI` 兼容别名 → 类型名未定义 |
+| 性质 | 中间态；Worker 当时仍在改 `main-process/database/index.ts` 并新建 `storage.ts` / `desktop-storage.ts`（`mobile/` 尚未创建） |
+
+**处置**：
+
+1. **不重写历史** —— 已推送的 commit 不做 force-push（`git push --force` 属破坏性操作，需用户授权）
+2. 已 `SendMessage` 要求 Worker：① 补 `export type ElectronAPI = AppAPI` 兼容别名 ② **建立类型检查基线对比**，把「既有配置性噪音」与「本次引入的错误」逐条分开
+3. Phase 1 由 Worker 完成并自验后再**单独提交**
+4. **本次起禁用 `git add -A`**，一律显式指定文件（本次提交即用显式路径）
+
+**两条教训（写入长期纪律）**：
+
+- **「测试全绿」不能证明类型正确**：本项目 `npm test` 走 vitest/esbuild，**会剥掉类型不做检查**；且项目**没有 `typecheck` 脚本** → 必须另建类型门禁（`tsc --noEmit` + 基线对比），否则「改名漏改引用」这类错误会静默通过测试。
+- **并行子代理工作时禁用 `git add -A`**：会把中间态、未复核产物一起带走，且时间点上无法区分责任来源。
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失
