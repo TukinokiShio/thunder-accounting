@@ -519,6 +519,52 @@
 ### 仍未在真机验证的（如实保留）
 真机/真设备未跑（仅模拟器）｜`Share.share({files:[file://uri]})` 的厂商 ROM 兼容性｜切后台后立即杀进程的落盘完整性｜冷启动耗时｜`.add-bill-date-popover`（`index.css:259`，`max-height: calc(100dvh - 1rem)`）的顶部/横向 inset —— **未改**（它由 JS 定位，改 max-height 可能影响弹出位置），列为下一个候选｜另三个 `max-h-[85vh]` 模态余量 ≈68px（竖屏恒 >24px，故未动）｜`AuthGuard.tsx:17` 会话判定帧仍 `100vh`（极短，抓不到则不动）。
 
+## P0 数据安全缺口：`listDirectory` 把「列不出来」静默变成「空」（2026-09-13 关闭）
+
+**风险链**：`hydrate()` 判「目录为空」→ 走首启路径 → `main-process/database/index.ts` 建空库 → 立刻 `saveDb()` **覆写用户真实数据**（不可逆）。
+
+**上游根因（反编译 `io.ionic.libs:ionfilesystemlib:1.1.0` 取证）**：
+```
+IONFILEDirectoriesHelper$listDirectory$2
+  96: File.listFiles() -> File[]
+ 106: ifnull 121                 <- listFiles() 返回 null
+ 121: CollectionsKt.emptyList()  <- 直接当空列表，Result.success
+ 只有 (!exists() || !isDirectory()) 才抛 DoesNotExist
+```
+`File.listFiles()` 在「不是目录」**或「发生 I/O 错误（含权限不足）」**时返回 null，而 `File.exists()` 只需父目录 +x → 仍 true → 不触发 `DoesNotExist`。
+⇒ **「目录存在但列不出来」在这条链上永远表现为「成功且为空」** —— 失败在我们的 `catch` 之前就被抹平了。
+⇒ 所以**「`readdir` 任何失败都必须抛出」在本层不可能达成**（没有 try/catch 可抛）。这是本轮的一条推断错误：基于错误的插件模型下了修法指令，被设备实测 + 反编译证伪。
+
+**设备同场景单变量对照**（`chmod 000 files/thunder-accounting` 后重启）：
+
+| | 仅严格 hydrate | **+ 正面写探测（已采纳）** |
+|---|---|---|
+| hydrate | 不抛 | **抛** |
+| 界面 | 正常首页但全 0（像被清库） | **红字「启动失败」** |
+| DB 的 `writeFile` | 1 次（靠同权限被拒侥幸没写成） | **0 次** |
+| 磁盘 DB | 未变（侥幸） | **未变（设计使然）** |
+
+**修复**：仅在目录为空时，写一个前缀隔离的探测文件（`.hydrate-probe`，以 `.` 开头且不以 `.db` 结尾 ⇒ 永不会被当成数据库读入）→ **再列举并断言它出现** → `finally` 里尽力删除；**任一步失败或探测未出现即 throw**。非空目录**零额外插件调用**（设备实测 `DELETEFILE=0`）。
+**两个优于字面规格的细化（已采纳）**：① 判空用 `names.filter(n => n !== PROBE_FILE_NAME).length === 0` 而非裸 `names.length` —— 否则一次删除失败留下的残留会让**安全网永久自我失效**；② 探测内容**故意非空**，避免「底层对 0 字节输入静默成功但不落文件」这个未知量反过来造成首启误判。
+**采纳的取舍**：真·首启被误判为「启动失败」需「写成功」且「紧随列举看不到它」同时成立（只在目录无真实文件时有此机会，低频；目录列举是内核命名空间操作无缓存层）；唯一现实触发源是瞬时 IO 错误——即我们**想拦的东西**，此时抛错是正确的。后果有界：**抛错时无任何写盘发生**，用户见明确红字、重试即可。
+
+### 本轮新增的坑（已实测）
+
+| # | 坑 | 处置 |
+|---|---|---|
+| 1 | **宿主把 POSIX `/e/...` 路径传给 Windows 的 `adb.exe`**（它不认）→ 安装静默失败，`INSTALL_EXIT` 非 0，后续验收全跑在**旧包**上 | 给 `adb` 一律传 `E:/...` 正斜杠盘符；**安装失败必须作废整轮验收重跑**（不能沿用结论） |
+| 2 | `adb shell run-as … cp` 到 `/sdcard` 被拒（沙箱）→ 设备文件字节级对照做不成 | 改用 `adb exec-out run-as <pkg> cat <path> > local`（二进制安全，实测可行） |
+| 3 | 该模拟器 `stat -c '%y'` 不支持（`stat: '%y': No such file`）→ 拿不到 mtime | 用 **md5 + size** 做前后比对（足够） |
+| 4 | 冷启动约 **12 秒白屏**（swiftshader 软渲染），20–40s 才渲染完 | 判定「是否白屏」**必须等待 ≥20s**，否则把慢当成白屏误判 |
+| 5 | swiftshader 下 SystemUI 会弹 ANR 对话框**遮挡截图** | 补拍干净截图（本轮 `a5-failloud-clean.png`） |
+| 6 | 模拟器后台任务会被回收（约 13 分钟） | 验收脚本写成「**一条长命令内自带 emulator 生命周期**」 |
+| 7 | 上游 `SystemBars.java:266-270` 注入 safe-area CSS 时若 `document.documentElement` 尚为 null 会报 `Error injecting safe area CSS: TypeError: Cannot read properties of null`，每次启动刷 2–4 条 E 级 | **Capacitor 上游缺陷，无功能影响，不处理**，仅备查 |
+
+### 协作纪律（本轮事故后固化）
+
+- **同机并发验收会互相破坏**：我的第二轮验收脚本里的 `pm clear` **抹掉了另一位执行者的测试数据**，且我的 APK 覆盖了它的产物路径。→ 新规则：**每次验收用独立产物目录**（`release-android/<name>/`）、**同一 AVD 不并发**、**`pm clear` 前必须声明会清掉谁的什么数据**。
+- **归因要用时间对齐，不要猜**：数据「消失」被误立案为「静默数据丢失」，最终靠 `lastUpdateTime` vs `firstInstallTime`、APK 重建时间、`logcat -c` 时间对齐，定位到是我的 `pm clear` 所致。**先排除"我们自己干的"，再怀疑应用缺陷。**
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失
