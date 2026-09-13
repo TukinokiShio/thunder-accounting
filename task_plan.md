@@ -98,7 +98,7 @@ Phase 3 打包与验收
 | **S2** | ✅ **PASS（渲染路径段）** | 5 万行库单次「记一笔」全链路 **10.1ms** → 证伪红队 R2，维持 sql.js。**设备段待 Phase 1 后补测** |
 | **S4** | ✅ **前置 PASS** | 接口 41 == preload 41，集合相等；**新发现契约有两份独立定义会静默漂移** → C1 断言须同时覆盖两份 |
 | **S6** | ✅ **取证完成** | 确认真实值级循环依赖（`index.ts:5` ↔ `export.ts:1-2`），靠 `getDb()` 惰性调用绕过 → **P1-2 必须保留该形态** |
-| **S3** | ⏳ 待做 | 触屏不可达元素清单（headless Chromium 375×812 扫描） |
+| **S3** | ✅ **PASS** | 触屏可达性盘点完成（只读代理 `agent-d9d7dc60`）。量化：CSS `:hover` **32** 条 / Tailwind `hover:` **53** 处 / `onMouse*` **1** 处 / `draggable+onDrag*` **13** 行 / 源码 `onKeyDown` **6** 处 / `100vh` **4** 处 / `100dvh` **1** 处 / **`env(safe-area-inset*)` 0 处** / **无任何 hover 能力检测媒体查询**。<br>**首版最小阻断集＝2 项**：① `CategoryManager/CategoryList.tsx:91` 删除按钮 hover 才可见（编辑模式方案已覆盖）② 同文件 `:68-71`+`:80-85` 拖拽必须**从 HTML5 DnD 换成 pointer 事件**（编辑模式只解决"何时可拖"，不解决"怎么拖"）。<br>**重要减压结论**：键盘依赖**不阻断** —— Esc 关弹窗有背景点击 + X 按钮、Enter 添加子分类有等价按钮、日期选择器 `readOnly` 且格子可点、首页卡片本身有 `onClick`。 |
 | **S5** | ⏳ 待做 | `user === null` 下 Profile / 顶栏渲染路径 |
 | **S7** | ⏳ 待做 | WASM 资源进 APK 的产物级断言 |
 
@@ -116,8 +116,9 @@ Phase 3 打包与验收
 |---|---|---|
 | P2-1 底部导航 | 固定 224px 侧栏不收缩（`index.css:140-141`、`Sidebar.tsx:37`） | **采纳方案 B**：<640px 改 **4 Tab（首页/账单/统计/我的）+ 中央凸起「记一笔」FAB**；与侧栏 5 项一一对应；桌面侧栏保持原样。FAB 须避让底部安全区，且与弹层有遮挡关系需处理 |
 | P2-1b **当前页指示** | 无（桌面靠侧栏选中态） | **文字 + 图标发金棕色光**，**不使用色块**。发光用 `text-shadow`，金棕色取品牌 `--accent #d59b25`（深色主题 `--accent-h #efb82f`）。**四档强度待用户挑定**（关 / 弱 / 标准 / 强，demo 默认「标准」）。<br>⚠ 实现坑（本轮 demo 已踩）：通用 `button.on{background:...}` 会误命中 `class="tab on"` → 选择器必须限定作用域 |
-| P2-2 hover→常显 | **删除按钮靠 `group-hover` 才可见**（`CategoryList.tsx:91`）；51 处 CSS `:hover` + 19 处 Tailwind `hover:` | 触屏常显 / `:active` 反馈；**单列删除按钮点不到 = 功能性阻断，优先修** |
-| P2-3 排序与删除交互 | HTML5 DnD（`CategoryList.tsx:66-71`、`CategoryManager.tsx:284-285`） | **编辑模式方案（用户定稿）**：普通模式点分类只做重命名/改图标；点「编辑」进入编辑态后，每行 **左侧拖动把手（按住才能拖）+ 右侧删除按钮**。拖动与删除**仅编辑模式可用**。<br>**删除必须二次确认**（UX 防误删）：确认框显示将删除的子类数量，并说明已使用该分类的账单**不会被删、只变成「未分类」**。<br>技术选型（归实现方）：Pointer Events + 长按 150ms 激活 + `touch-action:none`，**不引入第三方拖拽库**（避开与弹层/滚动的手势冲突，且可自动化测试） |
+| P2-2 hover→常显 | **删除按钮靠 `group-hover` 才可见**（`CategoryManager/CategoryList.tsx:91`）；S3 量化：CSS `:hover` 32 条 + Tailwind `hover:` 53 处 | 触屏常显 / `:active` 反馈；**单列删除按钮点不到 = 功能性阻断，优先修**。装饰性 hover 保留即可（触屏无功能语义），仅需注意 Android 点按后可能残留"粘滞 hover"高亮 |
+| P2-2b **账单列表编辑/删除按钮**（S3 新发现） | `Bills.tsx:298/308` → `opacity-100 md:opacity-0 md:group-hover:opacity-100` | **严重度已下调（我复核后更正 S3 的判断）**：Tailwind `md` = **768px**，而手机竖屏 CSS 宽度约 **360–430px** → 该分支**不触发**，按钮常显，**首版不阻断**。但它是**平板/横屏（≥768px）的潜在雷**，且修复只是删掉 `md:opacity-0 md:group-hover:opacity-100`。因本轮已在改共享 `src/`，**顺带修掉**（零额外代价） |
+| P2-3 排序与删除交互 | **S3 核实**：`CategoryManager/CategoryList.tsx:68-71` 整行 `draggable` + `onDragStart/onDragOver/onDragEnd`（**HTML5 DnD**）；`:80-85` 的把手是 `<span>` **只做了 `onMouseDown` stopPropagation，本身不是拖拽源** | **编辑模式方案（用户定稿）**：普通模式点分类只做重命名/改图标；点「编辑」进入编辑态后，每行 **左侧拖动把手（按住才能拖）+ 右侧删除按钮**。拖动与删除**仅编辑模式可用**。<br>**S3 关键纠正**：编辑模式只解决了"**何时可拖**"，**没解决"怎么拖"** —— 必须把底层从 HTML5 DnD **换成 pointer 事件**，否则 Android WebView 仍不可用。且把手需从"仅 stopPropagation"改为**真正的拖拽源**（`pointerdown` + `setPointerCapture` + `touch-action:none` + 长按激活）。<br>**删除必须二次确认**（UX 防误删）：确认框显示将删除的子类数量，并说明已使用该分类的账单**不会被删、只变成「未分类」**。不引入第三方拖拽库（避开与弹层/滚动的手势冲突，且可自动化测试） |
 | P2-4 安全区/视口 | 无 `viewport-fit=cover`、无 `env(safe-area-inset-*)`、`100vh`（`index.css:233,259,410,414`） | `viewport-fit=cover` + `100dvh` + 安全区内边距 |
 | P2-5 本地模式门禁（**按 Judge 裁决定稿**） | `AuthGuard.tsx:25` `if (!user) return <LoginPage/>`；**且** `App.tsx:49-54` 数据加载以 `if (user)` 为条件（漏改则分类恒空、记一笔不可用）；**且** `Profile.tsx` 云能力门是死线 | **机制 = 平台门 + 诚实 `null` user + 接上能力门**（**否决合成 user**：`store/index.ts:166` 会把 `syncStatus` 抬成 `idle` → `Layout.tsx:35-37/52` 顶栏谎报「已同步」）。最小文件集：① `AuthGuard.tsx` 加平台分支（electron 保持现有行为）② `App.tsx:49-54` 加载门改为「会话已判定」（`isCheckingSession` 在 `:40` 的 `finally` 恒置假）③ `Profile.tsx` 真正消费 `cloudAvailable` 并在 false 时跳过 `:91/:103/:114` 三个挂载期云调用 ④ `mobile/` 适配器 `isCloudSyncEnabled → false` |
 - **门禁**：`aurora_lint.py` 无 error + headless Chromium 360/390/430px **几何断言**（无横向溢出、44px 触控、底部导航可见）+ 独立 UI/UX Reviewer（UX 轴）

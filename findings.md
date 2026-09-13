@@ -44,7 +44,8 @@
 **三大障碍（该子代理结论）**：
 1. **`@cloudbase/node-sdk` 的 `accessKey` 服务端鉴权体系无法在 WebView 内运行** —— `cloudbase.ts:139` 用**服务端密钥**初始化，等价管理员式直读集合；牵连未登录态查 `accounts`（`:307-364`）、`sudo/contact` 绑定（`:1307-1330`）、`isCloudSyncEnabled` 判定（`:586-588`）
 2. **本地数据层完全绑定 Node 文件系统** —— sql.js 内存库 + `fs.writeFileSync(app.getPath('userData'))` + `Buffer.from`（`database/index.ts:59,299-311`）
-3. **桌面 UI 假设与触屏冲突** —— 900×600 起始最小尺寸（`main.ts:18-21`）、固定 224px 不收缩侧栏（`index.css:140-141`）、**删除按钮靠 `group-hover:opacity-100` 才可见**（`CategoryList.tsx:91`）、HTML5 拖拽排序（`CategoryList.tsx:66-71`）
+3. **桌面 UI 假设与触屏冲突** —— 900×600 起始最小尺寸（`main.ts:18-21`）、固定 224px 不收缩侧栏（`index.css:140-141`）、**删除按钮靠 `group-hover:opacity-100` 才可见**（`src/components/CategoryManager/CategoryList.tsx:91`）、HTML5 拖拽排序（同文件 `:68-71`，整行 `draggable`）
+   > 📌 **路径更正（S3 发现 + 我复核确认）**：正确路径是 `src/components/CategoryManager/CategoryList.tsx`，**不是** `src/components/CategoryList.tsx`（根目录下无此文件）。本文档历史段落（v1.x 章节）中的 `CategoryList.tsx` 同样省略了子目录，未回改历史记录。
 
 **对 UI 复用最有利的一条事实（决定架构可行性）**：现有 **10 个测试文件**通过**整体替换 `window.electronAPI` 对象**来驱动 UI（如 `store.test.ts:24` 只给 `{getBills}`）。→ 说明 UI 与宿主的**唯一契约就是「方法名 + 返回结构」**；**只要安卓适配层仍以同名方法挂到 `window.electronAPI`，这 10 个文件的 UI 测试可不改直接复用**（改动若改为 Capacitor 插件直调而不挂该对象，则全部失败）。
 
@@ -265,6 +266,36 @@
 3. `src/pages/Profile.tsx`：**真正消费 `cloudAvailable`** —— 把 `:426/:706/:1226` 的 `_cloudAvailable` 改为实际使用，并在 `cloudAvailable === false` 时**跳过 `:91/:103/:114` 三个挂载期云调用**（`loadAccount` / `checkCloud`；`loadStats` 走本地库可保留）
 4. `mobile/` 适配器：`isCloudSyncEnabled → false`，`getAccountBindings → null`，`loadCredentials → {identifier:'', rememberAccount:false, autoLogin:false}`（**必须返回对象、不可抛错** —— `App.tsx:33` 直接读 `.autoLogin`）
 5. **不注入合成 user**（RL-A8）
+
+### S3 —— 触屏可达性盘点 ✅ **PASS**（只读代理 `agent-d9d7dc60`）
+
+**量化基线（该代理实际执行的 grep 输出）**：
+
+| 指标 | 数值 |
+|---|---|
+| CSS `:hover` 规则 | **32**（`src/index.css`） |
+| Tailwind `hover:` | **53** 处（`src/**/*.tsx`） |
+| `onMouse*` | **1**（`CategoryManager/CategoryList.tsx:82`） |
+| 原生 `mousedown` 监听 | **3**（`useClickOutside.ts:24`、`Profile.tsx:453` + 测试） |
+| `draggable` / `onDrag*` | **13** 行（集中在 CategoryList / CategoryManager） |
+| 源码 `onKeyDown` | **6**（另 3 处在测试） |
+| `100vh` / `100dvh` | **4** / **1** |
+| `env(safe-area-inset*)` | **0** |
+| hover 能力检测媒体查询（`@media (hover:hover)` / `pointer:coarse`） | **0** |
+| 已有正确触屏实践（供参考） | `AddBillDatePicker.tsx:77` 用 `pointerdown`、`index.css:285` 有 `touch-action: manipulation` |
+
+**首版最小阻断集 = 2 项**：
+
+1. `CategoryManager/CategoryList.tsx:91` —— 删除按钮 `opacity-0 group-hover:opacity-100`，触屏永久不可见（**编辑模式方案已覆盖**）
+2. 同文件 `:68-71` + `:80-85` —— 拖拽排序是 **HTML5 DnD**（整行 `draggable`），而"把手"只是个 `<span>`、**仅做了 `onMouseDown` stopPropagation，本身不是拖拽源**。
+   > ⚠️ **该代理的关键纠正（我采纳）**：用户定稿的"编辑模式"只解决**何时可拖**，**不解决怎么拖** —— 必须把底层从 HTML5 DnD **换成 pointer 事件**（`pointerdown` + `setPointerCapture` + `touch-action:none` + 长按激活），并把把手改为**真正的拖拽源**，否则 Android WebView 依旧拖不动。这一条我原先的方案没有说到位。
+
+**重要减压结论（推翻了我此前的担心）**：**键盘依赖不构成阻断** ——
+`Esc` 关弹窗有背景点击（`ConfirmDialog.tsx:94` / `SettingsDialog.tsx:186`）+ 右上 X 按钮；`CategoryForm.tsx:129` 的 Enter 添加子分类有等价按钮（`:136-142`）；`AddBillDatePicker.tsx:194/217` 的方向键/Enter 对应的输入框是 `readOnly + inputMode="none"` 且有 `onClick=openPicker`、日历格子为可点按钮；`Home.tsx:162` 的 `onKeyDown` 对应的卡片本身有 `onClick`（`:161`）。→ 均为**便捷路径**而非唯一路径。
+
+**我复核后的严重度更正（不照单全收）**：该代理列出的 `Bills.tsx:298/308` 我判为**首版不阻断** —— 那是 `md:opacity-0 md:group-hover:opacity-100`，Tailwind `md` = **768px**，而手机竖屏 CSS 宽度约 **360–430px**，该分支**不触发**，按钮保持 `opacity-100` 常显。它是**平板/横屏（≥768px）的潜在雷**（用户已明确首版不做平板）。因本轮已在改共享 `src/`，顺带删掉该分支，零额外代价（见 P2-2b）。
+
+**体验降级（不阻断，列 2.0 或顺带优化）**：32 条 CSS hover 与 53 处 Tailwind hover 多为纯背景/边框反馈（注意 Android 点按后可能残留"粘滞 hover"高亮）；`cursor-*` 与 `title` 提示在触屏语义弱；`::-webkit-scrollbar` 与 `scrollbar-gutter: stable`（`index.css:110-113/149`）无功能影响；`100vh`（`:233/259/410/414`）建议统一为 `100dvh`（`:546` 已用）；**无安全区适配**（`index.html:5` 缺 `viewport-fit=cover`）；多处触控目标 <44px（`CategoryList.tsx:89-95` ≈20px、`EmojiPicker.tsx:34-50` 32px、`Sidebar.tsx:90`、`ConfirmDialog.tsx:110`、`Profile.tsx:636`），而 `index.css:170/193/282` 已有 44px 规范可对齐；`useClickOutside` 走 `mousedown` 建议改 `pointerdown`。
 
 ---
 

@@ -1,7 +1,7 @@
 /**
  * 类型定义模块。
  * 包含：Bill（账单）、Category（分类）、AddBillForm（表单）、StatsResult（统计）、
- * ElectronAPI（IPC 接口）、CategoryRow（数据库行）等核心类型。
+ * AppAPI（平台无关宿主契约，别名 ElectronAPI）、CategoryRow（数据库行）等核心类型。
  */
 
 /** 账单记录 */
@@ -51,8 +51,19 @@ export interface CloudBaseUser {
   nickname?: string
 }
 
-/** 主进程通过 preload.ts 暴露给渲染进程的 IPC API */
-export interface ElectronAPI {
+/**
+ * 平台无关的宿主 API 契约（UI ↔ 宿主唯一接口）。
+ *
+ * UI 只依赖本契约的「方法名 + 返回结构」，不关心通道实现：
+ * - 桌面：`main-process/preload.ts` 用 ipcRenderer.invoke 实现（preload.ts 末尾
+ *   另有 `export type ElectronAPI = typeof electronAPI` 这份独立定义，故契约存在
+ *   两份定义，任何一侧漂移都由 `mobile/bridge/contract.test.ts` 的 C1 断言拦截）。
+ * - 安卓：`mobile/bridge/android-adapter.ts` 在 `mobile/main.tsx` 入口安装到
+ *   `window.electronAPI`，**41 个方法名与桌面逐一同名**。
+ *
+ * ⚠ 新增/改名方法时必须同时改 preload.ts 与安卓适配器，并让契约测试同步通过。
+ */
+export interface AppAPI {
   addBill: (params: Omit<Bill, 'id' | 'created_at'>) => Promise<Bill>
   getBills: (filters?: { startDate?: string; endDate?: string; category1?: string }) => Promise<Bill[]>
   updateBill: (id: number, params: Partial<Omit<Bill, 'id' | 'created_at'>>) => Promise<Bill>
