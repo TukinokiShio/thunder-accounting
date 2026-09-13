@@ -6,22 +6,55 @@
 
 ---
 
-## 阶段 A —— 本机安卓环境（Pixel_8 模拟器）
+## 0. APK 在哪、怎么装到手机（最直接的路径）
 
-### 一条命令
+**APK 位置**（仓库根目录下）：
 
-```bash
-# 保留设备上的数据（推荐先跑这个）
-bash scripts/android-acceptance.sh
-
-# 需要「全新首启」语义时（⚠️ 会删除该应用的全部本地账本数据）
-bash scripts/android-acceptance.sh --pm-clear
+```
+E:\Code\CodeProduct\thunder-accounting\release-android\thunder-accounting-debug.apk          ← 先装这个（5.0 MB）
+E:\Code\CodeProduct\thunder-accounting\release-android\thunder-accounting-release-signed.apk ← 内测侧载用（3.7 MB，自签名）
 ```
 
-> ⚠️ **必须在非沙箱终端执行** —— Gradle 依赖解析与模拟器都不能在沙箱内跑。
-> ⚠️ `--pm-clear` 会清空 `com.thunder.accounting` 的本地数据；**同一设备上若有别人正在验收，先协调**（我们已因此误删过一次他人测试数据）。
+装到手机的**两种方式**（任选）：
 
-脚本会自动完成：出包 → 装模拟器 → 冷启动 → 滚动截图 → 杀进程重启 → 拉回设备上的 `.db` 用 sqlite3 校验 → 收尾关模拟器。产物落在 `release-android/acc-<时间戳>/`。
+**方式一：拷过去装（不用数据线）**
+1. 把 `thunder-accounting-debug.apk` 传到手机（微信「文件传输助手」/ U 盘 / 网盘都行）
+2. 手机上点它安装；若提示被拦截，去「设置 → 应用 → 特殊应用权限 → 安装未知应用」里允许来源
+3. 装完在桌面找「雷霆记账」图标，点开即可
+
+**方式二：连线用 adb 装**
+```cmd
+cd /d E:\Code\CodeProduct\thunder-accounting
+E:\Code\Android\sdk\platform-tools\adb.exe devices
+E:\Code\Android\sdk\platform-tools\adb.exe install -r -t release-android\thunder-accounting-debug.apk
+```
+（手机需先开「开发者选项 → USB 调试」并在弹窗里点允许；若报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，先 `adb uninstall com.thunder.accounting`）
+
+---
+
+## 阶段 A —— 本机安卓环境（Pixel_8 模拟器）
+
+### 运行方式（**在 cmd 里就能跑，不需要 bash**）
+
+```cmd
+cd /d E:\Code\CodeProduct\thunder-accounting
+npm run android:accept
+```
+
+需要「全新首启」语义时（⚠️ **会删除该应用的全部本地账本数据**）：
+
+```cmd
+npm run android:accept -- --pm-clear
+```
+
+> **踩过的坑（2026-09-14，用户在 cmd 里踩到）**
+> - ❌ `bash scripts/android-acceptance.sh` —— **cmd 里的 `bash` 指向 WSL**，本机没装 WSL 分发，必然报「适用于 Linux 的 Windows 子系统没有已安装的分发」。**不要用 bash**。
+> - ❌ 在 `C:\Users\<你>` 下跑 `npm run` —— 会报 `ENOENT ... C:\Users\d8502\package.json`。**必须先 `cd /d` 到项目根**。
+> - ❌ 把文档里的 `# 注释行` 一起粘进 cmd —— cmd 会把 `#` 当成命令。**只粘命令行本身**。
+> - ✅ 脚本已改写为 **Node**（`scripts/android-acceptance.cjs`），所以 **cmd / PowerShell / Git Bash 三处都能直接跑**；`.sh` 版本已删除（只保留一份实现，避免漂移）。
+> - `--pm-clear` 这种参数要写在 `--` 之后：`npm run android:accept -- --pm-clear`
+
+脚本会自动完成：出包 → 装模拟器 → 冷启动 → 滚动截图 → 杀进程重启 → 拉回设备上的 `.db` 校验 → 收尾关模拟器。产物落在 `release-android/acc-<时间戳>/`（内含 `run.log` 与三张截图）。
 
 ### 通过判据（逐条对照）
 
