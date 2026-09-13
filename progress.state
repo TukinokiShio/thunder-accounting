@@ -7,7 +7,7 @@ task_class:
   reason: 新平台模块 + 多文件协作 + 架构级 + UI 外观 —— v3.14 简化档四项排除条件全中
 workflow_version: 5.6.1
 run_receipt_required: true
-state: PLAN
+state: EXEC
 round: 1
 defect_round: 0
 max_rounds: 12
@@ -20,7 +20,8 @@ step_chain:
   - HOOK_UI
   - HOOK_ERR
   - PLAN
-plan_status: awaiting_user_final_review_after_three_party_review
+  - EXEC
+plan_status: approved_by_user_2026-09-13_entering_exec
 executor_llm: claude-opus-4.6 (WorkBuddy)
 orchestration_form: multi_agent_supervisor_pipeline_plus_blackboard_plan_plus_debate_review
 g0_orchestration_credential:
@@ -111,6 +112,21 @@ requirement_ledger:
     acceptance: 云能力门真正接线——Profile.tsx 的 cloudAvailable 为 false 时，:91/:103/:114 三个挂载期云调用不被触发
     status: pending
     evidence: null
+  - id: RL-A10
+    source: 用户 OQ-1① 原话「暂时决定采纳方案 B 4 Tab + 中央凸起按钮」
+    acceptance: 移动端底部导航 = 4 Tab（首页/账单/统计/我的）+ 中央凸起「记一笔」；桌面侧栏零变化；FAB 避让底部安全区
+    status: pending
+    evidence: null
+  - id: RL-A11
+    source: 用户 OQ-1② 原话「最好的实现方式是将所在页面的底部菜单目录文字发光显示，且发光为金棕色」+ OQ-2「肯定需要，这是 UX，防止用户误删除」
+    acceptance: ① 当前页指示 = 文字与图标发金棕色光（text-shadow，品牌 --accent），不使用色块遮挡 ② 分类删除必弹二次确认，文案含子类数量并说明已用该分类的账单不会被删
+    status: pending
+    evidence: "demo v2 已实现（docs/android-ui-demo.html）：色块根因=通用 button.on{background} 误命中 tab on，已限定作用域；四档发光强度可切"
+  - id: RL-A12
+    source: 用户 OQ-1③ 原话「拖动和删除只在编辑模式内可用」
+    acceptance: 普通模式无拖动与删除入口（点分类只做重命名/改图标）；编辑模式内每行 = 左侧按住拖动把手 + 右侧删除按钮
+    status: pending
+    evidence: null
 reflow_counts:
   PLAN: 1
 reflow_reason:
@@ -120,11 +136,11 @@ reflow_reason:
     why_invalid: 三方独立审查证伪 —— ① App.tsx:49-54 数据加载以 user 为条件，仅分流 AuthGuard 会导致分类恒空、记一笔不可用（红队 P0）② 方法名冻结 ≠ 迁移路径存在：41 方法无 claimLocalData，database/index.ts:186-188 首次登录直接 new SQL.Database() → 首版用户数据被静默遗弃（红队 + Judge）③ Profile.tsx:426/706/1226 的 cloudAvailable 是死线，云收敛开关算出来却零引用（Judge，W/R 都漏）④ database/index.ts:306 的 Buffer 在 WebView 不存在 ⑤ 原 RL-A7「package.json 只允许 version 行」字面不可满足 ⑥ 调用点计数 80 → 62
     correction: 重排 Phase 0 为 S1-S7 七项 spike；P2-5 定稿为「平台门 + 诚实 null user + 接上能力门」；新增 RL-A8/RL-A9；改写 RL-A7；云预留改按 C1-C7 可检验判据；补 6 条反模式（11-16）
 last_reflect:
-  action: 完成 PLAN 并经真实多 Agent 编排（Explore 摸底 → Worker 独立方案 → Reviewer 红队 → Judge 裁决）三轮独立证伪后修正方案，落盘 task_plan.md 与 progress.state，进入 PLAN 人为终审
+  action: 用户 PLAN 终审通过（2026-09-13）→ 转入 EXEC，先做 Phase 0 可行性 spike；此前完成 PLAN 并经真实多 Agent 编排（Explore 摸底 → Worker 独立方案 → Reviewer 红队 → Judge 裁决）三轮独立证伪后修正方案，落盘 task_plan.md 与 progress.state，进入 PLAN 人为终审
   verify_result: G0 三证齐（findings/task_plan/progress.state + contracts/orchestration/ 四份回执）；Judge 对原方案 eval=72 / quality=68（均低于 90/70 门槛）→ 已按 conditional 前提逐条修正；修正后方案待用户终审
   decision: next_state
   next: EXEC
-  gate: 人为终审点 —— 等待用户确认后方可转入 EXEC（plan_status 已记 awaiting_user_final_review_after_three_party_review）
+  gate: 人为终审点已于 2026-09-13 通过（用户答复 OQ-1：方案 B / 文字发光 / 删除二次确认 / 编辑模式限定），转入 EXEC —— 先执行 Phase 0 七项可行性 spike
 token_used: "未统计(宿主不提供精确 token 计数)"
 elapsed: 0
 budget:

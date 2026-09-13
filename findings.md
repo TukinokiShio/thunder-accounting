@@ -123,6 +123,51 @@
 | npm registry 沙箱内可达 | `npm view @capacitor/core` → `8.5.2` | Capacitor 装包无障碍 |
 | JBR 21 + Gradle 8.10.2 就绪 | `E:\Code\Android Studio\AS\jbr`（21.0.10）、`E:\Code\Android\HelloApp\...\gradle-8.10.2\bin\gradle.bat` | **禁用系统 JDK 24**（AGP 报 `Unsupported class file major version`） |
 
+## Phase 0 可行性 spike 实测记录（EXEC，2026-09-13）
+
+> 计划见 `task_plan.md#Phase 0`。**规则：先证后建，任一 P0 级 spike 失败即回流 PLAN 重选方案，不硬推。**
+
+### S2 —— `saveDb()` 全量落盘成本量化 ✅ **PASS（证伪了红队 R2）**
+
+- **目的**：红队把「每次记账都 `db.export()` 全库 + 落盘（安卓还要多一层 base64 往返）」列为可能迫使换数据层的 R2。本项**不需安卓设备即可先量**。
+- **方法**：Node + **同一份 sql.js**（`artifacts/spike-android/S2-savedb-perf.mjs`），造 5 万行账单，7 轮测量并做**往返校验**（重新加载后行数必须一致）。
+- **结果**（中位数，ms）：
+
+| 环节 | 中位 | 最小 | 最大 |
+|---|---|---|---|
+| `db.export()` | 2.4 | 2.3 | 3.0 |
+| `Buffer.from` | 2.5 | 2.2 | 3.8 |
+| **base64 编码（安卓新增环节）** | **3.5** | 2.9 | 4.6 |
+| 文件写入 | 3.4 | 3.1 | 3.6 |
+| 文件读取 | 3.7 | 3.3 | 6.5 |
+| 重新加载 + 校验 | 1.0 | 0.7 | 1.3 |
+| **单次「记一笔」全链路** | **10.1** | — | — |
+
+- 库体积 **9.27 MB** → base64 后 12.96 MB，**溢出 33.3%**（与预估值一致）
+- **判据**：桌面侧 <50ms 可忽略；>200ms 必须改造 → **10.1ms，PASS**
+- **结论**：**维持 sql.js + 全量落盘方案**，无需改增量写 / OPFS / 换 `@capacitor-community/sqlite`
+- **口径限制（必须声明）**：本测量在**桌面 Node**，非 Android WebView；WASM 在移动端通常更慢。**设备段（Pixel_8 连做 100 次写、断言无 >100ms 卡顿、无 ANR）待 S1 通过后补做**——未做之前**不得**声称设备侧已达标。
+- 证据：`artifacts/spike-android/S2-savedb-perf.json` + `S2-savedb-perf.mjs`（可复现）
+
+### S4 前置 —— 适配层契约方法集合对账 ✅ **PASS**
+
+- **起因**：红队指出「41 方法同名」是方案的地基假设，却无任何测试覆盖。
+- **实测**：`src/types/index.ts` 的 `ElectronAPI` 接口 **41 个方法**；`main-process/preload.ts` 暴露 **41 个键**；**两侧集合完全相等**（差集均为空）。
+- **新发现（重要）**：契约**存在两份独立定义** —— `src/types/index.ts:55-102` 手写接口，与 `preload.ts` 末尾 `export type ElectronAPI = typeof electronAPI` 的推断类型。二者**当前一致，但会静默漂移**（新增 IPC 只改一处即可通过编译）。
+  → **强化 C1**：适配层的集合相等断言必须**同时**对这两份定义做，且应做成可执行测试而非一次性脚本。
+- 证据：`artifacts/spike-android/S4-contract-methods.json` + `S4-contract-diff.txt`
+- **C1 所需的 41 方法全名清单已落盘**（适配层逐一实现时用，避免漏做/多做出错）
+
+### S6 —— 循环依赖求值顺序 ✅ **已取证，风险确认存在**
+
+- `main-process/database/index.ts:5` → `import { escapeCSV, exportCSV, exportAllJSON, importAllJSON } from './export'`
+- `main-process/database/export.ts:1-2` → `import type { ... } from './index'` + `import { getDb, saveDb, getBills } from './index'`
+- **确认是真实循环依赖**（值级别，非仅类型级别：`export.ts` 从 `index.ts` 导入了 3 个**值**）。
+- 当前安全的原因：`index.ts:12` 的 `getDb()` 是**惰性调用**（模块求值时不会触碰 `export` 的导出），故循环在运行时被绕过。
+- **风险落点**：本项风险**不在**"现在是否可跑"，而在**抽取共享模块后换打包器**（`electron-vite` 已在该路径上工作；安卓侧换 Vite 打包与不同 `external` 配置）→ 若任一方改为**静态求值**，`getDb()` 可能得 `undefined`。
+- **处置**：P1-2 抽取时必须**保留惰性调用形态**，并补一条「循环依赖下模块可正常求值」的断言；不得为"看起来更干净"而重排 import。
+- 证据：本段行号取证
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失

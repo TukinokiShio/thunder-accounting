@@ -98,11 +98,12 @@ Phase 3 打包与验收
 - **门禁**：`npm test` 268 用例全绿 + `git diff` 调用点零改动 + 审计「是否有方法缺失」一致性测试
 
 ### Phase 2 — 移动端 UI 适配（竖屏）
-| 子项 | 现状（取证位置） | 目标 |
+| 子项 | 现状（取证位置） | 目标（**已按 2026-09-13 终审定稿**） |
 |---|---|---|
-| P2-1 底部导航 | 固定 224px 侧栏不收缩（`index.css:140-141`、`Sidebar.tsx:37`） | <640px 改底部 Tab，保留桌面侧栏 |
+| P2-1 底部导航 | 固定 224px 侧栏不收缩（`index.css:140-141`、`Sidebar.tsx:37`） | **采纳方案 B**：<640px 改 **4 Tab（首页/账单/统计/我的）+ 中央凸起「记一笔」FAB**；与侧栏 5 项一一对应；桌面侧栏保持原样。FAB 须避让底部安全区，且与弹层有遮挡关系需处理 |
+| P2-1b **当前页指示** | 无（桌面靠侧栏选中态） | **文字 + 图标发金棕色光**，**不使用色块**。发光用 `text-shadow`，金棕色取品牌 `--accent #d59b25`（深色主题 `--accent-h #efb82f`）。**四档强度待用户挑定**（关 / 弱 / 标准 / 强，demo 默认「标准」）。<br>⚠ 实现坑（本轮 demo 已踩）：通用 `button.on{background:...}` 会误命中 `class="tab on"` → 选择器必须限定作用域 |
 | P2-2 hover→常显 | **删除按钮靠 `group-hover` 才可见**（`CategoryList.tsx:91`）；51 处 CSS `:hover` + 19 处 Tailwind `hover:` | 触屏常显 / `:active` 反馈；**单列删除按钮点不到 = 功能性阻断，优先修** |
-| P2-3 拖拽排序 | HTML5 DnD（`CategoryList.tsx:66-71`、`CategoryManager.tsx:284-285`） | 上/下移按钮（触屏可靠，且更可测） |
+| P2-3 排序与删除交互 | HTML5 DnD（`CategoryList.tsx:66-71`、`CategoryManager.tsx:284-285`） | **编辑模式方案（用户定稿）**：普通模式点分类只做重命名/改图标；点「编辑」进入编辑态后，每行 **左侧拖动把手（按住才能拖）+ 右侧删除按钮**。拖动与删除**仅编辑模式可用**。<br>**删除必须二次确认**（UX 防误删）：确认框显示将删除的子类数量，并说明已使用该分类的账单**不会被删、只变成「未分类」**。<br>技术选型（归实现方）：Pointer Events + 长按 150ms 激活 + `touch-action:none`，**不引入第三方拖拽库**（避开与弹层/滚动的手势冲突，且可自动化测试） |
 | P2-4 安全区/视口 | 无 `viewport-fit=cover`、无 `env(safe-area-inset-*)`、`100vh`（`index.css:233,259,410,414`） | `viewport-fit=cover` + `100dvh` + 安全区内边距 |
 | P2-5 本地模式门禁（**按 Judge 裁决定稿**） | `AuthGuard.tsx:25` `if (!user) return <LoginPage/>`；**且** `App.tsx:49-54` 数据加载以 `if (user)` 为条件（漏改则分类恒空、记一笔不可用）；**且** `Profile.tsx` 云能力门是死线 | **机制 = 平台门 + 诚实 `null` user + 接上能力门**（**否决合成 user**：`store/index.ts:166` 会把 `syncStatus` 抬成 `idle` → `Layout.tsx:35-37/52` 顶栏谎报「已同步」）。最小文件集：① `AuthGuard.tsx` 加平台分支（electron 保持现有行为）② `App.tsx:49-54` 加载门改为「会话已判定」（`isCheckingSession` 在 `:40` 的 `finally` 恒置假）③ `Profile.tsx` 真正消费 `cloudAvailable` 并在 false 时跳过 `:91/:103/:114` 三个挂载期云调用 ④ `mobile/` 适配器 `isCloudSyncEnabled → false` |
 - **门禁**：`aurora_lint.py` 无 error + headless Chromium 360/390/430px **几何断言**（无横向溢出、44px 触控、底部导航可见）+ 独立 UI/UX Reviewer（UX 轴）
@@ -184,10 +185,23 @@ Phase 3 打包与验收
 
 
 
-## 人为终审点（当前停点 = PLAN，等待用户确认）
+## 人为终审点 —— **已通过（2026-09-13）**，进入 EXEC
 
-- **必须用户确认**：① 阶段划分与范围 ② **移动端视觉方案**（底部导航形态 / hover 替代反馈 / 列表操作交互）③ 交付纪律口径（`android/` 隔离是否认可）
-- 确认后才可进入 EXEC
+### 用户答复回执（OQ-1，原话要点）
+
+| # | 议题 | 用户答复 | 落点 |
+|---|---|---|---|
+| 1① | 底部导航形态 | 「暂时决定采纳**方案 B** 4 Tab + 中央凸起按钮」 | P2-1 |
+| 1② | demo 的 UI bug | 「色块遮挡了…**最好的实现方式是将所在页面的底部菜单目录文字发光显示，且发光为金棕色**，符合雷霆记账 UI 风格」 | P2-1b；根因 = 通用 `button.on{background}` 误命中 `tab on`，**demo v2 已修** |
+| 2 | 分类删除二次确认 | 「**肯定需要**，这是 UX，防止用户误删除」 | P2-3 / RL-A11 |
+| 3 | 拖动与删除入口 | 「拖动和删除**只在编辑模式内可用**」 | P2-3 / RL-A12 |
+| 4 | 其他 OQ | 「暂未看到其他需要讨论的 oq」 | 无新增 |
+
+- 附带确认：打包交给 **`android-packager`** skill（安卓专用，对标 inno-packager）
+- **交付纪律口径**（我自定并留痕，用户未反对）：仅 `mobile/`、`android/` 内改动不触发桌面版本 bump 与安装验收；触及共享 `src/` 或 `main-process/` 时，桌面仍按 SemVer 走完整链路
+
+### 遗留待定（不阻塞 EXEC）
+- **当前页发光强度四档待挑定**（关 / 弱 / 标准 / 强）—— demo 顶部可实时切换，默认「标准」
 
 ## 交付纪律（本轮新增口径，自定并留痕）
 

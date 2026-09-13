@@ -3,14 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>雷霆记账 · 安卓端 UI 方案 Demo</title>
+<title>雷霆记账 · 安卓端 UI 方案 Demo v2（已定案）</title>
 <style>
 /* ── 真实 token（取自 src/index.css，未改动） ───────────────── */
 :root{
   --paper:#f4eee4; --ink:#211d18; --muted:#776e63; --line:#ddcfbc;
   --bg:#f4eee4; --bg2:#ede3d4; --bg-card:#fffaf2; --border:#ddcfbc; --border-h:#c8b89f;
   --text:#211d18; --text2:#776e63; --text3:#a09383;
-  --accent:#d59b25; --accent-h:#b98218; --accent-ink:#211d18; --accent-dim:rgba(213,155,37,.13);
+  --accent:#d59b25; --accent-h:#b98218; --gold-dark:#b98218;
+  --accent-ink:#211d18; --accent-dim:rgba(213,155,37,.13);
   --success:#059669; --warn:#d97706; --danger:#dc2626; --danger-dim:rgba(220,38,38,.12);
   --radius:12px; --radius-sm:7px;
   --font:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;
@@ -20,35 +21,38 @@
 html[data-theme="dark"]{
   --bg:#111315; --bg2:#191b1e; --bg-card:#202224; --border:#403a31; --border-h:#5a4b35;
   --text:#eee7da; --text2:#a69b89; --text3:#746958;
-  --accent:#d59b25; --accent-h:#efb82f; --accent-dim:rgba(213,155,37,.16);
+  --accent:#d59b25; --accent-h:#efb82f;
+  --accent-dim:rgba(213,155,37,.16);
   --success:#10b981; --warn:#f59e0b; --danger:#ef4444; --danger-dim:rgba(239,68,68,.16);
   --line:#403a31; --muted:#a69b89;
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--bg2);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5}
-a{color:var(--accent)}
 
-/* ── 页面外框 ─────────────────────────────────────────────── */
 .wrap{max-width:1400px;margin:0 auto;padding:28px 20px 72px}
 h1{font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
-.sub{color:var(--text2);font-size:13px;margin:0 0 22px}
-.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:24px;
+.sub{color:var(--text2);font-size:13px;margin:0 0 18px}
+
+/* ── 顶部控制条（只有这里的 .on 用实心金底，Tab 不再命中） ──── */
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:22px;
      padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
 .bar .grp{display:flex;gap:6px;align-items:center}
 .bar label{color:var(--text2);font-size:12px;margin-right:2px}
-button{font-family:inherit;font-size:13px;cursor:pointer;min-height:36px;padding:7px 13px;
-       border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--text)}
-button:hover{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
-button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ctl{font-family:inherit;font-size:13px;cursor:pointer;min-height:36px;padding:7px 13px;
+     border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--text)}
+.ctl:hover{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.ctl.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.ctl:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-.row{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.banner{padding:12px 16px;margin-bottom:22px;border:1px solid var(--accent);border-radius:var(--radius);
+        background:var(--accent-dim);font-size:13px}
+.banner b{color:var(--accent)}
+
+.row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
 .cell{width:320px}
 .cell > h2{font-size:14px;margin:0 0 6px}
-.cell > p.desc{font-size:12px;color:var(--text2);margin:0 0 12px;min-height:52px}
-.tag{display:inline-block;font-size:11px;padding:1px 7px;border:1px solid var(--accent);
-     border-radius:99px;color:var(--accent);margin-right:6px;vertical-align:1px}
+.cell > p.desc{font-size:12px;color:var(--text2);margin:0 0 12px;min-height:34px}
 
 /* ── 手机壳 ───────────────────────────────────────────────── */
 .phone{width:320px;height:660px;background:var(--bg);border:1px solid var(--border-h);
@@ -58,14 +62,10 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
            padding:0 14px;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border);background:var(--bg)}
 .screen{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:12px 14px 16px}
 .screen::-webkit-scrollbar{width:0}
+.safe{position:absolute;left:0;right:0;pointer-events:none;border-top:1px dashed var(--accent);opacity:.5}
+.safe::after{content:attr(data-lbl);position:absolute;right:6px;top:2px;font-size:9px;color:var(--accent)}
 
-/* 安全区可视化（刘海/手势条）——真实实现用 env(safe-area-inset-*) */
-.safe{position:absolute;left:0;right:0;pointer-events:none;border-top:1px dashed var(--accent);opacity:.55}
-.safe.top{top:0;height:0}
-.safe.bot{bottom:0;height:0}
-.safe::after{content:attr(data-lbl);position:absolute;right:6px;top:3px;font-size:9px;color:var(--accent)}
-
-/* ── 通用组件（对齐 aurora：1px 边框 / 无渐变 / 44px 触控） ── */
+/* ── 通用组件（aurora：1px 边框 / 无渐变 / ≥44px 触控） ────── */
 .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
       padding:12px;box-shadow:var(--shadow-card)}
 .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
@@ -78,56 +78,82 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .stat .v small{font-size:11px;font-weight:400;color:var(--text2);margin-left:2px}
 .stat .d{font-size:10px;color:var(--text3);margin-top:2px}
 .v-red{color:var(--danger)} .v-green{color:var(--success)}
-
-.list{margin-top:12px}
-.item{display:flex;align-items:center;gap:9px;min-height:48px;padding:8px 10px;
-      border-bottom:1px solid var(--border)}
+.item{display:flex;align-items:center;gap:9px;min-height:48px;padding:8px 10px;border-bottom:1px solid var(--border)}
 .item:last-child{border-bottom:0}
 .item .ico{width:26px;height:26px;flex:0 0 26px;display:grid;place-items:center;
            background:var(--accent-dim);border:1px solid var(--border);border-radius:6px;font-size:13px}
 .item .nm{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item .amt{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bars{display:flex;align-items:flex-end;gap:6px;height:96px;padding:0 2px}
+.bars i{flex:1;background:var(--accent-dim);border:1px solid var(--border);border-radius:4px 4px 0 0;display:block}
+.bars i.hi{background:var(--accent);border-color:var(--accent-h)}
+.barlbl{display:flex;gap:6px;margin-top:5px}
+.barlbl span{flex:1;text-align:center;font-size:9px;color:var(--text3)}
+.ring{width:104px;height:104px;margin:6px auto 4px;border-radius:50%;
+      background:conic-gradient(var(--accent) 0 42%, var(--border) 42% 100%);
+      display:grid;place-items:center;position:relative}
+.ring::after{content:'';position:absolute;inset:14px;border-radius:50%;background:var(--bg-card)}
+.ring b{position:relative;z-index:1;font-size:15px;font-variant-numeric:tabular-nums}
 
-/* ── 底部导航 三种形态 ────────────────────────────────────── */
+/* ── 底部导航 · 方案 B（4 Tab + 中央凸起） ─────────────────── */
 .nav{flex:0 0 auto;border-top:1px solid var(--border);background:var(--bg-card);
-     display:flex;align-items:stretch;padding-bottom:env(safe-area-inset-bottom,0)}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-     gap:2px;min-height:54px;font-size:10px;color:var(--text2);border:0;background:transparent;
-     border-radius:0;padding:4px 0}
-.tab:hover{background:var(--accent-dim);border:0;color:var(--accent)}
-.tab.on{color:var(--accent);font-weight:600}
-.tab .gi{font-size:17px;line-height:1}
-/* 形态 B：中央凸起 FAB */
-.navB{position:relative;padding-top:2px}
-.fabwrap{flex:1;display:flex;justify-content:center}
-.fab{width:52px;height:52px;border-radius:50%;background:var(--accent);border:1px solid var(--accent-h);
-     color:var(--accent-ink);font-size:24px;line-height:1;display:grid;place-items:center;
-     box-shadow:0 6px 18px rgba(213,155,37,.35);transform:translateY(-14px);min-height:52px;padding:0}
-.fab:hover{background:var(--accent-h);border-color:var(--accent-h);color:var(--accent-ink)}
+     display:flex;align-items:stretch;position:relative;
+     padding-bottom:calc(6px + env(safe-area-inset-bottom,0px))}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+     min-height:56px;font-size:10.5px;color:var(--text2);border:0;background:transparent;
+     border-radius:0;padding:6px 0;font-family:inherit;cursor:pointer;position:relative}
+.tab .gi{font-size:18px;line-height:1}
+/* ⚠ 修正点：当前页 = 文字与图标发金棕色光，**不使用色块遮挡** */
+.tab.on{color:var(--accent);font-weight:650;text-shadow:0 0 5px rgba(213,155,37,.62),0 0 13px rgba(213,155,37,.34)}
+.tab.on .gi{transform:translateY(-1px)}
+.tab:active{background:var(--accent-dim)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.fabwrap{flex:1;display:flex;justify-content:center;align-items:flex-start}
+.fab{width:54px;height:54px;border-radius:50%;background:var(--accent);border:1px solid var(--accent-h);
+     color:var(--accent-ink);font-size:25px;line-height:1;display:grid;place-items:center;cursor:pointer;
+     box-shadow:0 6px 18px rgba(213,155,37,.38);transform:translateY(-15px);min-height:54px;padding:0;
+     font-family:inherit}
+.fab:active{background:var(--accent-h)}
+.fab:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 
 /* ── 分类管理 · 编辑模式 ──────────────────────────────────── */
 .modebar{display:flex;gap:8px;margin-bottom:10px}
-.modebar button{flex:1}
-.editrow{display:flex;align-items:center;gap:8px;min-height:54px;padding:6px 8px;
+.modebar .ctl{flex:1;min-height:40px}
+.hint{font-size:11px;color:var(--text2);background:var(--accent-dim);border:1px solid var(--border);
+      border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:10px}
+.kbd{font-size:11px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--text)}
+.editrow{display:flex;align-items:center;gap:8px;min-height:56px;padding:6px 8px;
          border-bottom:1px solid var(--border);background:var(--bg-card);
          transition:transform .12s ease,box-shadow .12s ease;position:relative}
 .editrow:last-child{border-bottom:0}
 .editrow.dragging{z-index:5;box-shadow:var(--shadow-dialog);border-color:var(--accent);
                   border-radius:var(--radius-sm);transform:scale(1.015)}
-.handle{width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;cursor:grab;
-        touch-action:none;color:var(--text3);border:1px dashed var(--border);border-radius:var(--radius-sm);
-        background:transparent;font-size:15px;padding:0;min-height:44px}
-.handle:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.handle{width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;cursor:grab;touch-action:none;
+        color:var(--text3);border:1px dashed var(--border);border-radius:var(--radius-sm);
+        background:transparent;font-size:15px;padding:0;min-height:44px;font-family:inherit}
 .handle.active{cursor:grabbing;color:var(--accent);border-style:solid;border-color:var(--accent);background:var(--accent-dim)}
 .del{width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;min-height:44px;padding:0;
      border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--danger);
-     background:var(--danger-dim);font-size:15px}
-.del:hover{background:var(--danger);border-color:var(--danger);color:#fff}
-.hint{font-size:11px;color:var(--text2);background:var(--accent-dim);border:1px solid var(--border);
-      border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:10px}
-.kbd{font-size:11px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;
-     padding:0 4px;color:var(--text)}
-.legend{margin-top:30px;padding:16px 18px;background:var(--bg-card);border:1px solid var(--border);
+     background:var(--danger-dim);font-size:15px;cursor:pointer;font-family:inherit}
+.del:active{background:var(--danger);border-color:var(--danger);color:#fff}
+
+/* 二次确认弹窗（复用 ConfirmDialog 视觉） */
+.ov{position:absolute;inset:0;background:rgba(33,29,24,.55);display:none;place-items:center;
+    padding:22px;z-index:20}
+.ov.show{display:grid}
+.dlg{width:100%;background:var(--bg-card);border:1px solid var(--border-h);border-radius:var(--radius);
+     padding:16px;box-shadow:var(--shadow-dialog)}
+.dlg h4{margin:0 0 8px;font-size:14px}
+.dlg p{margin:0 0 12px;font-size:12.5px;color:var(--text2);line-height:1.6}
+.dlg .acts{display:flex;gap:8px}
+.dlg .acts button{flex:1;min-height:44px;border-radius:var(--radius-sm);font-family:inherit;
+                  font-size:13px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text)}
+.dlg .acts .no{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.dlg .acts .yes{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:600}
+.dlg .warnbox{font-size:11.5px;background:var(--danger-dim);border:1px solid var(--border);
+              border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:14px;color:var(--text2)}
+
+.legend{margin-top:32px;padding:16px 18px;background:var(--bg-card);border:1px solid var(--border);
         border-radius:var(--radius)}
 .legend h2{font-size:15px;margin:0 0 10px}
 .legend table{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -135,29 +161,34 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .legend th{color:var(--text2);font-weight:500}
 .legend tr:last-child td{border-bottom:0}
 .note{margin-top:14px;font-size:12px;color:var(--text2)}
+code{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:0 4px;font-size:11.5px}
 @media (max-width:760px){.cell{width:100%}.phone{width:100%;max-width:320px;margin:0 auto}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>雷霆记账 · 安卓端 UI 方案 Demo</h1>
-  <p class="sub">竖屏手机 · 复用桌面端同一套 token（paper/ink/gold）。此页是可点的静态 demo，用于确认视觉方向，不是真实 App。</p>
+  <h1>雷霆记账 · 安卓端 UI 方案 Demo v2</h1>
+  <p class="sub">已定案：<b>方案 B（4 Tab + 中央凸起「记一笔」）</b> · 竖屏手机 · 复用桌面端同一套 token</p>
+
+  <div class="banner">
+    <b>v2 修正：</b>上一版底部当前页被涂成金色实心块，根因是我的通用规则 <code>button.on{background:var(--accent)}</code> 误命中了 Tab（Tab 的 class 恰好是 <code>tab on</code>）。本版已把该规则限定到顶部控制条；底部当前页改为 <b>文字 + 图标发金棕色光</b>（<code>text-shadow: 0 0 5px rgba(213,155,37,.62), 0 0 13px rgba(213,155,37,.34)</code>），无任何色块遮挡。
+  </div>
 
   <div class="bar">
     <div class="grp"><label>主题</label>
-      <button id="tLight" class="on">浅色</button><button id="tDark">深色</button></div>
-    <div class="grp"><label>安全区标注</label>
-      <button id="sg" class="on">显示</button></div>
-    <div class="grp"><label>对比方式</label>
-      <button id="all" class="on">并排对比</button><button id="only">只看当前 Tab</button></div>
+      <button class="ctl on" id="tLight">浅色</button><button class="ctl" id="tDark">深色</button></div>
+    <div class="grp"><label>当前页发光</label>
+      <button class="ctl" id="g0">关</button><button class="ctl" id="g1">弱</button>
+      <button class="ctl on" id="g2">标准</button><button class="ctl" id="g3">强</button></div>
+    <div class="grp"><label>安全区标注</label><button class="ctl on" id="sg">显示</button></div>
   </div>
 
-  <div class="row" id="row">
+  <div class="row">
 
-    <!-- ── 方案 A：5 Tab ─────────────────────────────── -->
-    <div class="cell" data-variant="A">
-      <h2><span class="tag">方案 A</span>底部 5 Tab</h2>
-      <p class="desc">与桌面侧栏 <b>一一对应</b>（首页/账单/统计/记一笔/我的），零信息丢失，改动最小。</p>
+    <!-- 1. 首页 -->
+    <div class="cell">
+      <h2>首页 <span style="font-weight:400;color:var(--text2);font-size:12px">· 当前页「首页」发光</span></h2>
+      <p class="desc">4 个 Tab + 中央凸起「记一笔」，与桌面侧栏 5 项一一对应。</p>
       <div class="phone">
         <div class="safe top" data-lbl="safe-area-inset-top"></div>
         <div class="statusbar"><span>9:41</span><span>雷霆记账 ⌁ 5G ▮</span></div>
@@ -168,131 +199,152 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
             <div class="stat"><div class="k">本月支出</div><div class="v v-red">¥3,486<small>元</small></div><div class="d">42 笔</div></div>
             <div class="stat"><div class="k">本月收入</div><div class="v v-green">¥8,500<small>元</small></div><div class="d">2 笔</div></div>
             <div class="stat"><div class="k">结余</div><div class="v">¥5,014<small>元</small></div><div class="d">收入 − 支出</div></div>
-            <div class="stat" style="grid-column:1/-1"><div class="k">日均支出</div><div class="v">¥116.2<small>元 / 天</small></div><div class="d">3,486 ÷ 30 天</div></div>
+            <div class="stat" style="grid-column:1/-1"><div class="k">日均支出</div>
+              <div class="v">¥116.2<small>元 / 天</small></div><div class="d">3,486 ÷ 30 天</div></div>
           </div>
-          <div class="card list" style="margin-top:12px">
+          <div class="card" style="margin-top:12px">
             <div class="hd" style="margin-bottom:4px"><h3>最近记一笔</h3><span class="more">全部 ›</span></div>
             <div class="item"><div class="ico">🍜</div><div class="nm">午餐 · 餐饮食品</div><div class="amt v-red">−38.00</div></div>
             <div class="item"><div class="ico">🚕</div><div class="nm">打车 · 交通出行</div><div class="amt v-red">−26.50</div></div>
-            <div class="item"><div class="ico">💰</div><div class="nm">工资 · 收入</div><div class="amt v-green">+8,500</div></div>
           </div>
         </div>
         <nav class="nav">
-          <button class="tab on"><span class="gi">◎</span>首页</button>
-          <button class="tab"><span class="gi">☰</span>账单</button>
-          <button class="tab"><span class="gi">▤</span>统计</button>
-          <button class="tab"><span class="gi">＋</span>记一笔</button>
-          <button class="tab"><span class="gi">☺</span>我的</button>
-        </nav>
-        <div class="safe bot" data-lbl="safe-area-inset-bottom"></div>
-      </div>
-    </div>
-
-    <!-- ── 方案 B：4 Tab + FAB ───────────────────────── -->
-    <div class="cell" data-variant="B">
-      <h2><span class="tag">方案 B</span>4 Tab + 中央凸起按钮</h2>
-      <p class="desc">记账入口更突出，贴近记账类 App 习惯；代价是 FAB 要额外避让底部安全区、且与弹层有遮挡关系。</p>
-      <div class="phone">
-        <div class="safe top" data-lbl="safe-area-inset-top"></div>
-        <div class="statusbar"><span>9:41</span><span>雷霆记账 ⌁ 5G ▮</span></div>
-        <div class="screen">
-          <div class="hd"><h3>本月概览</h3><span class="more">2026-09</span></div>
-          <div class="grid2">
-            <div class="stat"><div class="k">今日支出</div><div class="v v-red">¥128<small>元</small></div><div class="d">3 笔</div></div>
-            <div class="stat"><div class="k">本月支出</div><div class="v v-red">¥3,486<small>元</small></div><div class="d">42 笔</div></div>
-            <div class="stat"><div class="k">本月收入</div><div class="v v-green">¥8,500<small>元</small></div><div class="d">2 笔</div></div>
-            <div class="stat"><div class="k">结余</div><div class="v">¥5,014<small>元</small></div><div class="d">收入 − 支出</div></div>
-          </div>
-          <div class="card list" style="margin-top:12px">
-            <div class="hd" style="margin-bottom:4px"><h3>最近记一笔</h3><span class="more">全部 ›</span></div>
-            <div class="item"><div class="ico">🍜</div><div class="nm">午餐 · 餐饮食品</div><div class="amt v-red">−38.00</div></div>
-            <div class="item"><div class="ico">🚕</div><div class="nm">打车 · 交通出行</div><div class="amt v-red">−26.50</div></div>
-          </div>
-        </div>
-        <nav class="nav navB">
           <button class="tab on"><span class="gi">◎</span>首页</button>
           <button class="tab"><span class="gi">☰</span>账单</button>
           <div class="fabwrap"><button class="fab" title="记一笔">＋</button></div>
           <button class="tab"><span class="gi">▤</span>统计</button>
           <button class="tab"><span class="gi">☺</span>我的</button>
         </nav>
-        <div class="safe bot" data-lbl="safe-area-inset-bottom（FAB 需上抬避让）"></div>
+        <div class="safe bot" data-lbl="safe-area-inset-bottom"></div>
       </div>
     </div>
 
-    <!-- ── 方案 C：3 Tab ─────────────────────────────── -->
-    <div class="cell" data-variant="C">
-      <h2><span class="tag">方案 C</span>3 Tab</h2>
-      <p class="desc">最精简：记账 / 统计 / 我的。「账单」列表降级到首页内部入口 —— 与你现有信息架构不一致，需你确认可接受。</p>
+    <!-- 2. 统计 -->
+    <div class="cell">
+      <h2>统计 <span style="font-weight:400;color:var(--text2);font-size:12px">· 当前页「统计」发光</span></h2>
+      <p class="desc">发光只落在当前页，其余保持静默 —— 切换时可直接对比。</p>
       <div class="phone">
         <div class="safe top" data-lbl="safe-area-inset-top"></div>
         <div class="statusbar"><span>9:41</span><span>雷霆记账 ⌁ 5G ▮</span></div>
         <div class="screen">
-          <div class="hd"><h3>本月概览</h3><span class="more">2026-09</span></div>
-          <div class="grid2">
-            <div class="stat"><div class="k">今日支出</div><div class="v v-red">¥128<small>元</small></div><div class="d">3 笔</div></div>
-            <div class="stat"><div class="k">本月支出</div><div class="v v-red">¥3,486<small>元</small></div><div class="d">42 笔</div></div>
-            <div class="stat"><div class="k">本月收入</div><div class="v v-green">¥8,500<small>元</small></div><div class="d">2 笔</div></div>
-            <div class="stat"><div class="k">结余</div><div class="v">¥5,014<small>元</small></div><div class="d">收入 − 支出</div></div>
+          <div class="card">
+            <div class="hd"><h3>本月支出构成</h3><span class="more">2026-09</span></div>
+            <div class="ring"><b>¥3,486</b></div>
+            <div class="item"><div class="ico">🍜</div><div class="nm">餐饮食品</div><div class="amt">¥1,240 · 36%</div></div>
+            <div class="item"><div class="ico">🚕</div><div class="nm">交通出行</div><div class="amt">¥820 · 24%</div></div>
+            <div class="item"><div class="ico">🛍</div><div class="nm">购物消费</div><div class="amt">¥760 · 22%</div></div>
           </div>
           <div class="card" style="margin-top:12px">
-            <div class="hd" style="margin-bottom:8px"><h3>账单明细</h3><span class="more">2026-09 ›</span></div>
-            <div class="item" style="border-bottom:1px solid var(--border)"><div class="ico">🍜</div><div class="nm">午餐 · 餐饮食品</div><div class="amt v-red">−38.00</div></div>
-            <div class="item" style="border-bottom:1px solid var(--border)"><div class="ico">🚕</div><div class="nm">打车 · 交通出行</div><div class="amt v-red">−26.50</div></div>
-            <div class="item"><div class="ico">💰</div><div class="nm">工资 · 收入</div><div class="amt v-green">+8,500</div></div>
+            <div class="hd" style="margin-bottom:10px"><h3>近 7 天支出</h3><span class="more">导出 CSV</span></div>
+            <div class="bars">
+              <i style="height:38%"></i><i style="height:62%"></i><i class="hi" style="height:88%"></i>
+              <i style="height:45%"></i><i style="height:70%"></i><i style="height:30%"></i><i style="height:55%"></i>
+            </div>
+            <div class="barlbl"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
           </div>
         </div>
         <nav class="nav">
-          <button class="tab on"><span class="gi">＋</span>记账</button>
-          <button class="tab"><span class="gi">▤</span>统计</button>
+          <button class="tab"><span class="gi">◎</span>首页</button>
+          <button class="tab"><span class="gi">☰</span>账单</button>
+          <div class="fabwrap"><button class="fab" title="记一笔">＋</button></div>
+          <button class="tab on"><span class="gi">▤</span>统计</button>
           <button class="tab"><span class="gi">☺</span>我的</button>
         </nav>
         <div class="safe bot" data-lbl="safe-area-inset-bottom"></div>
       </div>
     </div>
 
-    <!-- ── 分类管理 · 编辑模式 ────────────────────────── -->
-    <div class="cell" data-variant="D">
-      <h2><span class="tag">交互</span>分类管理 · 编辑模式</h2>
-      <p class="desc">按你的要求：点「编辑」进入编辑态，每行 <b>左侧拖动把手（按住才拖）</b>、<b>右侧删除</b>。下面是<b>真的可以拖</b>的 demo。</p>
+    <!-- 3. 我的 -->
+    <div class="cell">
+      <h2>我的 <span style="font-weight:400;color:var(--text2);font-size:12px">· 云入口已收敛</span></h2>
+      <p class="desc">首版纯本地：账号 / 绑定 / 同步入口<b>不出现</b>，只留主题、分类管理、备份、关于。</p>
+      <div class="phone">
+        <div class="safe top" data-lbl="safe-area-inset-top"></div>
+        <div class="statusbar"><span>9:41</span><span>雷霆记账 ⌁ 5G ▮</span></div>
+        <div class="screen">
+          <div class="card" style="display:flex;align-items:center;gap:12px">
+            <div style="width:46px;height:46px;flex:0 0 46px;border-radius:50%;background:var(--accent-dim);
+                        border:1px solid var(--border-h);display:grid;place-items:center;font-size:20px">☺</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600">本地账本</div>
+              <div style="font-size:11.5px;color:var(--text2)">仅保存在本机 · 未开启云同步</div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px;padding:0">
+            <div class="item"><div class="ico">🗂</div><div class="nm">分类管理</div><div class="amt" style="color:var(--text3);font-weight:400">›</div></div>
+            <div class="item"><div class="ico">🎨</div><div class="nm">主题外观</div><div class="amt" style="color:var(--text3);font-weight:400">跟随系统 ›</div></div>
+            <div class="item"><div class="ico">💾</div><div class="nm">备份与恢复</div><div class="amt" style="color:var(--text3);font-weight:400">›</div></div>
+            <div class="item"><div class="ico">ℹ</div><div class="nm">关于</div><div class="amt" style="color:var(--text3);font-weight:400">v1.0.0 ›</div></div>
+          </div>
+          <div class="hint" style="margin-top:12px">
+            第二版接入云同步后，此处才出现<b>登录 / 账号绑定 / 同步状态</b>；架构已预留，届时是新增入口而非改版。
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="tab"><span class="gi">◎</span>首页</button>
+          <button class="tab"><span class="gi">☰</span>账单</button>
+          <div class="fabwrap"><button class="fab" title="记一笔">＋</button></div>
+          <button class="tab"><span class="gi">▤</span>统计</button>
+          <button class="tab on"><span class="gi">☺</span>我的</button>
+        </nav>
+        <div class="safe bot" data-lbl="safe-area-inset-bottom"></div>
+      </div>
+    </div>
+
+    <!-- 4. 分类管理 · 编辑模式（可真实操作） -->
+    <div class="cell">
+      <h2>分类管理 · 编辑模式 <span style="font-weight:400;color:var(--text2);font-size:12px">· 可真实操作</span></h2>
+      <p class="desc">按住左侧把手拖动排序；右侧删除会弹<b>二次确认</b>。两者<b>仅编辑模式可用</b>。</p>
       <div class="phone">
         <div class="safe top" data-lbl="safe-area-inset-top"></div>
         <div class="statusbar"><span>9:41</span><span>雷霆记账 ⌁ 5G ▮</span></div>
         <div class="screen" style="padding-bottom:8px">
           <div class="hd"><h3>分类管理 · 支出</h3><span class="more">＋ 新增</span></div>
           <div class="modebar">
-            <button id="btnNormal" class="on">普通模式</button>
-            <button id="btnEdit">编辑模式</button>
+            <button class="ctl on" id="btnNormal">普通模式</button>
+            <button class="ctl" id="btnEdit">编辑模式</button>
           </div>
 
           <div id="normalView">
-            <div class="hint">普通模式：点击分类可重命名 / 改图标。此模式下<b>没有</b>删除与拖动入口，避免误操作。</div>
+            <div class="hint">普通模式：点击分类可重命名 / 改图标。此模式下<b>没有</b>拖动与删除入口，避免误操作。</div>
             <div class="card" style="padding:0">
               <div class="item"><div class="ico">🍜</div><div class="nm">餐饮食品</div><div class="amt" style="color:var(--text3);font-weight:400">6 子类 ›</div></div>
               <div class="item"><div class="ico">🚕</div><div class="nm">交通出行</div><div class="amt" style="color:var(--text3);font-weight:400">4 子类 ›</div></div>
               <div class="item"><div class="ico">🛍</div><div class="nm">购物消费</div><div class="amt" style="color:var(--text3);font-weight:400">5 子类 ›</div></div>
               <div class="item"><div class="ico">🏠</div><div class="nm">住房物业</div><div class="amt" style="color:var(--text3);font-weight:400">3 子类 ›</div></div>
-              <div class="item"><div class="ico">🎬</div><div class="nm">娱乐休闲</div><div class="amt" style="color:var(--text3);font-weight:400">4 子类 ›</div></div>
             </div>
           </div>
 
           <div id="editView" style="display:none">
-            <div class="hint">编辑模式：按住左侧把手 <span class="kbd">⋮⋮</span> 并上下拖动即可排序；松开即保存。右侧 <span class="kbd">🗑</span> 直接删除。</div>
+            <div class="hint">按住左侧 <span class="kbd">⋮⋮</span> 上下拖动排序；右侧 <span class="kbd">🗑</span> 删除（有二次确认）。</div>
             <div class="card" style="padding:0" id="editList">
-              <div class="editrow" data-id="food"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🍜</div><div class="nm">餐饮食品</div><button class="del" aria-label="删除">🗑</button></div>
-              <div class="editrow" data-id="traffic"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🚕</div><div class="nm">交通出行</div><button class="del" aria-label="删除">🗑</button></div>
-              <div class="editrow" data-id="shopping"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🛍</div><div class="nm">购物消费</div><button class="del" aria-label="删除">🗑</button></div>
-              <div class="editrow" data-id="house"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🏠</div><div class="nm">住房物业</div><button class="del" aria-label="删除">🗑</button></div>
-              <div class="editrow" data-id="fun"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🎬</div><div class="nm">娱乐休闲</div><button class="del" aria-label="删除">🗑</button></div>
+              <div class="editrow"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🍜</div><div class="nm">餐饮食品</div><button class="del" aria-label="删除">🗑</button></div>
+              <div class="editrow"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🚕</div><div class="nm">交通出行</div><button class="del" aria-label="删除">🗑</button></div>
+              <div class="editrow"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🛍</div><div class="nm">购物消费</div><button class="del" aria-label="删除">🗑</button></div>
+              <div class="editrow"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🏠</div><div class="nm">住房物业</div><button class="del" aria-label="删除">🗑</button></div>
+              <div class="editrow"><button class="handle" aria-label="按住拖动">⋮⋮</button><div class="ico">🎬</div><div class="nm">娱乐休闲</div><button class="del" aria-label="删除">🗑</button></div>
             </div>
             <div class="note" id="editLog" style="margin-top:10px">拖动试试 → 顺序变化会记录在这里。</div>
+          </div>
+
+          <!-- 二次确认弹窗 -->
+          <div class="ov" id="confirmOv">
+            <div class="dlg">
+              <h4>删除分类？</h4>
+              <p>确定要删除「<b id="delName">餐饮食品</b>」吗？该分类下的 <b>6 个子类</b> 会一并删除。</p>
+              <div class="warnbox">已使用该分类的 <b>23 笔账单不会被删除</b>，但会变成「未分类」。此操作不可撤销。</div>
+              <div class="acts">
+                <button class="no" id="cNo">取消</button>
+                <button class="yes" id="cYes">删除</button>
+              </div>
+            </div>
           </div>
         </div>
         <nav class="nav">
           <button class="tab"><span class="gi">◎</span>首页</button>
           <button class="tab"><span class="gi">☰</span>账单</button>
+          <div class="fabwrap"><button class="fab" title="记一笔">＋</button></div>
           <button class="tab"><span class="gi">▤</span>统计</button>
-          <button class="tab"><span class="gi">＋</span>记一笔</button>
           <button class="tab on"><span class="gi">☺</span>我的</button>
         </nav>
         <div class="safe bot" data-lbl="safe-area-inset-bottom"></div>
@@ -302,34 +354,45 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   </div>
 
   <div class="legend">
-    <h2>这次 demo 想让你确认的三件事</h2>
+    <h2>本次终审确认的决策</h2>
     <table>
-      <tr><th style="width:150px">待定项</th><th>选项与取舍</th></tr>
-      <tr><td><b>① 底部导航形态</b></td>
-          <td>方案 A（5 Tab，与侧栏一一对应）／方案 B（4 Tab + 中央凸起按钮）／方案 C（3 Tab）。<br>
-              我的建议是 <b>A</b>：零信息丢失、改动最小、最容易做到像素级可控；B 的记账入口更抢眼但要额外处理安全区与弹层遮挡。</td></tr>
-      <tr><td><b>② 分类排序 + 删除</b></td>
-          <td>已按你的要求做成「编辑模式：左拖动把手 + 右删除」。<b>需要你确认的是两点</b>：<br>
-              (a) 删除要不要二次确认弹窗？建议 <b>要</b>（分类下有子类与历史账单，误删影响大）；<br>
-              (b) 拖动是<b>仅编辑模式内可用</b>（现状），还是普通模式也允许？</td></tr>
-      <tr><td><b>③ 交互细节</b></td>
-          <td>「记一笔」在方案 A 里是 Tab、在方案 B 里是中央按钮，点开后都是<b>同一个弹窗</b>（复用现有 AddBillDialog）。你看哪种更顺手。</td></tr>
+      <tr><th style="width:170px">决策项</th><th>结论</th></tr>
+      <tr><td><b>底部导航形态</b></td><td>采纳 <b>方案 B</b> —— 4 Tab（首页 / 账单 / 统计 / 我的）+ 中央凸起「记一笔」。与桌面侧栏 5 项一一对应，记账入口更突出。</td></tr>
+      <tr><td><b>当前页指示</b></td><td>改为 <b>文字 + 图标发金棕色光</b>，不用色块。顶部可切换「关 / 弱 / 标准 / 强」四档，请挑定一档（默认「标准」）。</td></tr>
+      <tr><td><b>分类删除</b></td><td><b>需要二次确认</b>。确认框显示子类数量，并说明已用该分类的账单不会被删、只会变成「未分类」。</td></tr>
+      <tr><td><b>拖动 / 删除入口</b></td><td><b>仅编辑模式内可用</b>。普通模式点分类只做重命名 / 改图标。</td></tr>
     </table>
     <div class="note">
-      <b>关于安全区</b>：手机壳上下那两条虚线标注的是 <code>env(safe-area-inset-top/bottom)</code> 的实际占位 —— 刘海屏与手势条会吃掉这部分高度，桌面端完全没有这个概念，所以底部导航和「记一笔」弹窗的底部按钮都必须算进去，否则会被手势条压住。<br>
-      <b>关于 hover</b>：桌面端很多反馈靠鼠标悬停（比如分类的删除按钮只在悬停时出现）。触屏没有悬停，这些一律改成常显或点击态 —— 这也是本次 demo 里删除按钮直接画出来的原因。<br>
-      <b>说明</b>：此页只用于确认视觉方向，数据是假的，未接入任何本地库或云端。
+      <b>安全区</b>：手机壳上下两条虚线是 <code>env(safe-area-inset-top/bottom)</code> 的实际占位。刘海与手势条会吃掉这部分高度 —— 桌面端没有这个概念，所以底部导航、FAB、以及「记一笔」弹窗的底部按钮都必须算进去，否则会被手势条压住。<br>
+      <b>触控目标</b>：Tab 56px、拖动把手与删除按钮 44px，均 ≥ Android 无障碍下限 44dp。<br>
+      <b>关于 hover</b>：桌面端部分反馈靠鼠标悬停（如分类删除按钮只在悬停时出现），触屏没有悬停，已全部改为常显或按下态。<br>
+      <b>说明</b>：本页仅为视觉方案确认用的静态 demo，数据是假的，未接入本地库或云端。
     </div>
   </div>
 </div>
 
 <script>
 const root = document.documentElement;
+const grp = ids => ids.map(i => document.getElementById(i));
 
 /* 主题 */
 const bL = document.getElementById('tLight'), bD = document.getElementById('tDark');
-bL.onclick = () => { root.dataset.theme = 'light'; bL.classList.add('on'); bD.classList.remove('on'); };
-bD.onclick = () => { root.dataset.theme = 'dark';  bD.classList.add('on'); bL.classList.remove('on'); };
+bL.onclick = () => { root.dataset.theme='light'; bL.classList.add('on'); bD.classList.remove('on'); };
+bD.onclick = () => { root.dataset.theme='dark';  bD.classList.add('on'); bL.classList.remove('on'); };
+
+/* 当前页发光四档 */
+const GLOW = {
+  g0:'none',
+  g1:'0 0 4px rgba(213,155,37,.42), 0 0 9px rgba(213,155,37,.22)',
+  g2:'0 0 5px rgba(213,155,37,.62), 0 0 13px rgba(213,155,37,.34)',
+  g3:'0 0 7px rgba(213,155,37,.85), 0 0 20px rgba(213,155,37,.50)'
+};
+let glowStyle = document.getElementById('glowStyle');
+if(!glowStyle){ glowStyle = document.createElement('style'); glowStyle.id='glowStyle'; document.head.appendChild(glowStyle); }
+function setGlow(key){ glowStyle.textContent = '.tab.on{text-shadow:' + GLOW[key] + '}';
+  grp(['g0','g1','g2','g3']).forEach(b => b.classList.toggle('on', b.id === key)); }
+grp(['g0','g1','g2','g3']).forEach(b => b.onclick = () => setGlow(b.id));
+setGlow('g2');
 
 /* 安全区标注 */
 const sg = document.getElementById('sg');
@@ -343,39 +406,23 @@ function paintSafe(){
 sg.onclick = () => { safeOn = !safeOn; paintSafe(); };
 paintSafe();
 
-/* 并排 / 单看 */
-const bAll = document.getElementById('all'), bOne = document.getElementById('only');
-let currentTab = 'A';
-function applyFilter(){
-  document.querySelectorAll('.cell[data-variant]').forEach(c => {
-    c.style.display = (bOne.classList.contains('on') && c.dataset.variant !== currentTab) ? 'none' : '';
-  });
-}
-bAll.onclick = () => { bAll.classList.add('on'); bOne.classList.remove('on'); applyFilter(); };
-bOne.onclick = () => { bOne.classList.add('on'); bAll.classList.remove('on'); applyFilter(); };
-document.querySelectorAll('.cell[data-variant]').forEach(cell => {
-  cell.querySelector('h2').addEventListener('click', () => { currentTab = cell.dataset.variant; applyFilter(); });
-});
-
-/* 分类编辑模式切换 */
+/* 编辑模式切换 */
 const bN = document.getElementById('btnNormal'), bE = document.getElementById('btnEdit');
 const vN = document.getElementById('normalView'), vE = document.getElementById('editView');
-bN.onclick = () => { bN.classList.add('on'); bE.classList.remove('on'); vN.style.display = ''; vE.style.display = 'none'; };
-bE.onclick = () => { bE.classList.add('on'); bN.classList.remove('on'); vE.style.display = ''; vN.style.display = 'none'; };
+bN.onclick = () => { bN.classList.add('on'); bE.classList.remove('on'); vN.style.display=''; vE.style.display='none'; };
+bE.onclick = () => { bE.classList.add('on'); bN.classList.remove('on'); vE.style.display=''; vN.style.display='none'; };
 
-/* ── 按住把手拖动排序（pointer events，长按 150ms 激活） ── */
+/* 拖动排序（长按 150ms 激活） */
 const list = document.getElementById('editList');
 const log  = document.getElementById('editLog');
-let dragEl = null, holdTimer = null, startY = 0, active = false;
-
-function rows(){ return [...list.querySelectorAll('.editrow')]; }
-function order(){ return rows().map(r => r.querySelector('.nm').textContent).join(' → '); }
+let dragEl=null, holdTimer=null, active=false;
+const rows = () => [...list.querySelectorAll('.editrow')];
+const order = () => rows().map(r => r.querySelector('.nm').textContent).join(' → ');
 
 list.addEventListener('pointerdown', e => {
   const h = e.target.closest('.handle');
   if (!h) return;
   dragEl = h.closest('.editrow');
-  startY = e.clientY;
   holdTimer = setTimeout(() => {
     active = true;
     dragEl.classList.add('dragging');
@@ -383,39 +430,45 @@ list.addEventListener('pointerdown', e => {
     h.setPointerCapture?.(e.pointerId);
   }, 150);
 });
-
 list.addEventListener('pointermove', e => {
   if (!active || !dragEl) return;
   e.preventDefault();
   const y = e.clientY;
-  const others = rows().filter(r => r !== dragEl);
-  const target = others.find(r => {
+  const target = rows().filter(r => r !== dragEl).find(r => {
     const b = r.getBoundingClientRect();
-    return y < b.top + b.height / 2;
+    return y < b.top + b.height/2;
   });
-  if (target) list.insertBefore(dragEl, target);
-  else list.appendChild(dragEl);
+  if (target) list.insertBefore(dragEl, target); else list.appendChild(dragEl);
 });
-
 function endDrag(){
   clearTimeout(holdTimer);
   if (dragEl) dragEl.classList.remove('dragging');
   list.querySelectorAll('.handle').forEach(h => h.classList.remove('active'));
   if (active) log.textContent = '当前顺序：' + order();
-  dragEl = null; active = false;
+  dragEl=null; active=false;
 }
 list.addEventListener('pointerup', endDrag);
 list.addEventListener('pointercancel', endDrag);
 
-/* 删除 demo */
+/* 删除 → 二次确认 */
+const ov = document.getElementById('confirmOv'), delName = document.getElementById('delName');
+let pending = null;
 list.addEventListener('click', e => {
   const d = e.target.closest('.del');
   if (!d) return;
-  const r = d.closest('.editrow');
-  const nm = r.querySelector('.nm').textContent;
-  r.remove();
-  log.textContent = `已删除「${nm}」（demo 未接后端）。当前顺序：` + order();
+  pending = d.closest('.editrow');
+  delName.textContent = pending.querySelector('.nm').textContent;
+  ov.classList.add('show');
 });
+document.getElementById('cNo').onclick = () => { ov.classList.remove('show'); pending = null; };
+document.getElementById('cYes').onclick = () => {
+  if (pending) {
+    const nm = pending.querySelector('.nm').textContent;
+    pending.remove(); pending = null;
+    log.textContent = `已删除「${nm}」。当前顺序：` + order();
+  }
+  ov.classList.remove('show');
+};
 </script>
 </body>
 </html>
