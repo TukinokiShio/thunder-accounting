@@ -75,7 +75,23 @@ subagent_usage:
       role: Explore
       duty: S3 触屏不可达元素清单（只读；功能阻断 vs 体验降级分类 + 量化统计 + 首版最小集）
       status: running
-  round_2_note: 两个子代理并行在后台执行；Worker 的改动须由 Supervisor 独立复核后才可提交（本轮尚未提交）
+  round_2_note: 两 Worker 已完成并独立复核通过（Phase 1 已提交 8b75018；Phase 1.5 已提交 b14d7b4）
+  round_3:
+    - name: agent-2517692a
+      role: Worker
+      duty: P1-5 安卓 StoragePort（启动期 hydrate + 内存副本 + 写合并队列）+ P1-5B 文件通道 + P1-6 类型门禁 → **已完成并提交 b14d7b4**；随后续派 Phase 3（依赖归类 + Capacitor 脚手架 + 出 APK）
+      status: running
+      verified_by_supervisor: 我方复跑 npm test 395/395、npm run typecheck EXIT=0、package.json diff 6 增 1 删且 build/devDependencies 零改动、调用点 62、桌面 A/B 产物 sha256 完全相同
+    - name: agent-e2ecf3f8
+      role: Worker
+      duty: Phase 2 移动端 UI（方案 B 底部导航 + 金棕指示线 + hover 常显 + 编辑模式 Pointer 拖拽 + 删除二次确认 + 安全区 + 本地模式门禁）
+      status: running
+      key_design_decisions_by_lead: 桌面零变化为不变量 → src/platform/index.ts 运行时探测 + html.platform-android 类 + 视觉改动全落 mobile/android.css；禁用 disabled={!cloudAvailable}；雷区地图 10 条硬地雷已写入派单
+  round_3_note: 两线并行但文件集不重叠；已要求 Phase 3 用 npm install --package-lock-only 避免动 node_modules 污染 Phase 2 的测试
+  decisions_by_lead:
+    - "@capacitor/* 4 个包 → devDependencies（证据：exe/resources/app.asar 102MB，20108/20120 条目在 node_modules 下 → electron-builder 确会打包生产依赖；桌面运行时不需要它们）"
+    - "桌面发布推迟至 Phase 2 完成后一次进行（PATCH 1.17.6 → 1.17.7）；理由：Phase 1 桌面侧改动经字节级验证行为等价，避免同会话两次无增量发布。此为有理由偏离，已上报可否决"
+    - "Phase 2 门控方式：运行时平台探测 + html.platform-android 类 + 视觉改动集中在 mobile/android.css"
 requirement_ledger_required: true
 requirement_ledger:
   - id: RL-A1
