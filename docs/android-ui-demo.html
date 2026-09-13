@@ -12,6 +12,7 @@
   --text:#211d18; --text2:#776e63; --text3:#a09383;
   --accent:#d59b25; --accent-h:#b98218; --gold-dark:#b98218;
   --accent-ink:#211d18; --accent-dim:rgba(213,155,37,.13);
+  --tab-ink:#956d1a;   /* 浅色主题：沿品牌金色相降明度至 4.51:1 的达标金棕 */
   --success:#059669; --warn:#d97706; --danger:#dc2626; --danger-dim:rgba(220,38,38,.12);
   --radius:12px; --radius-sm:7px;
   --font:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;
@@ -23,6 +24,7 @@ html[data-theme="dark"]{
   --text:#eee7da; --text2:#a69b89; --text3:#746958;
   --accent:#d59b25; --accent-h:#efb82f;
   --accent-dim:rgba(213,155,37,.16);
+  --tab-ink:#efb82f;   /* 深色主题：品牌金本身已达 6.49:1，可直接用 */
   --success:#10b981; --warn:#f59e0b; --danger:#ef4444; --danger-dim:rgba(239,68,68,.16);
   --line:#403a31; --muted:#a69b89;
 }
@@ -103,9 +105,15 @@ h1{font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
      min-height:56px;font-size:10.5px;color:var(--text2);border:0;background:transparent;
      border-radius:0;padding:6px 0;font-family:inherit;cursor:pointer;position:relative}
 .tab .gi{font-size:18px;line-height:1}
-/* ⚠ 修正点：当前页 = 文字与图标发金棕色光，**不使用色块遮挡** */
-.tab.on{color:var(--accent);font-weight:650;text-shadow:0 0 5px rgba(213,155,37,.62),0 0 13px rgba(213,155,37,.34)}
-.tab.on .gi{transform:translateY(-1px)}
+/* ⚠ 当前页指示（方案 A 为默认）：**不用发光**（发光会糊），改用
+   ① 顶部 2px 金棕指示线（形状差异，不与品牌金原色在浅色底上硬拼对比度）
+   ② 图标用金棕、文字用正文色（保证小字可读性达标）
+   ③ 字重 400 → 650
+   具体实现由脚本按所选机制覆盖 */
+.tab.on{color:var(--text);font-weight:650}
+.tab.on .gi{color:var(--accent-h);transform:translateY(-1px)}
+.tab.on::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
+                width:28px;height:2px;background:var(--accent-h);border-radius:0 0 2px 2px}
 .tab:active{background:var(--accent-dim)}
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
 .fabwrap{flex:1;display:flex;justify-content:center;align-items:flex-start}
@@ -171,15 +179,19 @@ code{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padd
   <p class="sub">已定案：<b>方案 B（4 Tab + 中央凸起「记一笔」）</b> · 竖屏手机 · 复用桌面端同一套 token</p>
 
   <div class="banner">
-    <b>v2 修正：</b>上一版底部当前页被涂成金色实心块，根因是我的通用规则 <code>button.on{background:var(--accent)}</code> 误命中了 Tab（Tab 的 class 恰好是 <code>tab on</code>）。本版已把该规则限定到顶部控制条；底部当前页改为 <b>文字 + 图标发金棕色光</b>（<code>text-shadow: 0 0 5px rgba(213,155,37,.62), 0 0 13px rgba(213,155,37,.34)</code>），无任何色块遮挡。
+    <b>v3（按你的决定）：发光已关闭</b> —— 你说"开启发光导致模糊"，实测确认发光就是靠 <code>text-shadow</code> 在字形边缘外扩，小字必然发糊，所以<b>彻底不用发光</b>。<br>
+    但关掉之后不能只留"原色金"：我按 WCAG 公式算了一遍，浅色主题下品牌金 <code>#d59b25</code> 压在底栏底色 <code>#fffaf2</code> 上只有 <b>2.37:1</b>，而 10.5px 小字要求 <b>4.5:1</b> → <b>客观不达标</b>（深色主题 6.49:1 反而没问题）。<br>
+    所以默认改成 <b>「顶部 2px 金棕指示线 + 图标金棕 + 文字用正文色」</b>：靠<b>形状</b>而不是靠颜色对比来标当前页，既清晰无模糊、也没有色块遮挡。顶部可切换 4 种机制对比，见页面底部说明。
   </div>
 
   <div class="bar">
     <div class="grp"><label>主题</label>
       <button class="ctl on" id="tLight">浅色</button><button class="ctl" id="tDark">深色</button></div>
-    <div class="grp"><label>当前页发光</label>
-      <button class="ctl" id="g0">关</button><button class="ctl" id="g1">弱</button>
-      <button class="ctl on" id="g2">标准</button><button class="ctl" id="g3">强</button></div>
+    <div class="grp"><label>当前页指示</label>
+      <button class="ctl on" id="mA">金棕线＋正文色（推荐）</button>
+      <button class="ctl" id="mB">金棕线＋金棕字</button>
+      <button class="ctl" id="mC">仅金色加粗</button>
+      <button class="ctl" id="mD">发光（已否决）</button></div>
     <div class="grp"><label>安全区标注</label><button class="ctl on" id="sg">显示</button></div>
   </div>
 
@@ -187,7 +199,7 @@ code{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padd
 
     <!-- 1. 首页 -->
     <div class="cell">
-      <h2>首页 <span style="font-weight:400;color:var(--text2);font-size:12px">· 当前页「首页」发光</span></h2>
+      <h2>首页 <span style="font-weight:400;color:var(--text2);font-size:12px">· 当前页「首页」</span></h2>
       <p class="desc">4 个 Tab + 中央凸起「记一笔」，与桌面侧栏 5 项一一对应。</p>
       <div class="phone">
         <div class="safe top" data-lbl="safe-area-inset-top"></div>
@@ -221,8 +233,8 @@ code{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padd
 
     <!-- 2. 统计 -->
     <div class="cell">
-      <h2>统计 <span style="font-weight:400;color:var(--text2);font-size:12px">· 当前页「统计」发光</span></h2>
-      <p class="desc">发光只落在当前页，其余保持静默 —— 切换时可直接对比。</p>
+      <h2>统计 <span style="font-weight:400;color:var(--text2);font-size:12px">· 当前页「统计」</span></h2>
+      <p class="desc">指示线只落在当前页，其余保持静默 —— 切换时可直接对比。</p>
       <div class="phone">
         <div class="safe top" data-lbl="safe-area-inset-top"></div>
         <div class="statusbar"><span>9:41</span><span>雷霆记账 ⌁ 5G ▮</span></div>
@@ -358,10 +370,34 @@ code{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padd
     <table>
       <tr><th style="width:170px">决策项</th><th>结论</th></tr>
       <tr><td><b>底部导航形态</b></td><td>采纳 <b>方案 B</b> —— 4 Tab（首页 / 账单 / 统计 / 我的）+ 中央凸起「记一笔」。与桌面侧栏 5 项一一对应，记账入口更突出。</td></tr>
-      <tr><td><b>当前页指示</b></td><td>改为 <b>文字 + 图标发金棕色光</b>，不用色块。顶部可切换「关 / 弱 / 标准 / 强」四档，请挑定一档（默认「标准」）。</td></tr>
+      <tr><td><b>当前页指示</b></td><td><b>发光已关闭</b>（你的判断正确：发光就是字形边缘外扩，小字必然发糊）。默认采纳 <b>方案 A：顶部 2px 金棕指示线 + 图标金棕 + 文字用正文色 + 字重加粗</b>。原因见下方对比度表 —— 关掉发光后不能直接用原色金，浅色主题只有 2.37:1，不达标。</td></tr>
       <tr><td><b>分类删除</b></td><td><b>需要二次确认</b>。确认框显示子类数量，并说明已用该分类的账单不会被删、只会变成「未分类」。</td></tr>
       <tr><td><b>拖动 / 删除入口</b></td><td><b>仅编辑模式内可用</b>。普通模式点分类只做重命名 / 改图标。</td></tr>
     </table>
+
+    <h2 style="margin-top:18px">当前页指示 · 候选机制实测对比度（WCAG 公式计算，非目测）</h2>
+    <table>
+      <tr><th style="width:200px">机制</th><th style="width:140px">浅色主题</th><th style="width:140px">深色主题</th><th>结论</th></tr>
+      <tr><td><b>A</b> 金棕线 ＋ 正文色 ＋ 加粗<br>（默认）</td>
+          <td>文字 16.12:1<br>指示线 3.22:1</td>
+          <td>文字 13.5:1<br>指示线 6.49:1</td>
+          <td><b>推荐</b>。文字过小字阈值 4.5:1、指示线过非文本阈值 3:1，双双达标；靠<b>形状</b>区分，不依赖颜色对比。</td></tr>
+      <tr><td><b>B</b> 金棕线 ＋ 金棕字 ＋ 加粗</td>
+          <td>文字 4.51:1<br>指示线 3.22:1</td>
+          <td>文字 8.79:1<br>指示线 6.49:1</td>
+          <td>可达标，但要<b>牺牲品牌金</b>：浅色主题得把金压暗到 <code>#956d1a</code> 才够 4.5:1（原色只有 2.37:1）。</td></tr>
+      <tr><td><b>C</b> 仅金色加粗（无发光、无线）</td>
+          <td>文字 <b>2.37:1</b></td>
+          <td>文字 6.49:1</td>
+          <td><b>浅色主题不达标</b>（2.37 &lt; 4.5），户外/阳光下基本看不清。深色主题可用。</td></tr>
+      <tr><td><b>D</b> 发光</td>
+          <td>2.37:1 + 模糊</td>
+          <td>6.49:1 + 模糊</td>
+          <td><b>已否决</b>：<code>text-shadow</code> 沿字形边缘外扩，小字必然发糊，且并不解决对比度问题。仅保留供对比。</td></tr>
+    </table>
+    <div class="note">
+      <b>为什么关掉发光后不能直接就用原色金</b>：底栏文字 10.5px 属 WCAG 小字，需要 4.5:1；品牌金 <code>#d59b25</code> 压在底栏底 <code>#fffaf2</code> 上只有 <b>2.37:1</b>。这不是审美偏好，是<b>能不能看清</b>的问题。方案 A 把金棕色放在指示线与图标上（非文本元素 3:1 即可），文字保持正文色 —— 品牌感保留、可读性达标、零模糊、零遮挡。
+    </div>
     <div class="note">
       <b>安全区</b>：手机壳上下两条虚线是 <code>env(safe-area-inset-top/bottom)</code> 的实际占位。刘海与手势条会吃掉这部分高度 —— 桌面端没有这个概念，所以底部导航、FAB、以及「记一笔」弹窗的底部按钮都必须算进去，否则会被手势条压住。<br>
       <b>触控目标</b>：Tab 56px、拖动把手与删除按钮 44px，均 ≥ Android 无障碍下限 44dp。<br>
@@ -380,19 +416,32 @@ const bL = document.getElementById('tLight'), bD = document.getElementById('tDar
 bL.onclick = () => { root.dataset.theme='light'; bL.classList.add('on'); bD.classList.remove('on'); };
 bD.onclick = () => { root.dataset.theme='dark';  bD.classList.add('on'); bL.classList.remove('on'); };
 
-/* 当前页发光四档 */
-const GLOW = {
-  g0:'none',
-  g1:'0 0 4px rgba(213,155,37,.42), 0 0 9px rgba(213,155,37,.22)',
-  g2:'0 0 5px rgba(213,155,37,.62), 0 0 13px rgba(213,155,37,.34)',
-  g3:'0 0 7px rgba(213,155,37,.85), 0 0 20px rgba(213,155,37,.50)'
+/* 当前页指示：四机制切换（默认 A = 金棕线 + 正文色，已停用发光） */
+const MECH = {
+  mA: `.tab.on{color:var(--text);font-weight:650}
+       .tab.on .gi{color:var(--accent-h)}
+       .tab.on::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
+                       width:28px;height:2px;background:var(--accent-h);border-radius:0 0 2px 2px}`,
+  mB: `.tab.on{color:var(--tab-ink);font-weight:650}
+       .tab.on .gi{color:var(--tab-ink)}
+       .tab.on::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);
+                       width:28px;height:2px;background:var(--accent-h);border-radius:0 0 2px 2px}`,
+  mC: `.tab.on{color:var(--accent);font-weight:650}
+       .tab.on .gi{color:var(--accent)}
+       .tab.on::before{display:none}`,
+  mD: `.tab.on{color:var(--accent);font-weight:650;
+               text-shadow:0 0 5px rgba(213,155,37,.62),0 0 13px rgba(213,155,37,.34)}
+       .tab.on .gi{color:var(--accent)}
+       .tab.on::before{display:none}`
 };
-let glowStyle = document.getElementById('glowStyle');
-if(!glowStyle){ glowStyle = document.createElement('style'); glowStyle.id='glowStyle'; document.head.appendChild(glowStyle); }
-function setGlow(key){ glowStyle.textContent = '.tab.on{text-shadow:' + GLOW[key] + '}';
-  grp(['g0','g1','g2','g3']).forEach(b => b.classList.toggle('on', b.id === key)); }
-grp(['g0','g1','g2','g3']).forEach(b => b.onclick = () => setGlow(b.id));
-setGlow('g2');
+let mechStyle = document.getElementById('mechStyle');
+if (!mechStyle) { mechStyle = document.createElement('style'); mechStyle.id = 'mechStyle'; document.head.appendChild(mechStyle); }
+function setMech(key){
+  mechStyle.textContent = MECH[key];
+  grp(['mA','mB','mC','mD']).forEach(b => b.classList.toggle('on', b.id === key));
+}
+grp(['mA','mB','mC','mD']).forEach(b => b.onclick = () => setMech(b.id));
+setMech('mA');
 
 /* 安全区标注 */
 const sg = document.getElementById('sg');

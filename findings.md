@@ -168,6 +168,80 @@
 - **处置**：P1-2 抽取时必须**保留惰性调用形态**，并补一条「循环依赖下模块可正常求值」的断言；不得为"看起来更干净"而重排 import。
 - 证据：本段行号取证
 
+### S1 —— Capacitor 工程在本机可构建 ✅ **BUILD SUCCESSFUL（阻塞项打通）**
+
+- **隔离**：spike 建在仓库外 `E:/Code/Android/cap-spike`，**不污染本仓库**（不产生 `android/`、`dist-android/` 等）
+- **结果**：`BUILD SUCCESSFUL in 3m 14s`，`GRADLE_EXIT=0`，93 个 task 全执行
+- **产物**：`android/app/build/outputs/apk/debug/app-debug.apk` **4.0 MB**
+- **APK 元信息**（`aapt2 dump badging`）：`package=com.thunderspike.demo`、`versionCode=1`、`compileSdkVersion=36`、`targetSdkVersion=36`
+
+**设备段（模拟器 `Pixel_8` / API 37）—— 全项通过**：
+
+| 检查 | 结果 |
+|---|---|
+| 设备上线 | `emulator-5554  device` |
+| 开机完成 | `boot_completed=1`（第 5 次探测） |
+| 安装 | `Performing Streamed Install` → **`Success`** |
+| 启动 | `Starting: Intent { cmp=com.thunderspike.demo/.MainActivity }` |
+| 前台 Activity | `topResumedActivity=com.thunderspike.demo/.MainActivity` ✅ |
+| 已装版本 | `versionName=1.0` |
+| 进程存活 | `S com.thunderspike.demo`（pid 1955） |
+| **崩溃日志** | **空**（`logcat -b crash -d` 无输出） |
+| **渲染验证** | 截图 `s1-shot.png` 显示 WebView **正常渲染**页面（标题 + 按钮 + `n=0` + 系统状态栏 + 底部手势条）→ **非白屏** |
+
+> **附带印证**：截图底部的**系统手势条**真实占据了屏幕底部约 24px —— 这从设备侧印证了 P2-4（安全区）的必要性：底部导航、FAB 与「记一笔」弹窗的底部按钮**必须**用 `env(safe-area-inset-bottom)` 让位，否则会被手势条压住。
+>
+> **沙箱约束（重要，可复用）**：模拟器**不能**在沙箱内启动 —— 沙箱内启动的进程被立即杀掉（`emu.log` 为空、`adb` 报 `protocol fault (couldn't read status): connection reset`）。必须把「启动模拟器 → 等待 → 安装 → 启动 → 验证」放在**同一条非沙箱命令**里串行执行。
+>
+> **证据**：`E:/Code/Android/cap-spike/s1-device.log`（完整链路日志）、`s1-shot.png`（渲染截图）
+
+**Capacitor 8.5.2 的真实版本要求（推翻了 `android-packager` skill 的固化值）**：
+
+| 项 | Capacitor 8 要求 | 本机缓存/已解压 | 结论 |
+|---|---|---|---|
+| Gradle | **8.14.3** | 已解压 8.10.2 | ❌ 不适用，必须下载 8.14.3 |
+| AGP | **8.13.0** | 缓存 8.5.2 | ❌ 完全不适用 |
+| compileSdk / targetSdk | **36** | 已装 android-36 | ✅ 可用 |
+| minSdk | 24 | — | — |
+| androidx.webkit | **1.14.0** | 未缓存 | 需下载 |
+| androidx.coordinatorlayout | **1.3.0** | 未缓存 | 需下载 |
+
+> ⚠ **skill 事实纠偏**：用户级 `android-packager` skill 固化的「Gradle 8.10.2 + AGP 8.5.2」是在**纯 AGP 空 demo** 上验证的，**对 Capacitor 8 项目不成立**。该 skill 的「JDK 用 JBR 21（别用系统 JDK 24）」这条**依然正确且本轮再次验证**；但 Gradle/AGP 版本必须随宿主框架重新对齐，不可照搬。
+
+**两个卡住过的坑（可复用）**：
+
+1. **沙箱阻断 Maven** → 所有 Gradle 构建必须**脱离沙箱**跑；沙箱内 `dl.google.com` 等返回 200 但 0 字节（本项目历史已记录，本轮再次确认）
+2. **`services.gradle.org` 极慢 + 下错包类型** →
+   - wrapper 默认拉的是 `-all` 发行版（约 230 MB，含源码与文档），**空下载 22 分钟后仅 77 MB**
+   - 应改用 **`-bin`（131 MB）**；实测 `services.gradle.org` / `mirrors.cloud.tencent.com` / `mirrors.huaweicloud.com` 三者的 `Content-Length` 完全一致（`137393837`）→ 同一份文件，镜像是安全的
+   - 换腾讯镜像 + `-bin` 后**下载瞬间完成**，构建 3m14s 通过
+   - **阿里云没有** `mirrors.aliyun.com/gradle/` 路径（404），不要照抄
+3. **Maven 依赖加速**：在根 `build.gradle` 的 `buildscript` 与 `allprojects` 两处 `repositories` 前置 `maven.aliyun.com` 的 `google` / `public` / `gradle-plugin` 三个镜像，并保留 `google()` / `mavenCentral()` 兜底
+
+**证据**：`E:/Code/Android/cap-spike/build.log`（完整构建日志，含 `BUILD SUCCESSFUL` 与 `GRADLE_EXIT=0`）；APK 元信息见上
+
+### 附：demo v3 —— 当前页指示「发光=关」的修复与验证 ✅ **PASS**
+
+- **用户决定**：发光强度选 **关**，理由「开启发光强度导致模糊」——**判断正确**：发光即 `text-shadow`，沿字形边缘外扩，10.5px 小字必然发糊
+- **量化复核（关键）**：关掉发光后不能直接留原色金。WCAG 公式计算：
+
+| 配色 | 对比度 | 判定 |
+|---|---|---|
+| 浅色 `--accent #d59b25` on `#fffaf2` | **2.37:1** | ❌ 小字需 4.5:1 |
+| 浅色 `--accent-h #b98218` on `#fffaf2` | 3.22:1 | 仅过非文本阈值 3:1 |
+| 浅色 `#956d1a`（沿品牌色相降明度至达标点） | **4.51:1** | ✅ |
+| 浅色 正文 `--text #211d18` on `#fffaf2` | 16.12:1 | ✅ |
+| 深色 `--accent #d59b25` on `#202224` | **6.49:1** | ✅（深色主题原色金本就达标） |
+
+→ **结论：浅色主题下品牌金原色不能直接当底栏小字色**（不是审美问题，是可读性问题）。默认改为 **方案 A：顶部 2px 金棕指示线（`--accent-h`，3.22:1 过非文本 3:1）+ 图标金棕 + 文字用正文色 + 字重加粗** —— 靠**形状**而非颜色对比标当前页，零模糊、零遮挡。
+
+- **验证方式（真实浏览器，非静态读 CSS）**：`artifacts/spike-android/verify-demo-tab-indicator.mjs`（Playwright + Chromium，从受管 node 工作区加载，不污染项目依赖）
+  - **32 项断言 / 0 失败 / VERDICT: PASS**，覆盖 浅色×深色 × 4 种机制
+  - **关键断言**：8 组用例中**所有 Tab 的计算背景色均为 `rgba(0,0,0,0)`** → 用户报的「金色色块遮挡」缺陷**由计算样式证明根除**
+  - 逐机制实测：mA 选中文字 `rgb(33,29,24)`＝`--text`、指示线 `28px×2px`、无 text-shadow；mB 文字 `rgb(149,109,26)`＝`#956d1a`；mC/mD 无指示线；仅 mD 有 text-shadow（**仅作对照，实现时不采用**）
+- **顺带修掉一个自身缺陷**：C/D 机制原先**不会**移除基础样式里的指示线（`mechStyle` 只替换注入样式，基础 `.tab.on::before` 仍在）→ 已在 C/D 显式加 `::before{display:none}`，并由上面的断言覆盖
+- 证据：`artifacts/spike-android/demo-tab-indicator-result.json` + `verify-demo-tab-indicator.mjs`
+
 ---
 
 # SACW Findings — v1.17.5 缺陷轮：Portal 化导致祖先作用域丢失

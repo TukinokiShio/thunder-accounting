@@ -90,6 +90,20 @@ Phase 3 打包与验收
 - **失败处置**：任一 P0 级 spike 失败 → 记录归因 → **回流 PLAN 重选方案**（不硬推；不得降级成"只出 Web 版"充数）
 - **S1/S2 为阻塞项**：未通过不得进入 Phase 1
 
+### 执行结果（2026-09-13）
+
+| # | 状态 | 结论摘要 |
+|---|---|---|
+| **S1** | ✅ **PASS（阻塞项打通）** | `BUILD SUCCESSFUL in 3m 14s` / `GRADLE_EXIT=0` / APK 4.0MB；`Pixel_8` 安装 `Success`，`topResumedActivity` 命中，崩溃日志空，**截图确认 WebView 非白屏** |
+| **S2** | ✅ **PASS（渲染路径段）** | 5 万行库单次「记一笔」全链路 **10.1ms** → 证伪红队 R2，维持 sql.js。**设备段待 Phase 1 后补测** |
+| **S4** | ✅ **前置 PASS** | 接口 41 == preload 41，集合相等；**新发现契约有两份独立定义会静默漂移** → C1 断言须同时覆盖两份 |
+| **S6** | ✅ **取证完成** | 确认真实值级循环依赖（`index.ts:5` ↔ `export.ts:1-2`），靠 `getDb()` 惰性调用绕过 → **P1-2 必须保留该形态** |
+| **S3** | ⏳ 待做 | 触屏不可达元素清单（headless Chromium 375×812 扫描） |
+| **S5** | ⏳ 待做 | `user === null` 下 Profile / 顶栏渲染路径 |
+| **S7** | ⏳ 待做 | WASM 资源进 APK 的产物级断言 |
+
+> **关键环境结论（已写入项目 wiki）**：Capacitor 8 要求 **Gradle 8.14.3 + AGP 8.13.0**（`android-packager` skill 固化的 8.10.2/8.5.2 对 Capacitor 项目**不成立**）；wrapper 应用 `-bin` + 腾讯镜像；**沙箱内既不能解析 Maven 也不能跑模拟器** —— 完整链路必须非沙箱单命令串行。
+
 ### Phase 1 — 适配层抽取（**桌面零行为变化**）
 - **P1-1**：`src/types/index.ts` 的 `ElectronAPI` 提取为平台无关契约 `AppAPI`（**同 41 方法名**，`ElectronAPI = AppAPI` 别名保持兼容）
 - **P1-2**：DB 纯逻辑与持久化解耦（注入 `StoragePort`）；桌面实现 = 现有 `fs` 路径，**行为逐位不变**
