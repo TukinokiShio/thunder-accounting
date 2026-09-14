@@ -45,7 +45,7 @@ describe('AuthGuard 平台分支', () => {
   })
 
   it('桌面 + 已登录 → 渲染 children', () => {
-    useStore.setState({ user: { uid: 'u1', email: 'u1@example.com' }, isCheckingSession: false })
+    useStore.setState({ user: { uid: 'u1', email: 'u1@example.com', emailVerified: true }, isCheckingSession: false })
     render(<AuthGuard><div data-testid="app-content" /></AuthGuard>)
     expect(screen.getByTestId('app-content')).toBeInTheDocument()
   })

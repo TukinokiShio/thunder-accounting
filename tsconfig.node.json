@@ -14,5 +14,11 @@
     "declaration": true,
     "composite": true
   },
-  "include": ["main-process/**/*.ts", "electron-vite.config.mjs"]
+  "include": [
+    "main-process/**/*.ts",
+    "electron-vite.config.mjs",
+    "src/database-addcategory.test.ts",
+    "src/database-deletecategory.test.ts",
+    "src/database-switchuser.test.ts"
+  ]
 }

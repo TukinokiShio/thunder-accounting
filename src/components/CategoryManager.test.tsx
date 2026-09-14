@@ -82,7 +82,7 @@ describe('CategoryManager', () => {
     const getCategories = vi.fn().mockResolvedValue([
       { id: 7, name: '餐饮食品', icon: '🍜', children: '["午餐"]', type: 'expense', is_preset: 1 },
     ]);
-    (window as unknown as { electronAPI: { getCategories: ReturnType<typeof vi.fn> } }).electronAPI = {
+    (window as unknown as { electronAPI: { getCategories: ReturnType<typeof vi.fn>; addCategory: ReturnType<typeof vi.fn> } }).electronAPI = {
       getCategories,
       addCategory: vi.fn().mockResolvedValue(undefined),
     };
