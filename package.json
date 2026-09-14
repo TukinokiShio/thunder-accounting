@@ -14,6 +14,7 @@
     "verify:release": "node scripts/verify-release.cjs",
     "verify:modal-scope": "node scripts/verify-modal-scope.cjs",
     "verify:android-layout": "node scripts/verify-android-layout.cjs",
+    "verify:desktop-parity": "node scripts/verify-desktop-parity.cjs",
     "verify:cloud-deletion": "node scripts/verify-cloud-deletion.cjs",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "deploy": "node scripts/deploy.cjs",
