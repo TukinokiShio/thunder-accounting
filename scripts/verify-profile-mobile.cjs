@@ -19,9 +19,20 @@
  * 用法：
  *   node scripts/verify-profile-mobile.cjs                    # 量测本仓库
  *   node scripts/verify-profile-mobile.cjs --json out/p.json  # 落盘原始量测
+ *   node scripts/verify-profile-mobile.cjs --self-check       # 额外跑 P6 判据的最小对照
+ *
+ * 关于 `--self-check`（P6s）——为什么要单独一条、且默认不跑：
+ *   P6 里「面板内不得有横向裁剪容器」这条判据，原本读的是 class 名
+ *   （`overflow-x-(auto|scroll|hidden)` 三个 Tailwind 工具类）。那样它绑在**一种写法**上：
+ *   换成内联 `style`、任意类名 + 自己的规则、甚至 `overflow-auto`，它照样报绿但已不看机制。
+ *   现在改成读计算样式 `getComputedStyle().overflowX`。
+ *   `--self-check` 注入三种**都不含**那三个类名字符串的横向容器，要求：
+ *     旧判据 = 0（漏过全部）、新判据 = 3（抓到全部）、注入态 P6 真的变红、移除后回到干净态。
+ *   这条断言是**可失败**的：把判据改回读 class 名，它会立刻变红 —— 所以它不是空转。
+ *   默认不跑，是为了让常规输出稳定保持 7 条（不打扰其他门禁的汇总口径）。
  *
  * 退出码：
- *   0 = 7 条全 PASS
+ *   0 = 全部 PASS
  *   1 = 有断言 FAIL
  *   2 = 环境未就绪（缺 node_modules / 构建失败 / 找不到浏览器 / 安卓视口自检不成立）
  *
@@ -73,10 +84,11 @@ function canonDir(p) {
 }
 
 function parseArgs(argv) {
-  const out = { root: canonDir(path.resolve(SCRIPT_DIR, '..')), json: null }
+  const out = { root: canonDir(path.resolve(SCRIPT_DIR, '..')), json: null, selfCheck: false }
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--root') out.root = canonDir(argv[++i])
     else if (argv[i] === '--json') out.json = argv[++i]
+    else if (argv[i] === '--self-check') out.selfCheck = true
   }
   return out
 }
@@ -134,13 +146,12 @@ function printReport(report, sourceChecks) {
   log(`  语言切换器 rect   : ${JSON.stringify(env.switcherRect)}`)
   log(`  本机面板存在      : ${env.hasLocalProfilePanel}`)
   log('')
-  log(`── ${CHECK_ORDER.length + sourceChecks.length} 条断言 ─────────────────────────────────────────`)
-  const all = [...(report.checks || []), ...sourceChecks]
+  const all = [...(report.checks || []), ...(report.selfCheck ? [report.selfCheck] : []), ...sourceChecks]
   all.sort((a, b) => {
-    const ai = a.id === 'P0s' ? -1 : CHECK_ORDER.indexOf(a.id)
-    const bi = b.id === 'P0s' ? -1 : CHECK_ORDER.indexOf(b.id)
-    return ai - bi
+    const orderOf = (id) => (id === 'P0s' ? -1 : id === 'P6s' ? 99 : CHECK_ORDER.indexOf(id))
+    return orderOf(a.id) - orderOf(b.id)
   })
+  log(`── ${all.length} 条断言 ─────────────────────────────────────────`)
   for (const c of all) {
     log(`${c.pass ? 'PASS' : 'FAIL'}  ${pad(c.id, 4)} ${c.title}`)
     log(`        实际: ${c.actual}`)
@@ -152,7 +163,7 @@ function printReport(report, sourceChecks) {
 }
 
 function main() {
-  const { root, json } = parseArgs(process.argv)
+  const { root, json, selfCheck } = parseArgs(process.argv)
   log(`${LABEL} —— 「我的」页（安卓本机账本）几何门禁`)
   preflight(root)
 
@@ -164,7 +175,7 @@ function main() {
     files: ['profile-probe.tsx', 'profile-driver.ts'],
     probeEntry: './profile-probe.tsx',
     scratchDir: harness.uniqueScratch('profile-gate'),
-    define: { __PROFILE_GATE_EXPECT__: JSON.stringify(EXPECT) }
+    define: { __PROFILE_GATE_EXPECT__: JSON.stringify({ ...EXPECT, selfCheck }) }
   })
   const builtHtml = harness.buildProbe(root, scratch, browser)
   const { tmpDir, outPath } = harness.inlinePage(builtHtml)
@@ -189,7 +200,7 @@ function main() {
 
   const sourceChecks = staticChecks(root)
   const failed = printReport(report, sourceChecks)
-  const total = report.checks.length + sourceChecks.length
+  const total = report.checks.length + sourceChecks.length + (report.selfCheck ? 1 : 0)
 
   if (json) {
     const p = path.resolve(process.cwd(), json)

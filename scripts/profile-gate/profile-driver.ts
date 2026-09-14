@@ -29,16 +29,21 @@ export interface GateReport {
   viewport: { w: number; h: number }
   env: Record<string, unknown>
   checks: GateCheck[]
+  /** 仅在 `selfCheck` 阈值开启时存在：P6 判据的最小对照（旧漏 / 新抓）。 */
+  selfCheck?: GateCheck
   fatal?: string
 }
 
 /**
  * 阈值由 `verify-profile-mobile.cjs` 通过 vite `define` 注入（单一事实源，
  * 避免「报告里写的阈值」与「代码里用的阈值」漂移）。
+ *
+ * `selfCheck`：为 true 时额外跑一次「P6 判据」的最小对照（注入横向容器，
+ * 看 class 名判据漏过几个、计算样式判据抓到几个）。默认关闭，不进常规 7 条。
  */
-declare const __PROFILE_GATE_EXPECT__: { contentRatio: number }
+declare const __PROFILE_GATE_EXPECT__: { contentRatio: number; selfCheck?: boolean }
 
-function thresholds(): { contentRatio: number } {
+function thresholds(): { contentRatio: number; selfCheck?: boolean } {
   if (typeof __PROFILE_GATE_EXPECT__ !== 'object' || __PROFILE_GATE_EXPECT__ === null) {
     throw new Error('__PROFILE_GATE_EXPECT__ 未注入：门禁阈值缺失（探针页必须由 verify-profile-mobile.cjs 构建）')
   }
@@ -315,30 +320,208 @@ function checkP5(band: Band): GateCheck {
   }
 }
 
-function checkP6(): GateCheck {
+/* ───────────────── 横向裁剪容器：判据必须绑「机制」，不能绑「写法」 ───────────────── */
+
+/**
+ * 旧判据（**已不作为 pass 依据，只保留为报告里的对照项**）：只认 Tailwind 的
+ * `overflow-x-(auto|scroll|hidden)` 这三个工具类名字符串。
+ *
+ * 为什么它是一条**会静默变成空话**的判据：事故的机制是「`overflow-x ≠ visible` 的盒子把超宽
+ * 子项裁掉」，而这个机制有无穷多种写法 —— 内联 `style`、任意类名 + 自己的 CSS 规则、
+ * 组件库类名，甚至同样是 Tailwind 的 `overflow-auto` / `overflow-hidden`（两者都会把
+ * `overflow-x` 展开成 auto/hidden）。把判据绑在这三个字符串上，等于绑在**一种写法**上：
+ * 换一种写法，它照样报绿，但已经不再看机制了。
+ */
+const LEGACY_OVERFLOW_X_CLASS = /(^|\s)overflow-x-(auto|scroll|hidden)\b/
+
+/** 只会被旧判据命中的元素（保留为对照；**不参与 pass/fail**）。 */
+function legacyClassContainers(scope: HTMLElement): HTMLElement[] {
+  return Array.from(scope.querySelectorAll<HTMLElement>('*')).filter(
+    (el) => isRendered(el) && LEGACY_OVERFLOW_X_CLASS.test(el.className)
+  )
+}
+
+/** 可横向滚动（潜在机制本身：能不能滚，而不是此刻有没有溢出）。 */
+const X_SCROLL = new Set(['auto', 'scroll'])
+/** 静默裁剪（真的把东西藏出可视区时才算，见 `silentlyClipped`）。 */
+const X_CLIP = new Set(['hidden', 'clip'])
+
+interface ClipScan {
+  /** 可横向滚动的容器 —— 即使当前没溢出也记入。 */
+  scrollable: HTMLElement[]
+  /** 静默裁剪且**确实**裁掉了东西的容器。 */
+  silentlyClipped: HTMLElement[]
+}
+
+/**
+ * 扫描横向裁剪容器 —— **读计算样式**（`getComputedStyle().overflowX`），不读 class 名。
+ *
+ * 分两类表达，是为了不把「装饰性 `overflow-hidden` 但没裁掉任何东西」这种无害写法判红
+ * （本页 `Preferences` 的语言切换分组就用了 `overflow-hidden` 做圆角裁边，它既不滚动、
+ * 也没有东西超出，不是藏入口的机制）：
+ *   ① `overflowX ∈ {auto, scroll}` → 判红。**即使当前没溢出也判红**，理由见 gp-21 的对照：
+ *      「不溢出」是随时会失效的状态，不是安全状态；一个可横向滚动的容器就是
+ *      「塞不下就用滚动兜底」这个形态本身，下一个更长的文案就会重演事故。
+ *   ② `overflowX ∈ {hidden, clip}` 且 `scrollWidth > clientWidth + 1` → 判红（此刻真有内容
+ *      被藏在可视区外）。这类与「实际溢出」这个状态绑定，所以只在真的裁剪时才算。
+ */
+function scanHorizontalClip(scope: HTMLElement): ClipScan {
+  const scrollable: HTMLElement[] = []
+  const silentlyClipped: HTMLElement[] = []
+  for (const el of Array.from(scope.querySelectorAll<HTMLElement>('*'))) {
+    if (!isRendered(el)) continue
+    const ox = getComputedStyle(el).overflowX
+    if (X_SCROLL.has(ox)) scrollable.push(el)
+    else if (X_CLIP.has(ox) && el.scrollWidth > el.clientWidth + 1) silentlyClipped.push(el)
+  }
+  return { scrollable, silentlyClipped }
+}
+
+interface P6Counts {
+  profileNavs: number
+  navsInsidePanel: number
+  scrollable: HTMLElement[]
+  silentlyClipped: HTMLElement[]
+  legacy: HTMLElement[]
+  panel: HTMLElement | null
+}
+
+/**
+ * 量测 P6 的四个计数（纯量测，不判定）—— 判据抽出来才能对**同一个页面**
+ * 量两次（干净态 / 注入态）做最小对照。
+ *
+ * 范围界定：只看「我的」页自己的分区导航。
+ *  · `.profile-nav`（旧版左侧 Tab 导航栏）必须不存在；
+ *  · 面板内部不得有 nav；
+ *  · 面板内不得有横向裁剪容器。
+ * **不包括**底部 Tab 栏（`AndroidTabBar` 的 `<nav class="android-tabbar">`）：
+ * 那是整机导航，是本页之外的既定结构，它的 4 个 Tab 也不在本页做横向滚动。
+ */
+function evaluateP6(): P6Counts {
   const panel = document.querySelector<HTMLElement>('[data-testid="local-profile"]')
-  // 只针对「我的」页自己的分区导航：
-  //  · `.profile-nav`（旧版左侧 Tab 导航栏）必须不存在；
-  //  · 面板内部不得有 nav；
-  //  · 面板内不得有横向裁剪容器。
-  // **不包括**底部 Tab 栏（`AndroidTabBar` 的 `<nav class="android-tabbar">`）：
-  // 那是整机导航，是本页之外的既定结构，它的 4 个 Tab 也不在本页做横向滚动。
   const profileNavs = Array.from(document.querySelectorAll<HTMLElement>('.profile-nav'))
-  const inside = panel ? Array.from(panel.querySelectorAll<HTMLElement>('nav')).filter(isRendered) : []
-  const clipContainers = Array.from(document.querySelectorAll<HTMLElement>('.local-profile-panel *'))
-    .filter((el) => isRendered(el) && /(^|\s)overflow-x-(auto|scroll|hidden)\b/.test(el.className))
-  const ok = profileNavs.length === 0 && inside.length === 0 && clipContainers.length === 0
+  const navsInsidePanel = panel ? Array.from(panel.querySelectorAll<HTMLElement>('nav')).filter(isRendered) : []
+  const scan = panel ? scanHorizontalClip(panel) : { scrollable: [], silentlyClipped: [] }
+  const legacy = panel ? legacyClassContainers(panel) : []
   return {
-    id: 'P6',
-    title: '「我的」页没有分区导航（横向滚动导航容器从结构上不存在）',
-    pass: ok,
-    actual: `.profile-nav 数=${profileNavs.length}，面板内 nav=${inside.length}，面板内横向裁剪元素=${clipContainers.length}`,
-    threshold: '.profile-nav 数 = 0 且 面板内已渲染 nav 数 = 0 且 面板内 overflow-x-* 元素数 = 0',
-    detail: clipContainers.length
-      ? `横向裁剪元素=${clipContainers.map(describe).join(', ')}`
-      : `面板标题序列=${JSON.stringify(Array.from(panel?.querySelectorAll('h2, h3') ?? []).map((h) => h.textContent))}`
+    profileNavs: profileNavs.length,
+    navsInsidePanel: navsInsidePanel.length,
+    scrollable: scan.scrollable,
+    silentlyClipped: scan.silentlyClipped,
+    legacy,
+    panel
   }
 }
+
+const P6_TITLE = '「我的」页没有分区导航（横向滚动导航容器从结构上不存在）'
+const P6_THRESHOLD =
+  '.profile-nav 数 = 0 且 面板内已渲染 nav 数 = 0 且 面板内横向裁剪容器 = 0（口径：getComputedStyle().overflowX；可横滚 auto/scroll 一律计数，静默裁剪 hidden/clip 仅在真的裁掉了东西时计数）'
+
+function makeP6(c: P6Counts): GateCheck {
+  const offending = [...c.scrollable, ...c.silentlyClipped]
+  const ok = c.profileNavs === 0 && c.navsInsidePanel === 0 && offending.length === 0
+  return {
+    id: 'P6',
+    title: P6_TITLE,
+    pass: ok,
+    actual: `.profile-nav 数=${c.profileNavs}，面板内 nav=${c.navsInsidePanel}，面板内横向裁剪容器=${offending.length}（可横滚 ${c.scrollable.length} + 静默裁剪 ${c.silentlyClipped.length}）`,
+    threshold: P6_THRESHOLD,
+    detail:
+      offending.length > 0
+        ? `横向裁剪容器=${offending.map(describe).join(', ')}；判据对照（class 名判据=${c.legacy.length}，计算样式判据=${offending.length}）`
+        : `判据对照（class 名判据=${c.legacy.length}，计算样式判据=0）；面板标题序列=${JSON.stringify(
+            Array.from(c.panel?.querySelectorAll('h2, h3') ?? []).map((h) => h.textContent)
+          )}`
+  }
+}
+
+/* ───────────────────── P6 判据的最小对照（旧漏 / 新抓） ───────────────────── */
+
+/** 判据对照：把横向容器用**不含 `overflow-x-*` 工具类名**的写法注入面板，两个判据各抓到几个。 */
+const CONTRAST_STYLE = '.profile-gate-arbitrary-rail{overflow-x:auto;}'
+
+/**
+ * 注入三种「旧判据看不见、新判据说得清」的横向容器写法：
+ *   ① 内联样式 `overflow-x:auto`（`className` 为空 —— 判据读 class 就永远看不到它）
+ *   ② 任意类名 + 自己的 CSS 规则（`overflow-x:auto`）—— 证明「换一种写法」就等于换掉判据
+ *   ③ 内联 `overflow-x:hidden` + 900px 子项 —— 属于「静默裁剪」，且此刻**真的**裁掉了内容
+ * 三种写法都能把内容藏出可视区，且都**不含** `overflow-x-(auto|scroll|hidden)` 这个类名字符串。
+ *
+ * ⚠ 为什么不用 Tailwind 的 `overflow-auto` 类做第 4 种写法（它同样能骗过旧判据）：
+ * 探针构建时 Tailwind 只扫描它的 content 范围，`scripts/**` 里的类名不保证被生成 ——
+ * 那样注入会「悄悄不生效」，让对照的结论取决于构建而不是判据。内联样式与自建规则不依赖构建。
+ */
+function injectHorizontalContainers(panel: HTMLElement): { nodes: HTMLElement[]; style: HTMLStyleElement } {
+  const style = document.createElement('style')
+  style.textContent = CONTRAST_STYLE
+  document.head.appendChild(style)
+
+  const make = (form: string): HTMLElement => {
+    const box = document.createElement('div')
+    box.setAttribute('data-gate-inject', form)
+    const wide = document.createElement('div')
+    wide.style.width = '900px'
+    wide.textContent = 'contrast'
+    box.appendChild(wide)
+    return box
+  }
+
+  const inlineAuto = make('inline-style')
+  inlineAuto.style.overflowX = 'auto' // ①
+  const arbitraryClass = make('arbitrary-class')
+  arbitraryClass.className = 'profile-gate-arbitrary-rail' // ②
+  const inlineHidden = make('inline-hidden')
+  inlineHidden.style.overflowX = 'hidden' // ③
+
+  const nodes = [inlineAuto, arbitraryClass, inlineHidden]
+  const host = panel.firstElementChild ?? panel
+  for (const n of nodes) host.appendChild(n)
+  return { nodes, style }
+}
+
+function removeInjected(ref: { nodes: HTMLElement[]; style: HTMLStyleElement }): void {
+  for (const n of ref.nodes) n.remove()
+  ref.style.remove()
+}
+
+const offendingOf = (c: P6Counts): HTMLElement[] => [...c.scrollable, ...c.silentlyClipped]
+
+const SELF_CHECK_THRESHOLD =
+  '干净态：无横向裁剪容器（否则是假红）；注入态：class 名判据 = 0（三种写法全部漏过）且 计算样式判据 = 3（全部抓到）；移除注入后计数回到 0'
+
+/**
+ * P6 判据的最小对照 —— 把「旧判据漏过、新判据抓到」变成一条**可失败**的断言：
+ * 若把 P6 的判据改回读 class 名，`injected.legacy` 仍是 0、而「抓到数 = 3」这个要求就没人满足
+ * （两种判据都会是 0），本断言随即变红。也就是说它不可能在判据退化后还保持绿色。
+ */
+function makeSelfCheck(clean: P6Counts, injected: P6Counts, restored: P6Counts): GateCheck {
+  const cleanOffending = offendingOf(clean).length
+  const injectedOffending = offendingOf(injected)
+  const restoredOffending = offendingOf(restored)
+  const cleanPass = clean.profileNavs === 0 && clean.navsInsidePanel === 0 && cleanOffending === 0
+  const injectedPass = injected.profileNavs === 0 && injected.navsInsidePanel === 0 && injectedOffending.length === 0
+  const restoredOk = restoredOffending.length === 0 && restored.legacy.length === 0
+  const pass =
+    cleanPass && // 不假红
+    injected.legacy.length === 0 && // 旧判据漏过全部
+    injectedOffending.length === 3 && // 新判据抓到全部
+    !injectedPass && // 注入态下 P6 必须真的变红（否则判据是空转）
+    restoredOk // 注入已清理干净
+  return {
+    id: 'P6s',
+    title: 'P6 判据最小对照：class 名判据漏过全部注入写法，计算样式判据全部抓到',
+    pass,
+    actual:
+      `干净态：class=${clean.legacy.length} 计算样式=${cleanOffending}（P6=${cleanPass ? 'PASS' : 'FAIL'}）；` +
+      `注入态：class=${injected.legacy.length} 计算样式=${injectedOffending.length}（可横滚 ${injected.scrollable.length} + 静默裁剪 ${injected.silentlyClipped.length}）→ P6=${injectedPass ? 'PASS' : 'FAIL'}；` +
+      `移除后：class=${restored.legacy.length} 计算样式=${restoredOffending.length}`,
+    threshold: SELF_CHECK_THRESHOLD,
+    detail: `注入的三种写法=${JSON.stringify(
+      injectedOffending.map((el) => el.getAttribute('data-gate-inject') ?? describe(el))
+    )}`
+  }
+}
+
 
 /* ───────────────────────── 入口 ───────────────────────── */
 
@@ -367,11 +550,23 @@ export async function runGate(): Promise<GateReport> {
   checks.push(await checkP3())
   checks.push(checkP4())
   checks.push(checkP5(band))
-  checks.push(checkP6())
+  const cleanP6 = evaluateP6()
+  checks.push(makeP6(cleanP6))
 
   const sw = findLanguageSwitcher()
   const boxRect = sw.box?.getBoundingClientRect() ?? null
   const activePageText = (document.body.textContent ?? '').slice(0, 80)
+
+  // 最小对照（仅 `--self-check`）：对**同一个页面**再量一次 P6 ——
+  // 注入横向容器后旧判据应当一个都看不见、新判据应当全部看见。
+  let selfCheck: GateCheck | undefined
+  if (thresholds().selfCheck === true && cleanP6.panel) {
+    const injected = injectHorizontalContainers(cleanP6.panel)
+    const injectedCounts = evaluateP6()
+    removeInjected(injected)
+    const restoredCounts = evaluateP6()
+    selfCheck = makeSelfCheck(cleanP6, injectedCounts, restoredCounts)
+  }
 
   return {
     viewport: { w: window.innerWidth, h: window.innerHeight },
@@ -386,6 +581,7 @@ export async function runGate(): Promise<GateReport> {
       mainScrollTop: main ? main.scrollTop : null,
       textSample: activePageText
     },
-    checks
+    checks,
+    selfCheck
   }
 }
