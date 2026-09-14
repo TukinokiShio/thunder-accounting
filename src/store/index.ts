@@ -43,6 +43,13 @@ interface AppState {
   closeSettings: () => void
 
   bills: Bill[]
+  /**
+   * 最近一次账单加载失败的原因；`null` = 没有失败。
+   * 存在的意义：`refreshBills` 的语义是「吞掉异常但不丢信息」（调用方没有 try/catch，
+   * rethrow 会变成 unhandled rejection），若失败只进 `console`，UI 就无法把
+   * 「读取失败」与「本来就没有数据」区分开 —— 两者都会渲染成「还没有账单记录」。
+   */
+  billsError: string | null
   setBills: (bills: Bill[]) => void
   refreshBills: () => Promise<void>
 
@@ -99,10 +106,13 @@ export const useStore = create<AppState>((set, get) => ({
   closeSettings: () => set({ settingsOpen: false }),
 
   bills: [],
+  billsError: null,
   setBills: (bills) => set({ bills }),
   /**
    * 根据当前筛选条件从数据库拉取账单列表。
    * 优先使用 filterDateRange（周/季/半年/年等预设），其次使用 filterMonth（月份选择器）。
+   * 失败时不 rethrow（`App.tsx` / `AddBillDialog` / `SettingsDialog` 的调用点都没有 try/catch），
+   * 只把原因记进 `billsError`，让 UI 能把失败与空数据区分开。
    */
   refreshBills: async () => {
     const { filterCategory1, filterDateRange, filterMonth } = get()
@@ -121,9 +131,11 @@ export const useStore = create<AppState>((set, get) => ({
     }
     try {
       const bills = await window.electronAPI.getBills(filters)
-      set({ bills })
+      // 成功时一并清空失败记录，否则一次失败会让列表永久停在错误态
+      set({ bills, billsError: null })
     } catch (e) {
       console.error('Failed to refresh bills:', e)
+      set({ billsError: e instanceof Error ? e.message : String(e) })
     }
   },
 

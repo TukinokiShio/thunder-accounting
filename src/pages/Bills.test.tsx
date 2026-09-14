@@ -35,6 +35,7 @@ const mockAddToast = vi.fn();
 // ─── Mock Store 状态（模块级可变引用，mock factory 通过闭包捕获） ───
 const storeState: {
   bills: any[];
+  billsError: string | null;
   refreshBills: typeof mockRefreshBills;
   filterCategory1: string;
   filterMonth: string;
@@ -51,6 +52,7 @@ const storeState: {
   incomeCategories: any[];
 } = {
   bills: [],
+  billsError: null,
   refreshBills: mockRefreshBills,
   filterCategory1: '',
   filterMonth: '',
@@ -119,6 +121,7 @@ beforeEach(() => {
 
   // Reset store state
   storeState.bills = [];
+  storeState.billsError = null;
   storeState.filterCategory1 = '';
   storeState.filterMonth = '';
   storeState.filterDateRange = null;
@@ -325,6 +328,18 @@ describe('Bills（安卓窄屏）', () => {
     expect(screen.getByText('支出')).toBeInTheDocument();
     expect(screen.getByText('收入')).toBeInTheDocument();
   });
+
+  // ─── 11. 加载失败态由 store 的 billsError 驱动（全链路由 Bills.error-state.test.tsx 覆盖） ───
+  it('should render the load-failure state when the store records a billsError', async () => {
+    storeState.billsError = 'db read failed';
+
+    render(<Bills />);
+
+    expect(await screen.findByText('加载失败，请重试')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+    // 读取失败不得被渲染成「没有数据」
+    expect(screen.queryByText('还没有账单记录')).toBeNull();
+  });
 });
 
 describe('Bills（桌面路径，零变化）', () => {
@@ -333,6 +348,8 @@ describe('Bills（桌面路径，零变化）', () => {
   });
 
   it('should keep the always-visible filter panel and no loading state', async () => {
+    // 即便 store 记录了加载失败，桌面也不得渲染窄屏的失败态（硬约束 1：桌面零变化）
+    storeState.billsError = 'db read failed';
     render(<Bills />);
     // 排空挂载时 refreshBills 的微任务：桌面不渲染加载态，挂载当帧即为终态
     await act(async () => {});
@@ -351,8 +368,9 @@ describe('Bills（桌面路径，零变化）', () => {
     expect(screen.getByText('近6月')).toBeInTheDocument();
     expect(screen.getByText('近一年')).toBeInTheDocument();
 
-    // 桌面不渲染加载态：无账单时直接是空状态
+    // 桌面不渲染加载态、也不渲染失败态：无账单时直接是空状态
     expect(screen.queryByText('加载中...')).toBeNull();
+    expect(screen.queryByText('加载失败，请重试')).toBeNull();
     expect(screen.getByText('还没有账单记录')).toBeInTheDocument();
   });
 

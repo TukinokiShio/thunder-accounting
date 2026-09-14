@@ -11,7 +11,8 @@
  *    点整行=编辑，长按整行=删除确认；行尾保留一个可见的删除图标入口
  *    —— 长按删除没有可见线索，必须有一个用户看得见的入口。
  * 3. 汇总行窄屏允许换行（原先无 flex-wrap，超宽会顶出 `.aurora-main` 的整页横向滚动条）。
- * 4. 列表补最小加载态/错误态。
+ * 4. 列表补最小加载态；失败态由 store 的 `billsError` 驱动（`refreshBills` 吞异常但不丢信息），
+ *    这样「数据库读取失败」不会再被渲染成「还没有账单记录」。
  * 桌面（`isAndroid()` 为 false）分支的 DOM 与渲染逐位不变：全部新结构都由
  * `isMobileLayout` 门控，桌面分支的 class 字符串与元素顺序与改动前完全一致。
  */
@@ -183,10 +184,17 @@ export function Bills() {
   const [activePeriod, setActivePeriod] = useState<PeriodKey | null>(null)
   /** 安卓窄屏：筛选面板是否展开（默认收起，渐进披露） */
   const [filtersOpen, setFiltersOpen] = useState(false)
-  /** 窄屏列表加载态/错误态（桌面零变化，故只在窄屏渲染这两个分支） */
-  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  /**
+   * 窄屏列表的加载态。**失败态不在这里** —— 它由 store 的 `billsError` 决定：
+   * `refreshBills` 的契约是「吞掉异常 + 把原因记进 state」，它永不 reject，
+   * 所以组件内 `try/catch` 设的 error 分支是死代码（本文件曾这样写过，已移除）。
+   */
+  const [loadState, setLoadState] = useState<'loading' | 'ready'>('loading')
 
   const isMobileLayout = isAndroid()
+  /** 窄屏才渲染加载/失败分支（桌面零变化） */
+  const billsError = useStore((s) => s.billsError)
+  const hasLoadError = Boolean(billsError)
 
   /** 快速时间段显示名（中文原文即词典 key，随语言切换） */
   const periodLabels: Record<PeriodKey, string> = {
@@ -199,13 +207,9 @@ export function Bills() {
 
   const load = useCallback(async () => {
     setLoadState('loading')
-    try {
-      await refreshBills()
-      setLoadState('ready')
-    } catch (e) {
-      console.error('Failed to load bills:', e)
-      setLoadState('error')
-    }
+    // refreshBills 不 reject：失败信息经 store 的 billsError 传出来（见本文件 loadState 注释）
+    await refreshBills()
+    setLoadState('ready')
   }, [refreshBills])
 
   // 筛选条件变化时重新从数据库拉取账单
@@ -442,9 +446,12 @@ export function Bills() {
           <div className="py-12 text-center text-sm text-gray-400 dark:text-gray-500">
             {t('加载中...')}
           </div>
-        ) : isMobileLayout && loadState === 'error' ? (
+        ) : isMobileLayout && hasLoadError ? (
           <div className="py-12 text-center">
-            <p className="text-sm" style={{ color: 'var(--danger)' }}>{t('加载失败，请重试')}</p>
+            {/* title 带上 store 记录的原始失败原因，便于排查；不新增可见文案 */}
+            <p className="text-sm" style={{ color: 'var(--danger)' }} title={billsError ?? undefined}>
+              {t('加载失败，请重试')}
+            </p>
             <button type="button" onClick={() => void load()} className="btn-secondary text-sm mt-3">
               {t('重试')}
             </button>
