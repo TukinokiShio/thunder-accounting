@@ -209,8 +209,31 @@ exe/              AGENTS.md 规定的固定安装验收目录
    - **`instrumentFingerprint` 只能事后拒绝，不能事前阻止** —— 指纹负责"不撒谎"，独占窗口负责"不被打扰"，两者都要。
    - 需要结论的量测应在**冻结 worktree**（`git worktree add --detach <sha>`）上做；
      主工作树在有人编辑时**只用于观察、不出结论**。
-   - 确定性 A/B 的标准形式：冻结树 + 三连跑 + **只动一处变量** + 附「其余断言在正/负两次跑里结论一致」，
-     以证明翻转确由该变量引起、而非工作树的偶然状态。
+     - 确定性 A/B 的标准形式：冻结树 + 三连跑 + **只动一处变量** + 附「其余断言在正/负两次跑里结论一致」，
+       以证明翻转确由该变量引起、而非工作树的偶然状态。
+29. **⚠️ `src/` 当前没有被类型校验（web 切片缺口）—— 状态：正在修（任务 #32）**：
+   `npm run typecheck` 实为 `tsc --noEmit -p tsconfig.mobile.json && -p tsconfig.node.json && -p tsconfig.scripts.json`
+   —— **只覆盖 `mobile/` + `main-process/` + `scripts/`，不含 `tsconfig.web.json`（即 `src/**`，整个应用主体）**。
+   - **在此之前不要假定 `src/` 的类型被检查过。**「typecheck 通过」这句话在过去相当长时间里**不包含 `src/`**。
+   - 实测（2026-09-14 21:08，主工作树，可复现）：
+     `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json` → 默认堆 **exit=2、6 处错误、无 OOM**；
+     加 `--max-old-space-size=4096` → exit=1、同样 6 处。
+     6 处性质：**4× TS6307**（`composite: true` 要求项目列出全部文件；`src/database-*.test.ts` 与
+     `main-process/database/*` 互相引用但不在 web 的 include 里 —— **配置问题**）+
+     1× TS2741（`AuthGuard.test.tsx:48` 桩缺 `emailVerified`）+ 1× TS2353（`CategoryManager.test.tsx:87` 桩多 `addCategory`）。
+   - **修完后请把本条改为「已覆盖」。** 未记录的缺口比记录了的缺口危险得多 —— 它会让后来人以为已有校验。
+30. **报错条数 ≠ 缺陷数（2026-09-14 实证）**：一处根因可以产出多条错误。
+   例：`const parent = cur.parentElement` 自引用推断失败，产出 **3 条**（`TS7022` ×2 + `TS18046 'sib' is of type 'unknown'`），
+   而后者是 `parent: any` 的**下游后果**（`Array.from(parent.children)` 在 parent 被推成 any 时把元素类型推成 unknown）
+   —— 实际只需 **2 处编辑**。
+   ⇒ **先找根因，不要按报错条数逐个压平**：那既做无用功，又会把根因盖住。
+   ⇒ 反向的红旗：某个错误码的修复**没有改变**其它错误的数量，通常说明你修的是症状。
+31. **可失败对照的正确形态：注入「原文」，不要「手抄」（2026-09-14）**：
+   构造负对照时，从 **git 历史取原始代码**注回（`git show <sha>:<path>`），而不是凭记忆重写一段"类似的坏代码"。
+   - 理由：**手抄会引入"我抄错了所以没报"这个替代解释**，看起来红/绿都说得通；
+     取原文则**报出来的错误码与位置必须与当年逐字相同**，替代解释被消除。
+   - 实证：手抄版只复现了 `TS7022`（因为抄的片段没碰到 `sib.tagName`）；取 `git show f21b359:…pathOf()` 原文后，
+     `TS7022` 与 `TS18046` 两个码都逐字报出、位置也对上。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
