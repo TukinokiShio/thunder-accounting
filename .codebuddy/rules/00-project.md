@@ -123,6 +123,24 @@ exe/              AGENTS.md 规定的固定安装验收目录
    账单首屏条数我引用的 6 条来自 spike 的**理想行高 69px**，**实测行高 83~99px，真实只有 4 条**。
    → 阈值与验收必须来自实测（行为级门禁 `verify:android-layout`），模型不得用来设阈值。
    → 固定 px 项（图表高度、整卡显隐）与随行高缩放的项**量纲不同**，不可用同一个缩放因子外推。
+22. **Tailwind CLI 的 `--content` 重复传参不会合并（只取最后一个）（2026-09-14 实测）**：
+   ```
+   npx tailwindcss -i src/index.css -o ../probe.css --content "./src/**/*.{ts,tsx}"   # 必须一次给全 glob
+   ```
+   反例：`--content "src/pages/Home.tsx" --content "src/pages/Stats.tsx"` → **只扫到 Stats.tsx**，
+   产物里没有 `text-lg` 等 Home 专用类 → 若据此读基线会得出**错误结论**。
+   ⚠️ 这类"**扫不到 → 无结论**"是本项目反复踩的失效模式：产物里查不到某类，
+   **不等于该类没生效**，可能只是没被扫到。读任何构建产物前先确认**扫描范围覆盖了目标文件**。
+23. **窄屏类必须用 `max-sm:` 限定，不要用 `sm:X` 去"复位"（2026-09-14 实测 4 处）**：
+   - `sm:` 只能用于把**已有类**在 ≥640px 复位；`max-sm:` 用于限定**新增**的窄屏类。
+   - 反例：给原本没有 leading 类的元素加 `leading-tight sm:leading-normal` ——
+     `sm:leading-normal` **不是复位、是改值**（Tailwind 里 `lineHeight` 插件排在 `fontSize` 之后，
+     同特指度后出现者胜）→ 桌面行高被 `text-lg` 的 28px 改成 27px、`text-xs` 的 16px 改成 18px。
+   - 改用 `max-sm:leading-tight` 后 ≥640px **根本不存在** leading 类 → 结构性成立，不依赖层叠顺序。
+   - 同类错误还有无条件生效的 `truncate` / `shrink-0` / `min-w-0`。
+     **注意 `min-w-0` 必须加在 flex 子项上** —— 加在 flex 容器上是 **no-op**（子项默认 `min-width:auto`），
+     `truncate` 因此不会生效（本项目曾据此以为"已防裁切"，实际从未生效）。
+   - 覆盖手段：见 §20 行为级门禁的桌面视口侧（A9a 扫所有含 `max-sm:` 的元素 + A9b 清单精确比对）。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
