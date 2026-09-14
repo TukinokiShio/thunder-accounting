@@ -22,12 +22,20 @@
  * 更刺眼的是 `Profile.tsx` 的注释**已经预见到**这个风险（只有 4 项且总宽 < 348px 才放得下）
  * —— 「作者预见到了、还是发生了」正说明：**文字警告不是约束，断言才是。**
  *
- * 因此「入口可达」= 三件事**同时**成立，缺一不可：
+ * 因此「入口可达」= 四件事**同时**成立，缺一不可：
  *   ① `el.click()` 后行为真的发生（本文件既有断言，保留）；
  *   ② 元素在视口内：尺寸非零 + `left >= 0 && right <= innerWidth`
  *      + `top >= bandTop && bottom <= bandBottom`（band 用与 A1/A5 同一口径的内容带）；
  *   ③ 它所在的横向裁剪容器没有“东西在外面”：`scrollWidth <= clientWidth + 1`
- *      —— `overflow-x: auto` + 子项超宽就是藏起入口的机制本身。
+ *      —— `overflow-x: auto` + 子项超宽就是藏起入口的机制本身；
+ *   ④ 尾随余量：同一行最右项到容器可见右边界 ≥ `MIN_ENTRY_TRAILING_SLACK`（8px），
+ *      且**中英两种语言下都要成立**。只对「单行 flex + 可横向滚动」的容器要求（判据见 `trailingOf`）——
+ *      它的作用是拦住下一次「塞不下就用滚动兜底」的做法：③ 只管"现在有没有东西在外面"，
+ *      ④ 管"还剩多少空间"，因为一个只剩 2px 余量的行，下一个更长的文案就会重演同一次事故。
+ *
+ * **量余量时不要用 `clientWidth − scrollWidth`**：那个量**恒为 0**（`scrollWidth` 被 clamp 到
+ * 不小于 `clientWidth`），拿它做判据会写出「永远通过」或「永远失败」的假断言。
+ * 正确的量是「同一行最右项的 `right` 到容器可见右边界的距离」。
  *
  * 判据实现见 `reachVerdict()`；`isRendered()` 与「在视口内」是两件事，不许再合成一个布尔。
  */
@@ -155,10 +163,28 @@ interface HOverflowInfo {
   ok: boolean
   /** 被这个容器**裁在可视区外**的可点击项（按可访问名点名） */
   outside: string[]
+  /**
+   * ④ 尾随余量（`entry` 通则的第 4 条）。
+   *
+   * **不要用 `clientWidth − scrollWidth` 量余量** —— 那个量恒为 0：`scrollWidth` 被 clamp 到不小于
+   * `clientWidth`，所以「没溢出」时它恰好等于 `clientWidth`，差值永远是 0，和"还剩多少空间"无关
+   * （我最初就是这么误报出「中文态 0px 余量」的，实测是 26px）。真正的量是：
+   * **同一行最右可点击项的 `right` 到容器可见右边界 `clipRight` 的距离**。
+   *
+   * 只在「单行 flex + 可横向滚动」的容器上有意义 —— 见 `applies` 的判据与 `trailingOf()` 的注释。
+   */
+  trailing: {
+    applies: boolean
+    slack: number | null
+    rowRight: number | null
+    required: number
+    ok: boolean
+    why: string
+  }
 }
 
 interface ReachVerdict {
-  /** 断言用：自身在视口内 **且** 所在横向容器没有内容在外面 */
+  /** 断言用：自身在视口内 **且** 所在横向容器没有内容在外面 **且** 尾随余量够 */
   ok: boolean
   /** 只算元素自身的矩形是否完全落在可用带内（把「容器溢出」单独拿出来，避免把看得见的项也报成不可见） */
   selfOk: boolean
@@ -169,18 +195,78 @@ interface ReachVerdict {
 }
 
 /**
- * 「入口可达」判据（文件头通则的 ②③ 两条）。
+ * 可达性关键容器的尾随余量下限（px）。
+ * 只对**导航项 / 入口项所在的、单行且可横向滚动的**容器生效（判据见 `trailingOf`）——
+ * 别的容器不参与，因为「内容刚好填满自己的盒子」在很多正常控件里是**设计意图**
+ * （实测反例：设置弹窗里的两段式语言开关 `div.flex.rounded-lg.border` 的两个按钮
+ * 恰好铺满它 120px 的宽度，把它算成"没有余量"是假阳性）。
+ */
+const MIN_ENTRY_TRAILING_SLACK = 8
+
+/**
+ * 「塞不下就横向滚动」这个机制的识别 + 尾随余量。
  *
- * `band` **必须显式传**：页面级入口传 `pageBand()`，固定覆盖层内的元素传 `viewportBand()`
- * —— 两套带不能互相替代（见 `viewportBand()` 的注释），所以不给默认值，逼调用方当场想清楚。
+ * 三个条件同时成立才算「关键容器」，每个条件都有实测反例兜着：
+ *   · `overflowX ∈ {auto, scroll}`：`hidden|clip` 不算 —— 分段开关是靠 `overflow:hidden` 收圆角的，
+ *     它不是"塞不下就滚"，内容也不会变长。
+ *   · `display: flex` 且 `flex-wrap: nowrap`：**单行**才可能把东西挤出去。主滚动容器
+ *     `main.aurora-main` 是 block（它的 `overflowX` 会因 `overflow-y: auto` 计算成 auto，
+ *     从而被 `hClipContainerOf` 命中），但它不换行的前提不成立 ⇒ 不参与。
+ *   · 内容由子项宽度驱动。`flex-wrap: wrap` 之后「塞不下」表现为**换行**，东西仍然看得见
+ *     ⇒ 也不参与（这时断言保持沉默是对的，别把正常换行报成缺陷）。
+ *
+ * 量的定义：`slack = clipRight − max(同行已渲染可点击项的 right)`。
+ * 取「容器**可见**右边界」（`clipRight`，见 `reachVerdict` 里的 `min(cr.right, innerWidth)`），
+ * 而不是减掉容器自己的右 `padding` —— 这是**有意偏宽**的一侧：滚动容器里内容溢进 padding 区
+ * 仍是可见的，若额外扣掉 padding 会把正常控件报成"没余量"。偏宽的代价是可能漏判一个真·贴边的行，
+ * 偏窄的代价是每天报假红；新判据取前者。本次事故的容器 `padding-bottom: 2px`、横向 padding 为 0，
+ * 两种取法在这里等价。
+ */
+function trailingOf(c: HTMLElement, entryRect: DOMRect, clipRight: number, required: number): HOverflowInfo['trailing'] {
+  const cs = getComputedStyle(c)
+  const isScroller = /auto|scroll/.test(cs.overflowX)
+  const isSingleRowFlex = cs.display.includes('flex') && cs.flexWrap === 'nowrap'
+  const base = { applies: false, slack: null, rowRight: null, required, ok: true, why: '' }
+  if (!isScroller || !isSingleRowFlex) return base
+
+  const mates = Array.from(c.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR))
+    .filter((x) => isRendered(x))
+    .filter((x) => Math.abs(x.getBoundingClientRect().top - entryRect.top) <= 1)
+  const rowRight = mates.length > 0 ? Math.max(...mates.map((x) => x.getBoundingClientRect().right)) : entryRect.right
+  const slack = Number((clipRight - rowRight).toFixed(1))
+  const ok = !(required > 0) || slack >= required
+  return {
+    applies: true,
+    slack,
+    rowRight: Number(rowRight.toFixed(1)),
+    required,
+    ok,
+    why: ok
+      ? ''
+      : `所在横向容器「塞得下但没有余量」：${describe(c)} 同一行最右项 right=${rowRight.toFixed(1)} 距容器可见右边界 ${clipRight.toFixed(1)} 只剩 ${slack}px < 要求 ${required}px` +
+        `（这类容器用「塞不下就横向滚动」兜底，下一个更长的文案就会被藏到屏幕外）`
+  }
+}
+
+/**
+ * 「入口可达」判据（文件头通则的 ②③④ 三条）。
+ *
+ * `band` 与 `minTrailingSlack` **必须显式传**：页面级入口传 `pageBand()`，固定覆盖层内的元素传
+ * `viewportBand()` —— 两套带不能互相替代（见 `viewportBand()` 的注释）；余量只对可达性关键容器
+ * 要求（入口项传 `MIN_ENTRY_TRAILING_SLACK`，只做存在性判断的场景传 0）。不给默认值，
+ * 逼调用方当场想清楚。
  *
  * 必须在**点击之前**量：点击会让浏览器把元素（若可获得焦点）滚进视野，量出来的就不是用户看到的。
  *
- * ②（`selfOk`）与③（`hOverflow.ok`）分开返回是有意的：一个「容器溢出」会让**同一行的每一项**
- * 都带上 ③ 的失败，若只报一个合并布尔，报告会写成「0/4 在视口内」——而其中 3 项其实各自都看得见。
- * 结论可以合并（`ok`），**证据不许合并**。
+ * ②（`selfOk`）、③（`hOverflow.ok`）、④（`hOverflow.trailing.ok`）分开返回是有意的：
+ * 一个「容器溢出」会让**同一行的每一项**都带上 ③ 的失败，若只报一个合并布尔，
+ * 报告会写成「0/4 在视口内」——而其中 3 项其实各自都看得见。结论可以合并（`ok`），**证据不许合并**。
  */
-function reachVerdict(el: HTMLElement, band: { top: number; bottom: number }): ReachVerdict {
+function reachVerdict(
+  el: HTMLElement,
+  band: { top: number; bottom: number },
+  minTrailingSlack: number
+): ReachVerdict {
   const r = el.getBoundingClientRect()
   const why: string[] = []
   if (r.width <= 0 || r.height <= 0) why.push(`尺寸非正（${r.width.toFixed(1)}×${r.height.toFixed(1)}）`)
@@ -192,7 +278,14 @@ function reachVerdict(el: HTMLElement, band: { top: number; bottom: number }): R
 
   const c = hClipContainerOf(el)
   let hOverflow: HOverflowInfo = {
-    container: null, scrollWidth: 0, clientWidth: 0, clipLeft: 0, clipRight: 0, ok: true, outside: []
+    container: null,
+    scrollWidth: 0,
+    clientWidth: 0,
+    clipLeft: 0,
+    clipRight: 0,
+    ok: true,
+    outside: [],
+    trailing: { applies: false, slack: null, rowRight: null, required: minTrailingSlack, ok: true, why: '' }
   }
   if (c) {
     const cr = c.getBoundingClientRect()
@@ -210,6 +303,7 @@ function reachVerdict(el: HTMLElement, band: { top: number; bottom: number }): R
             return xr.left < clipLeft - 0.5 || xr.right > clipRight + 0.5
           })
           .map((x) => `${accName(x) || describe(x)}[l${x.getBoundingClientRect().left.toFixed(1)}, r${x.getBoundingClientRect().right.toFixed(1)}]`)
+    const trailing = trailingOf(c, r, clipRight, minTrailingSlack)
     hOverflow = {
       container: describe(c),
       scrollWidth: c.scrollWidth,
@@ -217,7 +311,8 @@ function reachVerdict(el: HTMLElement, band: { top: number; bottom: number }): R
       clipLeft: Number(clipLeft.toFixed(1)),
       clipRight: Number(clipRight.toFixed(1)),
       ok,
-      outside
+      outside,
+      trailing
     }
     if (!ok) {
       why.push(
@@ -225,9 +320,10 @@ function reachVerdict(el: HTMLElement, band: { top: number; bottom: number }): R
           `（可视区 [${hOverflow.clipLeft}, ${hOverflow.clipRight}]，在外面的是 ${hOverflow.outside.join('、') || '（未能点名）'}）`
       )
     }
+    if (!trailing.ok) why.push(trailing.why)
   }
   return {
-    ok: selfOk && hOverflow.ok,
+    ok: selfOk && hOverflow.ok && hOverflow.trailing.ok,
     selfOk,
     why,
     rect: {
@@ -251,23 +347,39 @@ function fmtReach(el: HTMLElement, v: ReachVerdict): string {
     ? `${v.hOverflow.container} scrollW${v.hOverflow.scrollWidth}/clientW${v.hOverflow.clientWidth}`
     : '无横向裁剪容器'
   const self = v.selfOk ? '自身在视口内' : `自身不在视口内（${v.why.filter((w) => !w.startsWith('所在横向容器')).join('；')}）`
+  const t = v.hOverflow.trailing
+  const slack = !t.applies
+    ? '不适用（容器不是「单行 flex + 可横向滚动」，余量对该容器无意义）'
+    : `尾随余量 ${t.slack}px（要求 ≥ ${t.required}${t.ok ? '' : ' ⟂ 不足'}）`
   return (
     `「${name}」${self} rect[l${r.left}, r${r.right}, t${r.top}, b${r.bottom}, ${r.w}×${r.h}]` +
-    ` 视口宽${window.innerWidth} 可用带[${v.band.top}, ${v.band.bottom}] ${ov}` +
+    ` 视口宽${window.innerWidth} 可用带[${v.band.top}, ${v.band.bottom}] ${ov} ${slack}` +
     (!v.hOverflow.ok ? ` ⟂ 容器外还有 ${v.hOverflow.outside.join('、') || '内容'}` : '')
   )
 }
 
-/** 一行入口的汇总：自身可见几个 / 容器是否溢出（两个结论分开给，见 `reachVerdict` 注释）。 */
+/**
+ * 一行入口的汇总：自身可见几个 / 容器是否溢出 / 尾随余量（结论分开给，见 `reachVerdict` 注释）。
+ *
+ * 余量只在「单行 flex + 可横向滚动」的容器上出现（`trailing.applies`）—— 别的容器整段不打印，
+ * 免得读者把「容器刚好填满」误当成待修问题。
+ */
 function fmtRow(row: Array<{ el: HTMLElement; v: ReachVerdict }>): string {
   if (row.length === 0) return '未能量到（行内没定位到可点击项）'
   const selfOk = row.filter((x) => x.v.selfOk).length
   const ov = row[0].v.hOverflow
   const hidden = row.filter((x) => !x.v.selfOk).map((x) => accName(x.el) || describe(x.el))
+  const t = ov.trailing
+  // 不适用时**也要写出来**（与 `fmtReach` 同一句措辞）：留空的话，读的人分不清
+  // 「这个容器不参与余量判据」和「这一版还没实现余量判据」—— 沉默与遗忘长得一样。
+  const slack = t.applies
+    ? `；${t.ok ? '' : '⟂ '}尾随余量 ${t.slack}px（同一行最右项 right=${t.rowRight} 到容器可见右边界，要求 ≥ ${t.required}）`
+    : '；尾随余量 不适用（容器不是「单行 flex + 可横向滚动」，余量对该容器无意义）'
   return (
     `自身在视口内 ${selfOk}/${row.length}` +
     (hidden.length ? `（自身越界：${hidden.join('、')}）` : '') +
-    `；容器 ${ov.ok ? '不溢出' : `溢出 scrollW${ov.scrollWidth}>clientW${ov.clientWidth}，可视区 [${ov.clipLeft}, ${ov.clipRight}]，在外面的是 ${ov.outside.join('、') || '（未能点名）'}`}`
+    `；容器 ${ov.ok ? '不溢出' : `溢出 scrollW${ov.scrollWidth}>clientW${ov.clientWidth}，可视区 [${ov.clipLeft}, ${ov.clipRight}]，在外面的是 ${ov.outside.join('、') || '（未能点名）'}`}` +
+    slack
   )
 }
 
@@ -699,7 +811,8 @@ async function checkA6(): Promise<GateCheck> {
   }
   const target = cands[0]
   // 判据必须在点击**之前**量（点击可能把元素滚进视野，之后量到的就不是用户看到的）
-  const reach = reachVerdict(target, pageBand())
+  // 这是**入口**，故要求尾随余量（若它恰好在「单行 flex + 可横向滚动」的容器里）
+  const reach = reachVerdict(target, pageBand(), MIN_ENTRY_TRAILING_SLACK)
   target.click()
   const acted = await waitFor(() => useStore.getState().activePage === 'profile', 3000)
   const pass = reach.ok && acted
@@ -708,10 +821,11 @@ async function checkA6(): Promise<GateCheck> {
     title: '分类管理页有在视口内的返回入口且点击后回到「我的」',
     pass,
     actual: `找到 ${cands.length} 个候选返回入口（如「${accName(target)}」）；点击后 activePage = "${useStore.getState().activePage}"；${fmtReach(target, reach)}`,
-    threshold: '在视口内（水平完全可见 + 竖直落在内容带内 + 所在横向容器不溢出）且 点击后 activePage === "profile"',
+    threshold: `在视口内（水平完全可见 + 竖直落在内容带内 + 所在横向容器不溢出 + 单行可横向滚动容器的尾随余量 ≥ ${MIN_ENTRY_TRAILING_SLACK}px）且 点击后 activePage === "profile"`,
     detail: [
       `点击行为=${acted ? 'ok' : '未回到「我的」页'}`,
-      `视口判据=${reach.ok ? 'ok' : reach.why.join('；')}`
+      `视口判据=${reach.ok ? 'ok' : reach.why.join('；')}`,
+      `尾随余量=${!reach.hOverflow.trailing.applies ? '不适用（容器不是「单行 flex + 可横向滚动」）' : `${reach.hOverflow.trailing.slack}px（要求 ≥ ${reach.hOverflow.trailing.required}）`}`
     ].join(' | ')
   }
 }
@@ -746,7 +860,10 @@ async function checkA7(): Promise<GateCheck> {
     if (!c) return [seed]
     return Array.from(c.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR)).filter((x) => isRendered(x))
   }
-  const rowVerdicts = (row: HTMLElement[]) => row.map((el) => ({ el, v: reachVerdict(el, pageBand()) }))
+  // 这一行是**入口行**，因此除「都在视口内」外还要看尾随余量：容器里已经没有空间时，
+  // 下一个更长的文案（例如再翻一种语言）就会把最后一项挤出去。
+  const rowVerdicts = (row: HTMLElement[]) =>
+    row.map((el) => ({ el, v: reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK) }))
   {
     await nav('profile')
     await waitFor(() => visibleClickables().length > 0)
@@ -762,14 +879,14 @@ async function checkA7(): Promise<GateCheck> {
         title: '「我的」页有在视口内的设置入口，点击后出现语言切换器',
         pass: false,
         actual: offscreen.length
-          ? `设置入口存在（${offscreen.length} 个）但一个都不在视口内：${offscreen.map((el) => fmtReach(el, reachVerdict(el, pageBand()))).join(' | ')}`
+          ? `设置入口存在（${offscreen.length} 个）但一个都不在视口内：${offscreen.map((el) => fmtReach(el, reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK))).join(' | ')}`
           : '「我的」页没有任何匹配 /设置|settings/i 的可点击元素（入口根本没渲染）',
         threshold: '存在**在视口内**的设置入口 → 点击后出现**在视口内**的语言切换器',
         detail: `当前可见可点击元素清单=${JSON.stringify(inventory)}`
       }
     }
     // 所有候选的视口判据都在点击**之前**一次量完：点击可能把元素滚进视野，逐个边点边量会拿到假绿
-    const reaches = cands.map((el) => reachVerdict(el, pageBand()))
+    const reaches = cands.map((el) => reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK))
     for (let i = 0; i < cands.length; i++) {
       const el = cands[i]
       const reach = reaches[i]
@@ -783,7 +900,8 @@ async function checkA7(): Promise<GateCheck> {
       const overlay = sw.els.length > 0 ? fixedOverlayOf(sw.els[0]) : null
       // 切换器自身也必须是「用户点得到的」：弹窗是 fixed 遮罩、按设计就盖住内容带，
       // 所以这里用**视口**判据而不是内容带判据（把内容带套到弹窗上会把正常弹窗误判为不可达）。
-      const swReaches = sw.els.map((b) => reachVerdict(b, viewportBand()))
+      // 余量传 0：这是**分段开关**，两个按钮精确铺满自己那一条是**设计意图**，不是隐患。
+      const swReaches = sw.els.map((b) => reachVerdict(b, viewportBand(), 0))
       const swOk = swReaches.every((v) => v.ok)
       // 行为级：切换器的按钮必须真的能切换
       const btns = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(
@@ -804,10 +922,15 @@ async function checkA7(): Promise<GateCheck> {
         }, 1500)
         /**
          * 【英文态】同一行入口必须**也**都在视口内。这一步不是锦上添花，是本缺陷的唯一显影剂：
-         * 中文 4 个 chip 恰好铺满 342px（0px 余量）不溢出，**英文标签更长**，
-         * `flex-wrap: nowrap; overflow-x: auto` 才把第 4 项「Settings」挤出可视区。
+         * 中文态 4 个 chip 的容器 `scrollW342 == clientW342`（不溢出）且尾随余量 26px，
+         * 看起来完全正常；**英文标签更长**，`flex-wrap: nowrap; overflow-x: auto` 才把第 4 项
+         * 「Settings」挤出可视区（`scrollW414 > clientW342`，Settings 落在 l368.3..r445.7 而视口宽 412）。
          * 而英文态不是边缘场景 —— 它正是用户用过一次切换器之后的**唯一**状态，
          * 此时设置入口不可达 ⇒ 用户再也切不回中文（单向陷阱）。只量中文，这条断言对真实事故是空过的。
+         *
+         * 更正一处我自己的误报：我最初写的是「中文态恰好铺满 342px、**0px 余量**」——
+         * 那个 0 来自 `clientWidth − scrollWidth`，而该量**恒为 0**（`scrollWidth` 被 clamp 到不小于
+         * `clientWidth`）。实测余量是 26px，恰恰是「看起来还有空间」的那一侧，所以中文态才不显影。
          */
         if (toggled) {
           await sleep(150)
@@ -840,12 +963,14 @@ async function checkA7(): Promise<GateCheck> {
           `英文态入口行 ${fmtRow(enRow)}` +
           (enOk || enHidden.size === 0 ? '' : `；英文态被容器裁在可视区外的入口：${[...enHidden].join('、')}`),
         threshold:
-          '入口在视口内（自身完全可见 + 所在横向容器不溢出 scrollWidth ≤ clientWidth）；**中文与英文两种语言下都成立**；' +
+          '入口在视口内（自身完全可见 + 所在横向容器不溢出 scrollWidth ≤ clientWidth + 尾随余量 ≥ ' +
+          `${MIN_ENTRY_TRAILING_SLACK}px，仅对「单行 flex + 可横向滚动」的容器要求）；**中文与英文两种语言下都成立**；` +
           '且 出现语言切换器且切换按钮在视口内且 aria-pressed 随点击翻转',
         detail: [
           attempts.join(' | '),
           `分段结论：入口自身视口=${reach.selfOk ? 'ok' : reach.why.join('；')}`,
           `入口所在容器=${reach.hOverflow.ok ? '不溢出' : `溢出 scrollW${reach.hOverflow.scrollWidth}>clientW${reach.hOverflow.clientWidth}，在外面的是 ${reach.hOverflow.outside.join('、')}`}`,
+          `入口所在容器尾随余量=${!reach.hOverflow.trailing.applies ? '不适用（容器不是「单行 flex + 可横向滚动」）' : `${reach.hOverflow.trailing.slack}px（要求 ≥ ${reach.hOverflow.trailing.required}）`}`,
           `中文态入口行逐项=${cnRow.map((x) => fmtReach(x.el, x.v)).join(' / ')}`,
           `英文态入口行逐项=${enRow.length ? enRow.map((x) => fmtReach(x.el, x.v)).join(' / ') : '未能量到（语言切换后入口行未定位到）'}`,
           `切换器视口=${swOk ? 'ok' : swReaches.filter((v) => !v.ok).map((v) => v.why.join('；')).join('；')}`,
@@ -879,7 +1004,9 @@ async function checkA8(): Promise<GateCheck> {
   for (const label of SHELL_LABELS) {
     for (const el of all) {
       if (accName(el) !== label) continue
-      const v = reachVerdict(el, band)
+      // 余量传 0：这里问的是「它在不在视口内」，不是「入口还够不够空间」。
+      // 传 `MIN_ENTRY_TRAILING_SLACK` 会把「看得见但余量不足」写成「不在视口内」——结论对、措辞错。
+      const v = reachVerdict(el, band, 0)
       hits.push(
         `${label}<${el.tagName.toLowerCase()}${el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''}>${v.ok ? '（在视口内）' : `（不在视口内：${v.why.join('；')}）`}`
       )
@@ -891,7 +1018,8 @@ async function checkA8(): Promise<GateCheck> {
   // 会淹掉真正要找的东西。
   const hiddenByOverflow = new Map<string, string[]>()
   for (const el of all) {
-    const v = reachVerdict(el, band)
+    // 只看「有没有东西被裁在外面」，不看余量 ⇒ 传 0（余量在这里答非所问）
+    const v = reachVerdict(el, band, 0)
     if (v.hOverflow.ok || !v.hOverflow.container) continue
     const arr = hiddenByOverflow.get(v.hOverflow.container) ?? []
     arr.push(...v.hOverflow.outside)
