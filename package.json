@@ -14,6 +14,7 @@
     "verify:release": "node scripts/verify-release.cjs",
     "verify:modal-scope": "node scripts/verify-modal-scope.cjs",
     "verify:android-layout": "node scripts/verify-android-layout.cjs",
+    "verify:profile-mobile": "node scripts/verify-profile-mobile.cjs",
     "verify:desktop-parity": "node scripts/verify-desktop-parity.cjs",
     "verify:cloud-deletion": "node scripts/verify-cloud-deletion.cjs",
     "dist:mac": "electron-vite build && electron-builder --mac",
@@ -23,7 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit -p tsconfig.mobile.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.scripts.json",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.mobile.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.scripts.json",
     "prebuild:android": "node scripts/verify-android-layout.cjs",
     "build:android": "vite build --config vite.mobile.config.mjs && cap sync android",
     "android:accept": "node scripts/android-acceptance.cjs"
