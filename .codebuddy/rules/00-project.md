@@ -111,6 +111,55 @@ exe/              AGENTS.md 规定的固定安装验收目录
 17. **本地页面验证工具三坑**：① `execFileSync`/`spawnSync` 会冻结 Node 事件循环 → 同进程 `http` 服务无法响应 → 与浏览器**互锁死锁**（无报错、无超时）→ 本地单页验证改用 `file://` + 内联资源（0.6~1.3s）；② 外部调用必须带 `{ timeout, killSignal:'SIGKILL' }`，并在调用**之前**打印上下文；③ 回读注入结果的正则要容忍属性（`<pre id="out" style=…>` 不匹配 `<pre id="out">`）。
 18. **交付脚本不要 `&&` 串联并以末尾 `$?` 收尾**：上一步失败会让后续步骤**静默不执行**，而末尾退出码是失败那步的 → 看起来像"最后一步失败"。改为每步独立执行、**各自打印退出码**、失败即 abort。（v1.17.5 打包时 `rm` 因目录被本地 HTTP 服务占用而失败 → 整个打包根本没跑，却显示 `INSTALL_EXIT=1`）
 14. **本机工具链坑（累计）**：Electron 在本沙箱无法启动且已设 `ELECTRON_RUN_AS_NODE=1`；PowerShell 工具无 stdout、`cmd.exe` 被禁；`file://` 下 ES module 被 CORS 拦（需 `python -m http.server`）；构建产物 `<link>` 的 `crossorigin` 会让 `file://` 样式加载失败。
+19. **前台 shell 的 stdout 会间歇性整体失效（2026-09-14，同一会话内多个 worker 独立复现）**：
+   `Bash` / `PowerShell` 的**前台**调用可能返回空 stdout（`exit 0` 但连 `echo hello` 都为空）；
+   **`run_in_background: true` + 读取后台输出完全正常**。
+   - 判定法：**同一命令前台空、后台有输出 ⇒ 环境问题**，不要怀疑命令本身、不要反复重跑。
+   - 绕过：改用后台执行后取输出，或「命令重定向落盘 + Read 读文件」。
+   - ⚠️ 这是**按进程**而非全局的：主控进程可能完全正常，**不要用"我这边正常"去否定他人报告**。
+   - 诊断过程中产生的探针文件（如 `.shellprobe.txt` / `probe-marker.txt`）**必须清理**，不要留在工作区。
+20. **几何量（高度/宽度/列数）不要用模型判定，只能用来排序候选方案（2026-09-14 实证）**：
+   统计页整页高度出现过 1610 / 1150 两个模型估算，**实测 1327** —— 双方都没量对（偏差 22% / 15%）；
+   账单首屏条数我引用的 6 条来自 spike 的**理想行高 69px**，**实测行高 83~99px，真实只有 4 条**。
+   → 阈值与验收必须来自实测（行为级门禁 `verify:android-layout`），模型不得用来设阈值。
+   → 固定 px 项（图表高度、整卡显隐）与随行高缩放的项**量纲不同**，不可用同一个缩放因子外推。
+21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
+   多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
+   实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
+   但在它检查之后、提交之前，另一 worker 把 10 个文件 `git add` 进了共享暂存区 →
+   它那条**不带 pathspec** 的 `git commit` 把 11 个文件全提交了，而提交信息只写着"词典条目"（实际含 421 处插入）。
+   - **代价**：提交边界丢失，无法单独回滚 Profile/分类管理的改动；各 worker 的 commit message 消失。
+   - **修复**：`git reset --soft HEAD~1` 后按归属拆成两个提交，用 **tree 哈希不变**证明内容零变化：
+     `git rev-parse <旧commit>^{tree}` 必须等于 `git rev-parse HEAD^{tree}`（并加 `--numstat | wc -l` = 0 兜住"命令静默"）。
+   - **正确写法**：`git commit -F <信息文件> -- <显式路径...>`（pathspec 限定，绕过暂存区）。
+   - **预防要点**：光"只 add 自己的文件"**不够**；必须用 pathspec 限定提交，或提交前 `git diff --cached --name-only` 逐个核对并把不属于自己的 `git restore --staged` 剔除。
+
+---
+
+## 安装坑完整排错（从 `memory/MEMORY.md` 下沉，2026-09-14）
+
+**现象**：Inno 静默升级后，程序装到了**历史目录**而不是 `.iss` 里写的 `DefaultDirName`，且
+`INSTALL_EXIT=0`（伪装成成功）。
+
+**根因（2026-09-12 实锤）**：Inno 的 `UsePreviousAppDir` **默认是 yes** —— 它会读注册表
+`HKCU\...\Uninstall\{AppId}_is1` 的 `InstallLocation` 并沿用，**完全忽略 `DefaultDirName`**。
+
+**已有对策**：`scripts/thunder-setup.iss` 已显式加 `UsePreviousAppDir=no` —— **不要删这一行**。
+临时强制落点用命令行 `/DIR="<绝对路径>"`。
+
+**验证必须看实际落点，不能只看退出码**：
+1. `exe\resources\app.asar` 内 `package.json` 的版本 == 源码版本
+2. 注册表 `DisplayVersion` / `InstallLocation`
+3. 快捷方式时间戳
+
+**排错命令**：
+```
+find <roots> -name app.asar -newermt "<今天> 00:00"     # 定位实际被写入的位置
+reg query 'HKCU\...\Explorer\User Shell Folders' /v Desktop   # 桌面真实路径
+```
+**注意**：桌面真实路径在 **D 盘**（`D:\Users\d8502\Desktop`），不是 `C:\Users\...\Desktop`。
+
+**在 bash 里查注册表**需 `MSYS_NO_PATHCONV=1 reg query ...`，否则路径会被转换。
 
 ---
 
