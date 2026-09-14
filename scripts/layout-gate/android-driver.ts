@@ -38,6 +38,25 @@
  * 正确的量是「同一行最右项的 `right` 到容器可见右边界的距离」。
  *
  * 判据实现见 `reachVerdict()`；`isRendered()` 与「在视口内」是两件事，不许再合成一个布尔。
+ *
+ * ───────────── 与 `verify-profile-mobile`（scripts/profile-gate/）的分工 ─────────────
+ *
+ * 「我的」页现在有两道门禁，**有意重叠一处**，但主责不重复 —— 别再各写一遍对方的东西：
+ *   · **A7（本文件）**：语言入口的**可达性（统一用上面 ②③④ 三条判据）+ 双向可达
+ *     （切过去**并切回来**）+ 跨入口路径（内联的切换器与"点开入口后弹窗里的"都认）**。
+ *     它回答的是「用户找不找得到、切完之后回不回得来」。
+ *   · **verify-profile-mobile**：该页的**几何与内容充实度** —— P1 切换器渲染后即在首屏、
+ *     P2 整页无横向溢出、P4 不编造用户身份、P5 面板内容高度 ≥ 可用内容带的比例、
+ *     P6 横向裁剪元素为 0（用**计算样式**判，不用 class 名），外加 P3「点击后文案真的变」。
+ *
+ * 重叠点：A7 与 profile 的 P1/P3 都会看「切换器在不在首屏、点了会不会变」。**这是故意的**：
+ * 两道门禁要能各自单独跑通并给出完整结论（prebuild 只接一道时不能出现盲区）。
+ * 深度不同，所以不是重复劳动：
+ *   · P1 只判矩形落在首屏内，**不判**它所在容器是否溢出、尾随余量够不够（②③④）；
+ *   · P3 只判「点击后文案变了」，**不判**「切回去之后还是不是能用的界面」—— 而真实事故的
+ *     伤害恰恰在后者（英文态下入口不可达 ⇒ 再也切不回中文）。
+ *   · A7 还认「跨入口路径」：切换器若被藏进弹窗，A7 会去量**入口自身**的可达性，
+ *     这条路径 profile 门禁完全不管。
  */
 import { useStore } from '@/store'
 import { BILLS, nameText, amountText } from './fixture'
@@ -832,159 +851,339 @@ async function checkA6(): Promise<GateCheck> {
 
 interface SwitcherInfo { found: boolean; rect?: DOMRect; buttons: string[]; els: HTMLElement[] }
 
-/** 语言切换器：一个可见容器内同时含「中文」与「English」两个按钮 */
+/**
+ * 语言切换器 = 「中文」与「English」两个可见按钮 + 它们最近的共同祖先。
+ *
+ * 定位方式与 `Preferences.tsx` 文件头承诺的契约一致：按**可访问名**认按钮（不认 class、
+ * 不认层级），容器由两个按钮的**最近共同祖先**推出。
+ *
+ * ⚠ 这里必须取"最近共同祖先"，**不能**取"文档里第一个同时含『中文』与『English』的元素"。
+ * 旧实现就是后者，它在旧结构下侥幸没出事（切换器在弹窗里，而弹窗挂在 `document.body` 的
+ * portal 上，文档序里第一个命中的恰好是弹窗本身），但切换器一旦**内联进页面**（现在的结构），
+ * 第一个命中的祖先就变成整个 app（`#root`），于是 `els` 会把全站按钮都算成"切换器按钮"，
+ * 拿内容带去量底栏 Tab ⇒ A7 会因为**不相干的东西**变红。容器选错会凭空造出假红，
+ * 这跟漏判一样危险，所以这里显式写清楚。
+ */
 function findLanguageSwitcher(): SwitcherInfo {
-  const els = Array.from(document.querySelectorAll<HTMLElement>('body *')).filter(isVisible)
-  for (const el of els) {
-    if ((el.textContent ?? '').includes('中文') && (el.textContent ?? '').includes('English')) {
-      const btns = Array.from(el.querySelectorAll<HTMLElement>('button')).filter(isVisible)
-      if (btns.length >= 2) {
-        return { found: true, rect: el.getBoundingClientRect(), buttons: btns.map((b) => accName(b)), els: btns }
-      }
-    }
+  const btns = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(
+    (b) => isVisible(b) && (accName(b) === '中文' || accName(b) === 'English')
+  )
+  const zh = btns.find((b) => accName(b) === '中文')
+  const en = btns.find((b) => accName(b) === 'English')
+  if (!zh || !en) return { found: false, buttons: [], els: [] }
+  let c: HTMLElement | null = zh.parentElement
+  while (c && !c.contains(en)) c = c.parentElement
+  // 优先用语义容器 `role="group"`（Preferences.tsx 上就写着它），退化到最近共同祖先
+  const group = (c?.closest('[role="group"]') as HTMLElement | null) ?? c
+  return {
+    found: true,
+    rect: (group ?? zh).getBoundingClientRect(),
+    buttons: [zh, en].map((b) => accName(b)),
+    els: [zh, en]
   }
-  return { found: false, buttons: [], els: [] }
 }
 
-/** A7 「我的」页设置入口**在两种语言下都在视口内**，点击后出现**在视口内**的语言切换器（且切换器真的可用） */
+/** A7 的标题：多处 return 共用一份，避免口径漂移（改定义域时一处生效） */
+const A7_TITLE = '「我的」页在两种语言下都能找到语言入口，且能切过去再切回中文'
+
+/**
+ * 切换器里哪个语言被按下 —— 这是 **UI 自己**对「当前语言」的声明。
+ * 用它而不是看按钮文案/顺序：文案在两种语言下是同一对常量（中文 / English），顺序也可能变。
+ * 两个都按下或都不按下时返回 null（那是"状态不可信"，不能当成"是某种语言"）。
+ */
+function pressedLangOf(sw: SwitcherInfo): 'zh' | 'en' | null {
+  const zh = sw.els.find((b) => accName(b) === '中文')
+  const en = sw.els.find((b) => accName(b) === 'English')
+  if (!zh || !en) return null
+  const zhOn = zh.getAttribute('aria-pressed') === 'true'
+  const enOn = en.getAttribute('aria-pressed') === 'true'
+  if (zhOn && !enOn) return 'zh'
+  if (enOn && !zhOn) return 'en'
+  return null
+}
+
+/**
+ * 应用**持久化**的语言（`src/utils/settings.ts` 的 key `thunder_settings`）。
+ * 只作**佐证**，不进判据：无头 Chromium 打开 `file://` 页面时 `localStorage` 可能不可用
+ * （访问会抛 SecurityError），把"读不到"当成失败会变成环境相关的假红。读不到就报 available=false。
+ */
+function persistedLang(): { available: boolean; value: string | null } {
+  try {
+    const raw = localStorage.getItem('thunder_settings')
+    return { available: true, value: raw ? (JSON.parse(raw).language ?? null) : null }
+  } catch {
+    return { available: false, value: null }
+  }
+}
+
+/**
+ * A7 「我的」页在**两种语言下**都能找到语言入口，**且能切过去再切回中文**
+ *
+ * ── 前提为什么变了（是设计变了，不是判据放宽）────────────────────────────
+ * 旧 A7 断言的是：「存在一个叫『设置』的入口 → 点开 → **弹窗里**有语言切换器」。
+ * 那是当时的**实现形态**：安卓窄屏把「我的」页压成左侧 chip 导航 + 设置弹窗，切换器藏在
+ * 弹窗的「偏好」里。真机事故之后该形态被整体推翻（见 `mobile/android.css:389` 的说明与
+ * `Profile.tsx` 的 localMode 单面板分支）：不再有 `.profile-nav`，整页是一块纵向滚动单面板，
+ * 语言切换器**内联在页面上、不需要点开任何入口**。
+ * 于是旧 A7 在新结构上会红，而它想保护的东西（用户能找到语言入口）**已经被满足**
+ * —— 红的是断言，因为它把**实现形态**当成了不变量。
+ * 所以这里把定义域从「形态」改成「不变量」：
+ *
+ *   「从『我的』页出发，在中文与英文两种状态下，都能找到一个**在视口内、容器不溢出、
+ *     且有余量**的语言入口；并且能真的切到另一种语言、再**切回**中文。」
+ *
+ * 内联的切换器与入口点开后的弹窗里的切换器**都算**（`findLanguageSwitcher` 只认「一个可见
+ * 容器里同时有『中文』与『English』两个按钮」，与它挂在哪一层无关）。切换器不直接可见时，
+ * 就按入口走一遍，并**照样**量入口自身的可达性（②③④）—— 旧结构下的失效模式
+ * （入口被挤出屏幕、用户找不到）必须仍然能被抓到，`out/g21-a7ctl2.cjs` 的 A/B 两次跑就是它。
+ *
+ * ── 为什么必须断言「切得回去」──────────────────────────────────────────
+ * 真实事故的伤害不是「切不到英文」，而是**切过去以后就切不回来**：英文态下设置入口被挤出
+ * 可视区，用户既找不到入口、又不认识界面语言 —— 单向陷阱。只断言「能切到 English」恰好
+ * 漏掉后半段，而前半段（切到英文）在事故里**是成功的**。所以：切过去之后必须能切回中文，
+ * 且以 UI 自己的状（`aria-pressed`）为准，`thunder_settings` 的持久化值只作佐证
+ * （无头 Chromium 打开 `file://` 时 localStorage 可能不可用，缺失不算失败）。
+ *
+ * ── 与 `verify-profile-mobile`（scripts/profile-gate/）的分工 ──────────
+ * 两者有意重叠一处、但主责不同，别再各写一遍对方的东西：
+ *   · **A7（本断言）**：语言入口的**可达性（统一用 ②③④ 三条判据）+ 双向可达（切过去/切回来）
+ *     + 跨入口路径（内联与"点开入口"两条路都认）**。它回答"用户能不能找到并切回来"。
+ *   · **profile 门禁**：该页的**几何与内容充实度**（P1 切换器在首屏 / P2 整页无横向溢出 /
+ *     P5 面板内容高度 / P6 横向裁剪元素为 0 / P4 不编造身份），以及 P3 的"点击后文案变化"快检。
+ * 重叠点：A7 与 profile P1/P3 都会看"切换器在不在首屏、点了会不会变"。**这是故意的**：
+ * 两道门禁要能各自单独跑通并给出完整结论。差异在深度 —— P1 只判矩形在首屏内，
+ * 不判"所在容器是否溢出、尾随余量够不够"；P3 只判"文案变了"，不判**切得回来**。
+ */
 async function checkA7(): Promise<GateCheck> {
-  const attempts: string[] = []
-  /** 按可访问名找「设置」入口；`excludeOverlay` 用来排除弹窗内部的按钮（弹窗此时可能开着）。 */
-  const findSettingsEntries = (excludeOverlay: HTMLElement | null): HTMLElement[] =>
+  const notes: string[] = []
+  /** 候选入口（按名字找）。`excludeOverlay` 用来排除弹窗内部的按钮（弹窗此时可能开着）。 */
+  const findEntries = (excludeOverlay: HTMLElement | null): HTMLElement[] =>
     renderedClickables().filter(
-      (el) => /设置|settings/i.test(accName(el)) && !(excludeOverlay && excludeOverlay.contains(el))
+      (el) =>
+        /设置|settings|偏好|preferences|关于|about/i.test(accName(el)) &&
+        !(excludeOverlay && excludeOverlay.contains(el))
     )
-  /** 入口所在的**那一行**（同一个横向裁剪容器里的全部可点击项）—— 一个入口被挤出屏幕，同行的都是嫌疑人。 */
-  const chipRowOf = (seed: HTMLElement): HTMLElement[] => {
+  /** 某一项所在的**那一行**（同一横向裁剪容器里的全部可点击项）—— 一项被挤出屏幕，同行的都是嫌疑人。 */
+  const rowOf = (seed: HTMLElement): HTMLElement[] => {
     const c = hClipContainerOf(seed)
     if (!c) return [seed]
     return Array.from(c.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR)).filter((x) => isRendered(x))
   }
-  // 这一行是**入口行**，因此除「都在视口内」外还要看尾随余量：容器里已经没有空间时，
+  // 入口那一行是**入口行**，除「都在视口内」外还要看尾随余量：容器里已经没有空间时，
   // 下一个更长的文案（例如再翻一种语言）就会把最后一项挤出去。
   const rowVerdicts = (row: HTMLElement[]) =>
     row.map((el) => ({ el, v: reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK) }))
-  {
-    await nav('profile')
-    await waitFor(() => visibleClickables().length > 0)
-    await sleep(150)
-    const cands = findSettingsEntries(null)
-    if (cands.length === 0) {
-      // 「不存在」与「存在但用户看不到」必须分开报：前者是入口没做，后者是入口被藏在屏幕外，
-      // 修法完全不同。旧版只报「没有任何可见的可点击元素」，会把后者也说成前者。
-      const offscreen = renderedClickables().filter((el) => /设置|settings/i.test(accName(el)))
-      const inventory = visibleClickables().map((el) => accName(el)).filter(Boolean).slice(0, 14)
-      return {
-        id: 'A7',
-        title: '「我的」页有在视口内的设置入口，点击后出现语言切换器',
-        pass: false,
-        actual: offscreen.length
-          ? `设置入口存在（${offscreen.length} 个）但一个都不在视口内：${offscreen.map((el) => fmtReach(el, reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK))).join(' | ')}`
-          : '「我的」页没有任何匹配 /设置|settings/i 的可点击元素（入口根本没渲染）',
-        threshold: '存在**在视口内**的设置入口 → 点击后出现**在视口内**的语言切换器',
-        detail: `当前可见可点击元素清单=${JSON.stringify(inventory)}`
-      }
-    }
-    // 所有候选的视口判据都在点击**之前**一次量完：点击可能把元素滚进视野，逐个边点边量会拿到假绿
-    const reaches = cands.map((el) => reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK))
-    for (let i = 0; i < cands.length; i++) {
-      const el = cands[i]
-      const reach = reaches[i]
-      const name = accName(el)
-      const cnRow = rowVerdicts(chipRowOf(el))
-      const cnOk = cnRow.every((x) => x.v.ok)
-      el.click()
-      const appeared = await waitFor(() => findLanguageSwitcher().found, 1500)
-      if (!appeared) { attempts.push(`「${name}」→ 未出现语言切换器`); continue }
-      const sw = findLanguageSwitcher()
-      const overlay = sw.els.length > 0 ? fixedOverlayOf(sw.els[0]) : null
-      // 切换器自身也必须是「用户点得到的」：弹窗是 fixed 遮罩、按设计就盖住内容带，
-      // 所以这里用**视口**判据而不是内容带判据（把内容带套到弹窗上会把正常弹窗误判为不可达）。
-      // 余量传 0：这是**分段开关**，两个按钮精确铺满自己那一条是**设计意图**，不是隐患。
-      const swReaches = sw.els.map((b) => reachVerdict(b, viewportBand(), 0))
-      const swOk = swReaches.every((v) => v.ok)
-      // 行为级：切换器的按钮必须真的能切换
-      const btns = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(
-        (b) => isVisible(b) && (accName(b) === 'English' || accName(b) === '中文')
-      )
-      const target = btns.find((b) => accName(b) === 'English') ?? btns.find((b) => b.getAttribute('aria-pressed') !== 'true')
-      let toggled = false
-      /** 英文态下的入口行判据（在切换成英文之后、还原中文之前量）。 */
-      let enRow: Array<{ el: HTMLElement; v: ReachVerdict }> = []
-      if (target) {
-        const label = accName(target)
-        target.click()
-        toggled = await waitFor(() => {
-          const again = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(
-            (b) => isVisible(b) && accName(b) === label
-          )
-          return again.some((b) => b.getAttribute('aria-pressed') === 'true')
-        }, 1500)
-        /**
-         * 【英文态】同一行入口必须**也**都在视口内。这一步不是锦上添花，是本缺陷的唯一显影剂：
-         * 中文态 4 个 chip 的容器 `scrollW342 == clientW342`（不溢出）且尾随余量 26px，
-         * 看起来完全正常；**英文标签更长**，`flex-wrap: nowrap; overflow-x: auto` 才把第 4 项
-         * 「Settings」挤出可视区（`scrollW414 > clientW342`，Settings 落在 l368.3..r445.7 而视口宽 412）。
-         * 而英文态不是边缘场景 —— 它正是用户用过一次切换器之后的**唯一**状态，
-         * 此时设置入口不可达 ⇒ 用户再也切不回中文（单向陷阱）。只量中文，这条断言对真实事故是空过的。
-         *
-         * 更正一处我自己的误报：我最初写的是「中文态恰好铺满 342px、**0px 余量**」——
-         * 那个 0 来自 `clientWidth − scrollWidth`，而该量**恒为 0**（`scrollWidth` 被 clamp 到不小于
-         * `clientWidth`）。实测余量是 26px，恰恰是「看起来还有空间」的那一侧，所以中文态才不显影。
-         */
-        if (toggled) {
-          await sleep(150)
-          const seed = el.isConnected ? el : findSettingsEntries(overlay)[0]
-          enRow = seed ? rowVerdicts(chipRowOf(seed)) : []
-        }
-        // 还原成中文，避免污染后续断言
-        const zh = Array.from(document.querySelectorAll<HTMLElement>('button')).filter((b) => isVisible(b) && accName(b) === '中文')
-        if (toggled && zh.length > 0) { zh[0].click(); await sleep(150) }
-      }
-      // 收尾：关掉设置弹窗（它是 fixed 满屏遮罩，留着会污染后续量测的内容带）
-      // 按钮名随语言变（关闭/Close），所以按两种语言 + 弹窗范围去找，不能只认「关闭」。
-      const closeBtn = overlay
-        ? Array.from(overlay.querySelectorAll<HTMLElement>('button')).filter(isVisible).find((b) => /关闭|close|完成|done/i.test(accName(b)))
-        : visibleClickables().find((b) => /关闭|close/i.test(accName(b)))
-      if (closeBtn) { closeBtn.click(); await sleep(150) }
-      const enOk = enRow.length > 0 && enRow.every((x) => x.v.ok)
-      const enHidden = new Set(enRow.flatMap((x) => x.v.hOverflow.outside))
-      attempts.push(
-        `「${name}」→ ${fmtReach(el, reach)}；出现语言切换器（${JSON.stringify(sw.buttons)}），切换器视口判据=${swOk ? 'ok' : '不通过'}，切换可交互=${toggled}`
-      )
-      const pass = reach.ok && cnOk && swOk && toggled && enOk
-      return {
-        id: 'A7',
-        title: '「我的」页设置入口在两种语言下都在视口内，点击后出现语言切换器',
-        pass,
-        actual:
-          `设置入口「${name}」${reach.selfOk ? '自身在视口内' : '自身不在视口内'}，点击后出现语言切换器，按钮=${JSON.stringify(sw.buttons)}；` +
-          `中文态入口行 ${fmtRow(cnRow)}；` +
-          `英文态入口行 ${fmtRow(enRow)}` +
-          (enOk || enHidden.size === 0 ? '' : `；英文态被容器裁在可视区外的入口：${[...enHidden].join('、')}`),
-        threshold:
-          '入口在视口内（自身完全可见 + 所在横向容器不溢出 scrollWidth ≤ clientWidth + 尾随余量 ≥ ' +
-          `${MIN_ENTRY_TRAILING_SLACK}px，仅对「单行 flex + 可横向滚动」的容器要求）；**中文与英文两种语言下都成立**；` +
-          '且 出现语言切换器且切换按钮在视口内且 aria-pressed 随点击翻转',
-        detail: [
-          attempts.join(' | '),
-          `分段结论：入口自身视口=${reach.selfOk ? 'ok' : reach.why.join('；')}`,
-          `入口所在容器=${reach.hOverflow.ok ? '不溢出' : `溢出 scrollW${reach.hOverflow.scrollWidth}>clientW${reach.hOverflow.clientWidth}，在外面的是 ${reach.hOverflow.outside.join('、')}`}`,
-          `入口所在容器尾随余量=${!reach.hOverflow.trailing.applies ? '不适用（容器不是「单行 flex + 可横向滚动」）' : `${reach.hOverflow.trailing.slack}px（要求 ≥ ${reach.hOverflow.trailing.required}）`}`,
-          `中文态入口行逐项=${cnRow.map((x) => fmtReach(x.el, x.v)).join(' / ')}`,
-          `英文态入口行逐项=${enRow.length ? enRow.map((x) => fmtReach(x.el, x.v)).join(' / ') : '未能量到（语言切换后入口行未定位到）'}`,
-          `切换器视口=${swOk ? 'ok' : swReaches.filter((v) => !v.ok).map((v) => v.why.join('；')).join('；')}`,
-          `行为=${toggled ? 'ok' : '切换器存在但点击未改变 aria-pressed'}`
-        ].join('；')
-      }
-    }
+  /**
+   * 切换器按钮的可达性。**带的选择按它挂在哪一层决定，两套带不能互换**：
+   *   · 弹窗里的（fixed 满屏遮罩）用 `viewportBand()` —— 弹窗按设计就盖住内容带，
+   *     把内容带套上去会把正常弹窗判成不可达（范畴错误）；
+   *   · 页内直接可见的用 `pageBand()` —— 它必须真的落在内容区里，被底部悬浮层压住就是不可达。
+   * 余量只在页内那种情况下要求；弹窗里的分段开关两个按钮精确铺满自己那一条是**设计意图**，传 0。
+   */
+  const switcherVerdicts = (s: SwitcherInfo) => {
+    const overlay = s.els.length > 0 ? fixedOverlayOf(s.els[0]) : null
+    const band = overlay ? viewportBand() : pageBand()
+    const slack = overlay ? 0 : MIN_ENTRY_TRAILING_SLACK
+    return { overlay, band, reaches: s.els.map((b) => reachVerdict(b, band, slack)) }
   }
+  type SwVerdicts = ReturnType<typeof switcherVerdicts>
+  const swOk = (x: SwVerdicts): boolean => x.reaches.length > 0 && x.reaches.every((v) => v.ok)
+  const fmtSw = (x: SwVerdicts, label: string): string =>
+    x.reaches.length === 0
+      ? `${label}=未量到（重新定位切换器失败）`
+      : `${label}=${swOk(x) ? 'ok' : '不通过'}` +
+        (swOk(x) ? '' : `（${x.reaches.filter((v) => !v.ok).map((v) => v.why.join('；')).join('；')}）`)
+
+  await nav('profile')
+  await waitFor(() => visibleClickables().length > 0)
+  await sleep(150)
+
+  const persistedAtStart = persistedLang()
+  // ① 新结构：切换器内联在页面上，**不需要点任何入口**就该看得见
+  let sw = findLanguageSwitcher()
+  let entryEl: HTMLElement | null = null
+  let entryReach: ReachVerdict | null = null
+  let entryOverlay: HTMLElement | null = null
+  let cnEntryRow: Array<{ el: HTMLElement; v: ReachVerdict }> = []
+
+  if (!sw.found) {
+    // ② 其它布局：切换器藏在某个入口后面。按入口走一遍，**照样量入口自身的可达性**。
+    const cands = findEntries(null)
+    const named = renderedClickables().filter((el) => /设置|settings|偏好|preferences|关于|about/i.test(accName(el)))
+    if (cands.length === 0) {
+      const inventory = visibleClickables().map((el) => accName(el)).filter(Boolean).slice(0, 14)
+      /**
+       * 「没渲染」与「渲染了但用户看不到」必须分开报：前者是入口没做，后者是被藏起来了，
+       * 修法完全不同，报错指向也完全不同（旧版把后者也说成前者，会把排查引向错误方向）。
+       * 这里用**DOM 里到底有没有那两个按钮**来区分 —— 不依赖 class、不依赖层级。
+       */
+      const inDom = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(
+        (b) => accName(b) === '中文' || accName(b) === 'English'
+      )
+      const why =
+        inDom.length === 0
+          ? '**语言入口根本没渲染**（DOM 里连一个可访问名为「中文」/「English」的按钮都没有）'
+          : `语言入口在 DOM 里但**完全不可见**（${inDom.length} 个按钮不可见：display:none / visibility:hidden / 尺寸为 0 / 被 hidden 祖先盖住）`
+      return {
+        id: 'A7',
+        title: A7_TITLE,
+        pass: false,
+        actual:
+          named.length > 0
+            ? `语言入口存在（${named.length} 个候选：${named.map((el) => accName(el)).join('、')}）但一个都不在视口内 —— ` +
+              named.map((el) => fmtReach(el, reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK))).join(' | ')
+            : `「我的」页既没有直接可见的语言切换器，也没有任何 /设置|settings|偏好|preferences|关于|about/ 入口：${why}`,
+        threshold:
+          '存在**在视口内**的语言入口（内联的切换器，或点开后显示切换器的入口）；中文与英文两种状态下都成立；且能切回中文',
+        detail: `当前可见可点击元素清单=${JSON.stringify(inventory)}；本页渲染中的可点击元素总数=${renderedClickables().length}；起始语言（持久化佐证）=${JSON.stringify(persistedAtStart)}`
+      }
+    }
+    // 所有候选的可达性都在点击**之前**一次量完：点击可能把元素滚进视野，逐个边点边量会拿到假绿
+    const reaches = cands.map((el) => reachVerdict(el, pageBand(), MIN_ENTRY_TRAILING_SLACK))
+    let opened = false
+    for (let i = 0; i < cands.length && !opened; i++) {
+      const el = cands[i]
+      const r = reaches[i]
+      const row = rowVerdicts(rowOf(el))
+      el.click()
+      const ok = await waitFor(() => findLanguageSwitcher().found, 1500)
+      notes.push(`入口「${accName(el)}」${ok ? '点开后出现语言切换器' : '点开后没有出现语言切换器'}；${fmtReach(el, r)}`)
+      if (ok) {
+        opened = true
+        entryEl = el
+        entryReach = r
+        cnEntryRow = row
+        const s = findLanguageSwitcher()
+        entryOverlay = s.els.length > 0 ? fixedOverlayOf(s.els[0]) : null
+      }
+    }
+    if (!opened) {
+      return {
+        id: 'A7',
+        title: A7_TITLE,
+        pass: false,
+        actual: `候选语言入口 ${cands.map((el) => accName(el)).join('、')} 都点过了，但没有一个能打开语言切换器`,
+        threshold: '候选入口点开后必须出现语言切换器',
+        detail: notes.join(' | ')
+      }
+    }
+    sw = findLanguageSwitcher()
+  }
+
+  // 量「中文态」时必须**真的**在中文态：上一道断言若把语言留在英文，先把状态纠正过来，
+  // 否则我们会把英文态的量测结果标成"中文态"（口径与事实不符）。
+  const startPressed = pressedLangOf(sw)
+  if (startPressed === 'en') {
+    const zhBtn = sw.els.find((b) => accName(b) === '中文')
+    if (zhBtn) {
+      zhBtn.click()
+      await waitFor(() => {
+        const a = findLanguageSwitcher()
+        return a.found && pressedLangOf(a) === 'zh'
+      }, 2000)
+      await sleep(150)
+      sw = findLanguageSwitcher()
+    }
+    notes.push('进入 A7 时界面处于英文态，已先切回中文再开始量测')
+  }
+
+  // ③ 中文态：切换器自身可达
+  const cnSw = switcherVerdicts(sw)
+
+  // ④ 切到另一种语言（优先 English —— 事故里用户真正会点的那个）
+  let toggled = false
+  let returnedZh = false
+  let enSw: SwVerdicts = { overlay: null, band: pageBand(), reaches: [] }
+  let enEntryRow: Array<{ el: HTMLElement; v: ReachVerdict }> = []
+  const toOther =
+    sw.els.find((b) => accName(b) === 'English') ?? sw.els.find((b) => b.getAttribute('aria-pressed') !== 'true')
+  if (toOther) {
+    const label = accName(toOther)
+    toOther.click()
+    toggled = await waitFor(() => {
+      const again = findLanguageSwitcher()
+      return again.found && pressedLangOf(again) === 'en'
+    }, 2000)
+    if (toggled) {
+      await sleep(150)
+      /**
+       * 【英文态】切换器自身、以及（若走的是入口路径）入口那一行，必须**也**在视口内。
+       * 这一步不是锦上添花，是这类缺陷的唯一显影剂：中文态用现在这套判据往往完全正常
+       * （事故里中文态容器 scrollW342 == clientW342、尾随余量 26px），**英文标签更长**
+       * 才把最后一个入口挤出可视区。而英文态不是边缘场景 —— 它正是用户用过一次切换器之后的
+       * **唯一**状态，此时入口不可达 ⇒ 用户再也切不回中文（单向陷阱）。
+       */
+      const s2 = findLanguageSwitcher()
+      if (s2.found) enSw = switcherVerdicts(s2)
+      if (entryEl) {
+        const seed = entryEl.isConnected ? entryEl : findEntries(entryOverlay)[0]
+        enEntryRow = seed ? rowVerdicts(rowOf(seed)) : []
+      }
+      // ⑤ 切回中文：**必须**成立（见文件里"为什么必须断言切得回去"）
+      const back = findLanguageSwitcher().els.find((b) => accName(b) === '中文')
+      if (back) {
+        back.click()
+        returnedZh = await waitFor(() => {
+          const again = findLanguageSwitcher()
+          return again.found && pressedLangOf(again) === 'zh'
+        }, 2000)
+      }
+      notes.push(`点「${label}」${toggled ? '已切到英文' : '未切到英文'}；再点「中文」${returnedZh ? '已切回中文' : '**没能切回中文**'}`)
+    } else {
+      notes.push(`点「${label}」后语言状态没有变成英文（单向都不成立）`)
+    }
+  } else {
+    notes.push('切换器里找不到可点的另一个语言按钮')
+  }
+
+  // 收尾：关掉弹窗（fixed 满屏遮罩，留着会污染后续量测的内容带）。
+  // 按钮名随语言变（关闭/Close），所以按两种语言 + 弹窗范围去找，不能只认「关闭」。
+  const overlay = entryOverlay ?? cnSw.overlay
+  const closeBtn = overlay
+    ? Array.from(overlay.querySelectorAll<HTMLElement>('button')).filter(isVisible).find((b) => /关闭|close|完成|done/i.test(accName(b)))
+    : visibleClickables().find((b) => /关闭|close/i.test(accName(b)))
+  if (closeBtn) { closeBtn.click(); await sleep(150) }
+
+  const entryOk = entryEl === null || (entryReach !== null && entryReach.ok)
+  const cnEntryOk = cnEntryRow.length === 0 || cnEntryRow.every((x) => x.v.ok)
+  const enEntryOk = entryEl === null || (enEntryRow.length > 0 && enEntryRow.every((x) => x.v.ok))
+  const cnSwOk = swOk(cnSw)
+  const enSwOk = swOk(enSw)
+  const pass = entryOk && cnEntryOk && cnSwOk && toggled && enSwOk && enEntryOk && returnedZh
+  const persistedEnd = persistedLang()
+  const enHidden = new Set(enEntryRow.flatMap((x) => x.v.hOverflow.outside))
+
   return {
     id: 'A7',
-    title: '「我的」页设置入口在两种语言下都在视口内，点击后出现语言切换器',
-    pass: false,
-    actual: attempts.join(' | ') || '未找到可用的设置入口',
-    threshold: '入口在两种语言下都在视口内且 出现语言切换器且切换按钮在视口内'
+    title: A7_TITLE,
+    pass,
+    actual:
+      (entryEl
+        ? `语言入口路径=「${accName(entryEl)}」→ 弹窗切换器，入口${entryReach && entryReach.ok ? '自身在视口内' : '自身不在视口内'}；`
+        : '语言入口路径=页内**直接可见**的切换器（无需点开任何入口）；') +
+      `切换器按钮=${JSON.stringify(sw.buttons)}；` +
+      (cnEntryRow.length ? `中文态入口行 ${fmtRow(cnEntryRow)}；` : '') +
+      (enEntryRow.length ? `英文态入口行 ${fmtRow(enEntryRow)}；` : '') +
+      `${fmtSw(cnSw, '中文态切换器')}；${fmtSw(enSw, '英文态切换器')}；` +
+      `切到另一种语言=${toggled ? 'ok' : '失败'}；**切回中文=${returnedZh ? 'ok' : '失败'}**` +
+      (enHidden.size === 0 ? '' : `；英文态被容器裁在可视区外的入口：${[...enHidden].join('、')}`),
+    threshold:
+      '语言入口在视口内（自身完全可见 + 所在横向容器不溢出 scrollWidth ≤ clientWidth + 尾随余量 ≥ ' +
+      `${MIN_ENTRY_TRAILING_SLACK}px，仅对「单行 flex + 可横向滚动」的容器要求）；**中文与英文两种语言下都成立**；` +
+      '且 切换器按钮可点（aria-pressed 随点击翻转）、**切到英文之后还能切回中文**',
+    detail: [
+      notes.join(' | '),
+      `语言入口形态=${entryEl ? `入口「${accName(entryEl)}」+ 弹窗切换器` : '页内内联切换器（无需入口）'}`,
+      `中文态切换器带=${cnSw.overlay ? 'viewportBand（弹窗覆盖层）' : 'pageBand（页内内容带）'}；英文态切换器带=${enSw.overlay ? 'viewportBand（弹窗覆盖层）' : 'pageBand（页内内容带）'}`,
+      entryReach
+        ? `入口自身视口=${entryReach.selfOk ? 'ok' : entryReach.why.join('；')}；入口所在容器=${entryReach.hOverflow.ok ? '不溢出' : `溢出 scrollW${entryReach.hOverflow.scrollWidth}>clientW${entryReach.hOverflow.clientWidth}，在外面的是 ${entryReach.hOverflow.outside.join('、')}`}；入口所在容器尾随余量=${!entryReach.hOverflow.trailing.applies ? '不适用（容器不是「单行 flex + 可横向滚动」）' : `${entryReach.hOverflow.trailing.slack}px（要求 ≥ ${entryReach.hOverflow.trailing.required}）`}`
+        : '入口自身视口=不适用（切换器内联，无需入口）',
+      `中文态入口行逐项=${cnEntryRow.length ? cnEntryRow.map((x) => fmtReach(x.el, x.v)).join(' / ') : '不适用'}`,
+      `英文态入口行逐项=${entryEl ? (enEntryRow.length ? enEntryRow.map((x) => fmtReach(x.el, x.v)).join(' / ') : '未能量到（语言切换后入口行未定位到）') : '不适用'}`,
+      `状态证据：起始持久化语言=${JSON.stringify(persistedAtStart)}，结束时=${JSON.stringify(persistedEnd)}（仅佐证；file:// 下 localStorage 可能不可用）`,
+      `切换器视口=${cnSwOk && enSwOk ? 'ok（两语）' : `中文态${cnSwOk ? 'ok' : '不通过'} / 英文态${enSwOk ? 'ok' : '不通过'}`}`,
+      `行为=${toggled ? '切到英文 ok' : '切到英文失败'}；${returnedZh ? '切回中文 ok' : '**切回中文失败**'}`
+    ].join('；')
   }
 }
 /** A8 安卓端「我的」页不存在「空壳 Tab」 */
