@@ -54,10 +54,25 @@ describe('AndroidTabBar', () => {
     expect(screen.getByRole('button', { name: '统计' })).not.toHaveAttribute('aria-current')
   })
 
-  it('「分类管理」归入「我的」：activePage=categories 时高亮我的', () => {
+  it('「分类管理」是「我的」的子页：categories 页不点亮任何 Tab（回退由页头返回按钮承担）', () => {
     useStore.setState({ activePage: 'categories' })
     render(<AndroidTabBar />)
-    expect(screen.getByRole('button', { name: '我的' })).toHaveClass('android-tab-active')
+    // 旧行为把 categories 也高亮成「我的」→ 看起来"已经在这一页"，与返回按钮自相矛盾
+    const me = screen.getByRole('button', { name: '我的' })
+    expect(me).not.toHaveClass('android-tab-active')
+    expect(me).not.toHaveAttribute('aria-current')
+    for (const label of ['首页', '账单', '统计']) {
+      expect(screen.getByRole('button', { name: label })).not.toHaveClass('android-tab-active')
+    }
+  })
+
+  it('categories 页点「我的」仍能回到 profile（回退不止页头一条路）', () => {
+    useStore.setState({ activePage: 'categories' })
+    const spy = vi.spyOn(useStore.getState(), 'setActivePage')
+    render(<AndroidTabBar />)
+    fireEvent.click(screen.getByRole('button', { name: '我的' }))
+    expect(spy).toHaveBeenCalledWith('profile')
+    spy.mockRestore()
   })
 
   it('FAB 不渲染「记一笔」文本节点（避免与顶栏按钮重名，破坏桌面测试选择器）', () => {

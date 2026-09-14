@@ -35,6 +35,13 @@ interface AppState {
   closeAddDialog: () => void
   openEditDialog: (id: number) => void
 
+  // 设置弹窗开关。原先由 `App.tsx` 的本地 state 持有，但唯一入口是侧栏（安卓窄屏
+  // 隐藏侧栏 → 安卓根本打不开设置、切不了语言）。改为 store 驱动后「我的」页也能开。
+  // 语义与 openAddDialog 完全一致：状态 + 打开 + 关闭。
+  settingsOpen: boolean
+  openSettings: () => void
+  closeSettings: () => void
+
   bills: Bill[]
   setBills: (bills: Bill[]) => void
   refreshBills: () => Promise<void>
@@ -86,6 +93,10 @@ export const useStore = create<AppState>((set, get) => ({
   openAddDialog: () => set({ isAddDialogOpen: true, editBillId: null }),
   closeAddDialog: () => set({ isAddDialogOpen: false, editBillId: null }),
   openEditDialog: (id) => set({ isAddDialogOpen: true, editBillId: id }),
+
+  settingsOpen: false,
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
 
   bills: [],
   setBills: (bills) => set({ bills }),

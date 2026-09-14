@@ -349,3 +349,83 @@ html.platform-android .android-edit-toggle[aria-pressed='true'] {
     padding-right: 12px;
   }
 }
+
+/* ══════════ 移动端重排：分类管理返回路径 + 编辑模式可发现性 ══════════ */
+
+/* 页头返回按钮。Android WebView 里硬件返回键对**零 history** 的 SPA 是空操作
+   （全库无 pushState/popstate，Capacitor 只在 canGoBack() 为真时回退），所以窄屏必须给出
+   屏幕上可点的回退入口。它与右侧 `.android-edit-toggle`（列表模式开关，不离开本页）
+   在视觉上必须可区分：一是位置分列页头两端，二是本按钮用强调色文字 + 描边、
+   三是「编辑」是实心 dim 底（`[aria-pressed='true']`），三者互不重叠。 */
+html.platform-android .category-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px; /* ≥44px 触控目标 */
+  margin-left: -8px; /* 视觉左对齐到 px-6 的标题列，不额外占宽 */
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent-h);
+  font-size: 13px;
+  font-weight: 600;
+  touch-action: manipulation;
+}
+
+html.platform-android .category-back-btn:active {
+  border-color: var(--accent-h);
+  background: var(--accent-dim);
+}
+
+/* 「编辑」开关在**非编辑态**也保持强调色描边/文字（覆盖上面那条既有规则的
+   中性底色，特指度 0,3,1 > 0,2,1）。原因：编辑模式是新用户唯一的排序/删除入口，
+   而旧版它在中性灰下与标题栏其它文本没有区别；提示行（.category-edit-hint）
+   现在直接指向「右上角『编辑』」，两者必须能对上号。
+   `aria-pressed='true'`（已进入编辑模式）时仍由既有规则给出实心 dim 底，状态差异保留。 */
+html.platform-android .android-edit-toggle:not([aria-pressed='true']) {
+  border-color: var(--accent-h);
+  color: var(--accent-h);
+}
+
+/* 编辑模式提示行。拖动把手与删除按钮是**编辑模式专属**（产品语义，不回退），
+   因此非编辑态必须有一行可见文字说明「去哪里能做什么」——旧版线索只存在于
+   把手 aria-label 与不渲染的 DOM 里，等于没有可发现性。
+   纯静态文本，不参与交互；颜色走语义 token，字号 12px 保证不喧宾夺主。 */
+html.platform-android .category-edit-hint {
+  display: block;
+  padding: 8px 24px; /* 与页头 px-6 对齐 */
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ══════════ 移动端重排：个人中心导航压缩为单行 chip ══════════ */
+
+@media (max-width: 639px) {
+  /* 旧版把 5 个 Tab 铺成 2~3 行（每行 40px+）→ 左栏独占首屏 186px（26%），
+     而安卓本地模式下其中 3 个还是空壳。现在只剩 4 个真实项，并压成**单行**：
+     高度降到约 80px（含页标题）。`nowrap` + `overflow-x: auto` 是兜底 ——
+     英文等更长文案时横向滚动，而不是把第 4 项「设置」（安卓唯一设置入口）
+     折行到屏幕外侧。 */
+  html.platform-android .profile-nav nav {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  /* `:not([hidden])` 是用来抬到 0,3,2 的：Tailwind 的 `space-y-1` 展开为
+     `.space-y-1 > :not([hidden]) ~ :not([hidden])`（0,3,0），且本文件在产物中
+     排在 `src/index.css` **之前**（同特指度时 Tailwind 胜），所以必须靠特指度反超。
+     否则单行 flex 里每个后续 chip 会带 4px `margin-top`，与首个 chip 错位。 */
+  html.platform-android .profile-nav nav > button:not([hidden]) {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 40px;
+    margin-top: 0;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+}

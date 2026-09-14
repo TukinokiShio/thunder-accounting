@@ -20,7 +20,7 @@ import { isAndroid } from '@/platform'
 import {
   User, Lock, Link, BarChart3, AlertTriangle, AlertCircle,
   Copy, Check, Eye, EyeOff, Loader2, Trash2,
-  Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X, Tags
+  Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X
 } from 'lucide-react'
 
 type Tab = 'info' | 'security' | 'binding' | 'stats' | 'danger'
@@ -84,7 +84,7 @@ function LocalModeCloudNotice({ message }: { message: string }) {
 }
 
 export default function ProfilePage() {
-  const { user, addToast, appLogout, setActivePage } = useStore()
+  const { user, addToast, appLogout, setActivePage, openSettings } = useStore()
   const { t, lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<Tab>('info')
 
@@ -188,13 +188,23 @@ export default function ProfilePage() {
     { id: 'danger', label: t('危险操作'), icon: <AlertTriangle size={16} /> },
   ]
 
+  /**
+   * 安卓本地模式（`isAndroid()`）：无云端账号体系 → 「安全设置 / 绑定管理 / 危险操作」
+   * 三个 Tab **整体不渲染**（而不是渲染成一句"不可用"的空壳）。
+   * 判据是「这一项在本版本里能不能真的做事」，不是「能不能渲染」。
+   * 桌面仍渲染全部 5 项，逐位不变。
+   */
+  const visibleTabs = localMode
+    ? tabs.filter(tab => tab.id === 'info' || tab.id === 'stats')
+    : tabs
+
   return (
     <div className="profile-layout page-view w-full min-w-0 flex min-h-full flex-col gap-4 md:flex-row">
       {/* ── 左侧标签导航 ── */}
       <aside className="profile-nav w-full min-w-0 shrink-0 md:w-48">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">{t('个人中心')}</h2>
         <nav className="space-y-1">
-          {tabs.map(tab => (
+          {visibleTabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -204,23 +214,37 @@ export default function ProfilePage() {
                   : 'profile-tab-idle'
               }`}
             >
-              {tab.icon}
+              {/* 安卓窄屏把导航压成单行 chip（选择器见 `mobile/android.css`）：
+                  只有 4 项且去图标/去箭头时总宽 < 348px，才能一屏放下、不必横向滚动
+                  —— 否则第 4 项「设置」（安卓唯一的设置入口）可能被裁在屏幕外。 */}
+              {!localMode && tab.icon}
               {tab.label}
             </button>
           ))}
+          {/* 安卓侧栏被隐藏（`mobile/android.css`），故这两项只在安卓渲染，桌面零变化：
+              - 分类管理：底部导航只有 4 个 Tab，它归入「我的」。
+              - 设置：**安卓唯一**能打开设置（含语言切换）的入口（P0 修复）。 */}
+          {localMode && (
+            <>
+              <button
+                type="button"
+                onClick={() => setActivePage('categories')}
+                className="profile-action w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                aria-label={t('分类管理')}
+              >
+                {t('分类管理')}
+              </button>
+              <button
+                type="button"
+                onClick={openSettings}
+                className="profile-action w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                aria-label={t('设置')}
+              >
+                {t('设置')}
+              </button>
+            </>
+          )}
         </nav>
-        {/* P2-1 方案 B：底部导航只有 4 个 Tab，「分类管理」归入「我的」。
-            桌面侧栏已有该入口，故这里只在安卓渲染（桌面零变化）。 */}
-        {localMode && (
-          <button
-            type="button"
-            onClick={() => setActivePage('categories')}
-            className="profile-action mt-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-            aria-label={t('分类管理')}
-          >
-            <Tags size={16} aria-hidden="true" />{t('分类管理')}<ChevronRight size={14} className="ml-auto" aria-hidden="true" />
-          </button>
-        )}
       </aside>
 
       {/* ── 右侧内容区 ── */}
@@ -240,6 +264,7 @@ export default function ProfilePage() {
             onRetry={loadAccount}
             language={lang}
             retryLabel={t('点击重试')}
+            localMode={localMode}
           />
         )}
         {activeTab === 'security' && (
@@ -344,30 +369,12 @@ function ProfileStatus({
   )
 }
 
-/**
- * 云端服务未配置提示
- * 当 .env 缺失或 CLOUDBASE_API_KEY 无效时，Profile 顶部统一展示
- */
-function CloudUnavailableNotice() {
-  const { t } = useLanguage()
-  return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-      <AlertCircle size={20} className="text-amber-500 shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-semibold text-amber-800">{t('云端服务未配置')}</h3>
-        <p className="text-xs text-amber-700 mt-1">{t('当前应用未配置 CLOUDBASE_API_KEY（安装版可将')} <code className="px-1 bg-amber-100 rounded">.env</code> {t('放在 exe 同级目录）， 云端数据库同步与账号映射暂不可用；登录态下的 Auth 绑定、注销和修改密码会走独立链路。')}</p>
-        <p className="text-xs text-amber-700 mt-1">{t('本地功能（账号信息查看、数据概览、退出登录）仍可正常使用。')}</p>
-      </div>
-    </div>
-  )
-}
-
 // ═════════════════════════════════════════════════════════════════
 // 子组件：账号信息
 // ═════════════════════════════════════════════════════════════════
 
 function InfoTab({
-  nickname, email, accountId, copied, onCopy, onLogout, accountStatus, onRetry, language, retryLabel
+  nickname, email, accountId, copied, onCopy, onLogout, accountStatus, onRetry, language, retryLabel, localMode
 }: {
   nickname: string
   email: string
@@ -379,6 +386,8 @@ function InfoTab({
   onRetry: () => void | Promise<void>
   language: 'zh' | 'en'
   retryLabel: string
+  /** 安卓本地模式：隐藏账号 ID 卡（无账号体系）、邮箱行与「退出登录」 */
+  localMode: boolean
 }) {
   const { t } = useLanguage()
   return (
@@ -398,7 +407,9 @@ function InfoTab({
           retryLabel={retryLabel}
         />
       )}
-      {accountStatus === 'ready' && !email && !accountId && (
+      {/* 空态只在桌面（有账号体系）出现：它的引导文案指向「绑定管理」，
+          而安卓本地模式下该 Tab 整体不渲染 → 引导会指向不存在的页面。 */}
+      {!localMode && accountStatus === 'ready' && !email && !accountId && (
         <ProfileStatus
           kind="empty"
           message={t('暂无账号绑定信息')}
@@ -411,45 +422,58 @@ function InfoTab({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-xl font-semibold text-gray-900 truncate">{nickname}</h3>
-          <p className="text-sm text-gray-500 truncate">{email || t('雷霆记账用户')}</p>
+          <p className="text-sm text-gray-500 truncate">
+            {localMode ? t('本地模式') : (email || t('雷霆记账用户'))}
+          </p>
         </div>
       </div>
 
-      <div className="profile-surface rounded-xl p-4">
-        <label className="text-xs text-gray-500 mb-1 block">{t('雷霆记账账号')}</label>
-        <div className="flex items-center gap-2">
-          <code className="text-lg font-mono font-bold text-gray-800 tracking-wider flex-1">
-            {accountId || t('加载中...')}
-          </code>
+      {localMode ? (
+        /* 本地身份卡：安卓本地模式没有账号 ID（`android-adapter.ts` 恒返回 null）也没有
+           绑定/登录链路，因此不渲染账号 ID 卡（旧版会永久停在「加载中...」占位）、
+           不渲染邮箱行、也不渲染「退出登录」（旧版点击只会抛 cloudUnavailable 错）。 */
+        <div className="profile-surface rounded-xl p-4">
+          <p className="text-sm text-gray-600">{t('数据保存在本机，无需登录即可使用。')}</p>
+        </div>
+      ) : (
+        <>
+          <div className="profile-surface rounded-xl p-4">
+            <label className="text-xs text-gray-500 mb-1 block">{t('雷霆记账账号')}</label>
+            <div className="flex items-center gap-2">
+              <code className="text-lg font-mono font-bold text-gray-800 tracking-wider flex-1">
+                {accountId || t('加载中...')}
+              </code>
+              <button
+                onClick={onCopy}
+                disabled={!accountId}
+                className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 transition-colors"
+                title={t('复制账号ID')}
+              >
+                {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                {copied ? t('已复制') : t('复制')}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">{t('你的雷霆记账专属账号ID，可用于登录、找回账号和跨设备数据同步。')}</p>
+          </div>
+
+          <div className="profile-surface flex items-center gap-4 p-4 rounded-xl">
+            <Mail size={20} className="text-gray-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500">{t('邮箱')}</p>
+              <p className="text-sm text-gray-800 truncate">{email || t('未绑定邮箱')}</p>
+            </div>
+            {email && (
+              <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">{t('已绑定')}</span>
+            )}
+          </div>
+
           <button
-            onClick={onCopy}
-            disabled={!accountId}
-            className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 transition-colors"
-            title={t('复制账号ID')}
+            onClick={onLogout}
+            className="profile-action profile-danger-outline inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
           >
-            {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-            {copied ? t('已复制') : t('复制')}
-          </button>
-        </div>
-        <p className="text-xs text-gray-400 mt-2">{t('你的雷霆记账专属账号ID，可用于登录、找回账号和跨设备数据同步。')}</p>
-      </div>
-
-      <div className="profile-surface flex items-center gap-4 p-4 rounded-xl">
-        <Mail size={20} className="text-gray-400 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-500">{t('邮箱')}</p>
-          <p className="text-sm text-gray-800 truncate">{email || t('未绑定邮箱')}</p>
-        </div>
-        {email && (
-          <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">{t('已绑定')}</span>
-        )}
-      </div>
-
-      <button
-        onClick={onLogout}
-        className="profile-action profile-danger-outline inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
-      >
-        <LogOut size={16} />{t('退出登录')}</button>
+            <LogOut size={16} />{t('退出登录')}</button>
+        </>
+      )}
     </div>
   )
 }

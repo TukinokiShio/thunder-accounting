@@ -5,7 +5,7 @@
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Settings, Pencil } from 'lucide-react'
+import { X, Settings, Pencil, ArrowLeft } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { modalPortalScope } from '@/utils/modalScope'
@@ -341,13 +341,34 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
 
   const isPage = mode === 'page'
 
+  // 空态文案必须与当前布局一致：桌面是「左列表 + 右编辑器」（"从左侧选择"成立），
+  // 安卓窄屏已被 `mobile/android.css` 改成上下堆叠（"从左侧"是错的）。
   const emptyMessage = categories.length === 0
     ? t('暂无分类，点击"新增分类"开始')
-    : t('从左侧选择一个分类进行编辑，或点击"新增分类"')
+    : touch
+      ? t('选择一个分类进行编辑，或点击"新增分类"')
+      : t('从左侧选择一个分类进行编辑，或点击"新增分类"')
+
+  // 编辑模式可发现性提示：拖动把手与删除按钮是**编辑模式专属**（用户定稿的产品语义），
+  // 因此非编辑态必须在页面上说清"去哪里能做什么"，不能只把线索藏在 aria-label 里。
+  const editHint = editMode
+    ? t('长按左侧把手拖动排序，点 × 删除分类')
+    : t('点右上角「编辑」可拖动排序或删除分类')
 
   const headerContent = (
     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
       <div className="flex items-center gap-2">
+        {isPage && touch && (
+          <button
+            type="button"
+            className="category-back-btn"
+            onClick={onClose}
+            aria-label={t('返回')}
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+            {t('返回')}
+          </button>
+        )}
         <Settings size={18} className="text-gray-400" />
         <h2 className="text-lg font-bold text-gray-900">{t('分类管理')}</h2>
       </div>
@@ -454,6 +475,7 @@ export function CategoryManager({ isOpen, onClose, mode = 'dialog' }: Props) {
     return (
       <div className="h-full flex flex-col">
         {headerContent}
+        {touch && <p className="category-edit-hint">{editHint}</p>}
         {bodyContent}
         {deleteDialog}
       </div>

@@ -3,7 +3,7 @@
  * 初始化时加载分类和账单数据，注册全局快捷键（Ctrl+N 快速记账）。
  * 布局：左侧 Sidebar + 右侧内容区（根据 activePage 切换页面）。
  */
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Layout } from '@/components/Layout'
 import { Home } from '@/pages/Home'
 import { Bills } from '@/pages/Bills'
@@ -23,7 +23,13 @@ export default function App() {
   const openAddDialog = useStore((s) => s.openAddDialog)
   const user = useStore((s) => s.user)
   const isCheckingSession = useStore((s) => s.isCheckingSession)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // 设置弹窗状态从本地 useState 迁到 store：安卓窄屏隐藏侧栏后，「我的」页需要一个
+  // 能打开设置（含语言切换）的入口，而本地 state 无法被其他组件触达。
+  // 桌面侧栏 `Layout → onOpenSettings` 仍走同一个 `openSettings()`，行为逐位不变。
+  const settingsOpen = useStore((s) => s.settingsOpen)
+  const openSettings = useStore((s) => s.openSettings)
+  const closeSettings = useStore((s) => s.closeSettings)
+  const setActivePage = useStore((s) => s.setActivePage)
 
   /** 安卓首版纯本地：无账号体系，user 恒为 null，必须改用「会话已判定」作为加载门 */
   const localMode = isAndroid()
@@ -72,14 +78,20 @@ export default function App() {
   return (
     <LanguageProvider>
       <AuthGuard>
-        <Layout onOpenSettings={() => setSettingsOpen(true)}>
+        <Layout onOpenSettings={openSettings}>
           {activePage === 'home' && <Home />}
           {activePage === 'bills' && <Bills />}
           {activePage === 'stats' && <Stats />}
-          {activePage === 'categories' && <CategoryManager isOpen={true} onClose={() => {}} mode="page" />}
+          {activePage === 'categories' && (
+            <CategoryManager
+              isOpen={true}
+              onClose={() => setActivePage('profile')}
+              mode="page"
+            />
+          )}
           {activePage === 'profile' && <ProfilePage />}
           <AddBillDialog />
-          <SettingsDialog isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <SettingsDialog isOpen={settingsOpen} onClose={closeSettings} />
         </Layout>
       </AuthGuard>
       {/* Toast 必须在 AuthGuard 外部，才能在登录页可见 */}

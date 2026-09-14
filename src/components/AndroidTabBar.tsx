@@ -38,8 +38,11 @@ export function AndroidTabBar() {
 
   const renderTab = (tab: (typeof TABS)[number]) => {
     const Icon = tab.icon
-    // 「分类管理」是「我的」的子页，指示器仍高亮「我的」
-    const isActive = activePage === tab.id || (tab.id === 'profile' && activePage === 'categories')
+    // 「分类管理」是「我的」的子页，但它有自己的页头返回按钮（CategoryManager 页头）。
+    // 这里**不再**把 categories 也点亮成「我的」：底栏若显示「我的」已选中，会与返回按钮
+    // 互相矛盾（看起来"已经在这一页"，从而否定回退入口）。改为只有 categories 页自身
+    // 无高亮 + 页头返回按钮唯一标识「这是子页，可回退」。
+    const isActive = activePage === tab.id
     return (
       <button
         key={tab.id}
