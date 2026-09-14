@@ -171,6 +171,19 @@ exe/              AGENTS.md 规定的固定安装验收目录
    - 连带事实：`index.css:510` 与 `Home.tsx` 的 6 组 `card.color` 是**两套互相矛盾的意图**，
      `card.color` 长期是死代码。要不要改用 per-card 配色是**独立的设计决策**，
      不得作为布局改动的副作用混入本轮。
+26. **任何写进结论的检查，必须给出「它能够失败」的对照（2026-09-14，一天内 3 个实例）**：
+   - **`tsc --noEmit -p tsconfig.json` 是空转**：根配置是 solution 式
+     （`{"files": [], "references": [node, web]}`），而 `references` **只在 `tsc -b` 下才被跟随**。
+     用 `-p` 调用它 ⇒ 列出 **0 个文件**、并且**永远 exit 0**。
+     实测：`tsc -p tsconfig.json --listFiles` → **0**；`tsc -p tsconfig.mobile.json --listFiles` → **693**（阳性对照）。
+     ⇒ **本项目历史上所有「tsc clean」说法里，根配置那半句都是假证据**（含提交信息里的「两个 tsconfig 均 0 错误」）。
+     ⚠️ **不要改用 `tsc -b` 兜底**：`tsconfig.node.json` / `tsconfig.web.json` 是 `composite: true` 且 `outDir: ./out`，
+     `-b` 会往仓库里产 `.js/.d.ts`。正解是补 `tsconfig.scripts.json`（`noEmit: true`）。
+   - 连带事实：**`scripts/**` 此前没有任何 tsconfig 覆盖** ⇒ 门禁自己的"尺子"是全项目唯一无类型校验的部分。
+   - 同型另两例：把「实测 2702 ÷ 模型 1776 = 1.52」当**统一缩放因子**外推改后高度（量纲不同，见 §20）；
+     以及一次「命中组 8→6」的推算（**实测 8→8** —— 两棵树本就无版本号差异，掩码没有可归一化的对象）。
+   - **判据**：一条**不可能失败**的检查不是检查，是装饰。写进结论前先问：**它能失败吗？给它一个反例试试。**
+     这条对**自己**的证据与对别人的证据**同等适用** —— 本轮恰恰是 worker 用这条抓出了 lead 的假证据。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
