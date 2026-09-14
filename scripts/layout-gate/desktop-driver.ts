@@ -206,12 +206,15 @@ function q<T extends Element = HTMLElement>(sel: string): T | null {
   return document.querySelector<T>(sel)
 }
 
-function probeEl(name: string, el: Element | null | undefined, keys: string[]): ProbeRec {
+function probeEl(name: string, el: Element | null | undefined, keys: string[], metric?: () => string): ProbeRec {
   if (!el) return { found: false, s: {} }
-  const text = (el.textContent || '').trim()
+  const raw = metric ? metric().trim() : (el.textContent || '').trim()
+  // 元素文本沿用原来的 60 字符上限（既有探针的输出不受影响）；
+  // metric 是**派生的聚合量**，需要放下完整清单，给更宽的上限。
+  const cap = metric ? 300 : 60
   return {
     found: true,
-    text: text.length > 60 ? `${text.slice(0, 57)}...` : text,
+    text: raw.length > cap ? `${raw.slice(0, cap - 3)}...` : raw,
     s: styleOf(el, keys)
   }
 }
@@ -316,6 +319,8 @@ interface ProbeSpec {
   name: string
   keys: string[]
   find: () => Element | null | undefined
+  /** 可选的**派生聚合量**：替代元素的 textContent 参与跨侧文本比对（见 home.iconColorSet）。 */
+  metric?: () => string
 }
 
 const PROBE_SPECS: ProbeSpec[] = [
@@ -331,6 +336,35 @@ const PROBE_SPECS: ProbeSpec[] = [
     name: 'home.card',
     keys: ['width', 'height', 'padding-top', 'padding-left', 'border-radius'],
     find: () => q('.home-stats-grid')?.firstElementChild ?? null
+  },
+  {
+    // 「首页统计卡图标盒统一强调色」这条不变量是**聚合**性质的：`src/index.css:510` 的
+    // `.aurora-shell .home-stats-grid .w-8.h-8 { … !important }` 让网格里**所有**图标盒
+    // 统一取强调色。所以这里报**去重后的配色种数**，而不是某一张卡的色值。
+    //
+    // 为什么不能用单卡探针（这是实测踩出来的，不是设计偏好）：把改动「`w-8 h-8` 拆成
+    // `w-7 h-7 sm:w-8 sm:h-8`」注回对照树后，**盯第 1 张卡的探针竟然 PASS**
+    // ——因为 `Home.tsx:97` 里第 1 张卡的 `card.color` 本身就是
+    // `text-[var(--accent)] bg-[var(--accent-dim)]`，是全网格里**唯一**在选择器失配时
+    // 外观不变的那张。选它等于选了一个必然看不见缺陷的目标。
+    //
+    // 也不能用 `.w-8.h-8` 选：那正是失配的那个字面量，失配后探针会「找不到元素」，
+    // 把「语义丢失」误报成「DOM 变了」。
+    page: 'home',
+    name: 'home.iconColorSet',
+    keys: [],
+    find: () => q('.home-stats-grid'),
+    metric: () => {
+      const boxes = Array.from(document.querySelectorAll<HTMLElement>('.home-stats-grid *')).filter(
+        (el) => el.children.length === 1 && el.firstElementChild?.tagName.toLowerCase() === 'svg'
+      )
+      const pairs = boxes.map((el) => {
+        const s = getComputedStyle(el)
+        return `${s.color} / ${s.backgroundColor}`
+      })
+      const uniq = Array.from(new Set(pairs))
+      return `${boxes.length} 个图标盒（尺寸 ${boxes.map((b) => getComputedStyle(b).width).join(',')}），配色 ${uniq.length} 种：${uniq.join(' | ')}`
+    }
   },
   {
     page: 'home',
@@ -384,6 +418,19 @@ const PROBE_SPECS: ProbeSpec[] = [
     name: 'stats.chartSvg0',
     keys: ['width', 'height'],
     find: () => q('.recharts-surface')
+  },
+  {
+    // recharts 图例容器（类名出处：`node_modules/recharts/lib/component/Legend.js:176`
+    // 的 `recharts-legend-wrapper`，不是推断出来的）。
+    // 补它的原因：上一轮实测里「桌面删掉 Legend」这条改动，**唯一**能直接点名的锚点就是
+    // 这个容器（`width: 386px → 0px` / `height: 44px → 0px` / `visibility: visible → hidden`）。
+    // 既有 `stats.chart0` 盯的是 `.recharts-responsive-container`（395.812px 两侧相同）、
+    // `stats.chartSvg0` 盯 `.recharts-surface`（也是两侧相同）—— 只看既有探针会得出
+    // 「桌面没变」的错误结论。
+    page: 'stats',
+    name: 'stats.legend0',
+    keys: ['width', 'height', 'display', 'visibility', 'position'],
+    find: () => q('.recharts-legend-wrapper')
   },
   /* ── 个人中心 ── */
   {
@@ -493,7 +540,7 @@ export async function runGate(onProgress?: (payload: unknown) => void): Promise<
     counts[page] = pageCounts
     for (const spec of PROBE_SPECS) {
       if (spec.page !== page) continue
-      probes[spec.name] = probeEl(spec.name, spec.find(), spec.keys)
+      probes[spec.name] = probeEl(spec.name, spec.find(), spec.keys, spec.metric)
     }
     // 逐页回写进度：若虚拟时间预算被耗尽、--dump-dom 提前取走 DOM，<pre> 里仍留有**部分**结果，
     // 而不是一片空白（否则「空 JSON」既看不出跑到哪一步，也分不清是探针崩了还是被截断）

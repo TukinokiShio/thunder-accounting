@@ -331,31 +331,44 @@ function compare(base, cur) {
   for (const name of probeNames) {
     const b = base.dump.probes[name]
     const c = cur.dump.probes[name]
+    // 每个探针在报告里必须**自己说清自己为什么 PASS/FAIL**。
+    // 曾经的写法只按 `keys` 判 PASS/FAIL，于是「命中元素不同」「命中文本不同」「探针缺失」
+    // 这三类已经有差异的探针会在报告里打印成 PASS（差异只落在下面的差异汇总里）——
+    // 汇总与逐项两处结论打架，读的人会以为探针层是绿的。改成由 reasons 驱动。
     if (!b || !c) {
+      const reason = `探针缺失：基线=${b ? '有' : '无'} / 当前=${c ? '有' : '无'}`
       diffs.push({ where: name, kind: '探针缺失', detail: `基线=${b ? '有' : '无'} 当前=${c ? '有' : '无'}` })
+      probes.push({ name, keys: [], reasons: [reason] })
       continue
     }
     if (!b.found && !c.found) {
       // 两侧都没找到 ⇒ 这个探针已经失效，比对是**空过**，必须判失败（否则门禁会静默失明）
-      probes.push({ name, found: [false, false], keys: [], text: [b.text, c.text], vacuous: true })
+      const reason = '探针失效：两侧都未找到该元素（比对空过，必须修正探针本身）'
+      probes.push({ name, found: [false, false], keys: [], text: [b.text, c.text], vacuous: true, reasons: [reason] })
       diffs.push({ where: name, kind: '探针失效（两侧都未找到该元素）', detail: '该探针已空过，必须修正探针本身' })
       continue
     }
     if (b.found !== c.found) {
-      probes.push({ name, found: [b.found, c.found], keys: [], text: [b.text, c.text], vacuous: false })
+      const reason = `命中情况不同：基线 found=${b.found} / 当前 found=${c.found}`
+      probes.push({ name, found: [b.found, c.found], keys: [], text: [b.text, c.text], vacuous: false, reasons: [reason] })
       diffs.push({ where: name, kind: '探针命中情况不同', detail: `基线 found=${b.found} / 当前 found=${c.found}` })
       continue
     }
+    const reasons = []
     if ((b.text || '') !== (c.text || '')) {
+      reasons.push('命中的元素文本不同（可能量到了不同元素）')
       diffs.push({ where: name, kind: '命中的元素文本不同（可能量到了不同元素）', detail: `基线 "${b.text}" / 当前 "${c.text}"` })
     }
     const keys = []
     for (const k of Object.keys(b.s)) {
       const equal = b.s[k] === c.s[k]
       keys.push({ key: k, baseline: b.s[k], current: c.s[k], equal })
-      if (!equal) diffs.push({ where: name, kind: 'computed style 不同', detail: `${k}: 基线 ${b.s[k]} → 当前 ${c.s[k]}` })
+      if (!equal) {
+        reasons.push(`computed style 不同：${k}`)
+        diffs.push({ where: name, kind: 'computed style 不同', detail: `${k}: 基线 ${b.s[k]} → 当前 ${c.s[k]}` })
+      }
     }
-    probes.push({ name, found: [true, true], keys, text: [b.text, c.text], vacuous: false })
+    probes.push({ name, found: [true, true], keys, text: [b.text, c.text], vacuous: false, reasons })
   }
 
   /* 结构计数 */
@@ -408,12 +421,9 @@ function printReport(base, cur, cmp) {
   log('')
   log('── 关键元素逐项比对（基线 → 当前）───────────────────────────────────')
   for (const p of cmp.probes) {
-    if (p.vacuous) {
-      log(`FAIL  ${p.name}  —— 探针失效：两侧都未找到该元素（比对空过）`)
-      continue
-    }
-    const bad = p.keys.filter((k) => !k.equal)
-    log(`${bad.length === 0 ? 'PASS' : 'FAIL'}  ${p.name}`)
+    const reasons = p.reasons && p.reasons.length ? p.reasons : p.vacuous ? ['探针失效：两侧都未找到该元素（比对空过）'] : []
+    log(`${reasons.length === 0 ? 'PASS' : 'FAIL'}  ${p.name}`)
+    for (const r of reasons) log(`        ! ${r}`)
     if (p.text && p.text[0] !== undefined) log(`        命中文本: "${p.text[0]}"${p.text[0] === p.text[1] ? '' : `  [当前: "${p.text[1]}"]`}`)
     for (const k of p.keys) {
       log(`        ${k.equal ? '=' : '≠'} ${k.key}: ${k.baseline}${k.equal ? '' : `  →  ${k.current}`}`)
