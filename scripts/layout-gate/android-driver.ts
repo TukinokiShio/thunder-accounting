@@ -5,6 +5,31 @@
  * 一律用「文本定位 + 祖先关系 + 计算样式」表达，使同一条断言能同时表达新旧两种 DOM。
  *
  * 返回值由 `verify-android-layout.cjs` 序列化后打印；本文件不 console.log。
+ *
+ * ───────────────────────── 通则（写断言前必读） ─────────────────────────
+ *
+ * **任何「可达 / 可点 / 可见」的断言，必须同时断言它在视口内。**
+ * 只断言 `click()` 成功，证明的是**元素存在**，不是**用户能找到**。
+ *
+ * 为什么：`el.click()` 只在 DOM 上派发事件，它不要求元素在屏幕上，也不要求它能被手指碰到
+ * （Playwright 的 `click()` 更进一步，默认 `scrollIntoViewIfNeeded`，会主动把元素滚进视野）。
+ * 于是「程序化点击」是一条**几乎不可能失败**的检查 —— 它在报「元素存在」，却被读成「用户能用」。
+ * 而按我们反复确立的口径：**一个不可能失败的检查不是检查。**
+ *
+ * 真实事故（A7 全绿、用户在真机上找不到入口）：`profile-nav nav` 在 ≤639px 是
+ * `flex-wrap: nowrap; overflow-x: auto`，第 4 项「设置」（安卓唯一设置入口）被挤出可视区，
+ * 用户点不到、反馈「页面还是没有做到中英文切换」，而门禁 9 条全 PASS。
+ * 更刺眼的是 `Profile.tsx` 的注释**已经预见到**这个风险（只有 4 项且总宽 < 348px 才放得下）
+ * —— 「作者预见到了、还是发生了」正说明：**文字警告不是约束，断言才是。**
+ *
+ * 因此「入口可达」= 三件事**同时**成立，缺一不可：
+ *   ① `el.click()` 后行为真的发生（本文件既有断言，保留）；
+ *   ② 元素在视口内：尺寸非零 + `left >= 0 && right <= innerWidth`
+ *      + `top >= bandTop && bottom <= bandBottom`（band 用与 A1/A5 同一口径的内容带）；
+ *   ③ 它所在的横向裁剪容器没有“东西在外面”：`scrollWidth <= clientWidth + 1`
+ *      —— `overflow-x: auto` + 子项超宽就是藏起入口的机制本身。
+ *
+ * 判据实现见 `reachVerdict()`；`isRendered()` 与「在视口内」是两件事，不许再合成一个布尔。
  */
 import { useStore } from '@/store'
 import { BILLS, nameText, amountText } from './fixture'
@@ -57,6 +82,193 @@ function isVisible(el: Element | null): el is HTMLElement {
   if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return false
   const r = el.getBoundingClientRect()
   return r.width >= 1 && r.height >= 1 && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
+}
+
+/**
+ * 元素是否**被渲染出来**（有盒子、没被 display/visibility/opacity 藏掉）—— 不判它在不在视口内。
+ *
+ * 存在的意义是把 `isVisible()` 里合成的两件事拆开（见文件头通则）：
+ *  - 负向断言（A8「不存在空壳 Tab」）关心的是**存在**，用宽松的「与视口有交集」去筛，
+ *    会让「存在但被挤出屏幕」静默过关；
+ *  - 正向断言（A6/A7）关心的是**用户找得到**，`click()` 又不要求可见 ⇒ 两边都漏。
+ */
+function isRendered(el: Element | null): el is HTMLElement {
+  if (!el || !(el instanceof HTMLElement)) return false
+  const cs = getComputedStyle(el)
+  if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return false
+  const r = el.getBoundingClientRect()
+  return r.width >= 1 && r.height >= 1
+}
+
+/** 离元素最近的「可能横向裁剪它」的祖先（`overflow-x ≠ visible`）。 */
+function hClipContainerOf(el: Element): HTMLElement | null {
+  let p: HTMLElement | null = el.parentElement
+  while (p) {
+    if (/auto|scroll|hidden|clip/.test(getComputedStyle(p).overflowX)) return p
+    p = p.parentElement
+  }
+  return null
+}
+
+/** 页面级「可用内容带」（与 A1/A5 同一口径 `contentBand`）—— 用于**滚动内容区里**的元素。 */
+function pageBand(): { top: number; bottom: number } {
+  const anchor: Element =
+    document.querySelector('[data-testid="page-frame"]') ??
+    document.querySelector('[data-testid="app-main"]') ??
+    document.body
+  const b = contentBand(anchor)
+  return { top: b.top, bottom: b.bottom }
+}
+
+/**
+ * 整个屏幕（含底部导航 / 弹窗覆盖区）—— 用于**本身就住在固定覆盖层里**的元素。
+ *
+ * 为什么需要两套带：把内容带套到「弹窗里的按钮」或「底栏上的 Tab」上是**范畴错误**
+ * —— 它们按设计就落在内容带之外，用内容带判会把正常布局报成不可达（假阳性）。
+ * 内容带比屏幕更严：它额外要求「没被底部悬浮层压住」，所以页面级入口一律用 `pageBand()`。
+ */
+function viewportBand(): { top: number; bottom: number } {
+  return { top: 0, bottom: window.innerHeight }
+}
+
+/** 元素所属的「满屏固定覆盖层」（弹窗 / 遮罩），没有则 null。 */
+function fixedOverlayOf(el: Element): HTMLElement | null {
+  let p: HTMLElement | null = el.parentElement
+  while (p) {
+    const cs = getComputedStyle(p)
+    if (cs.position === 'fixed') {
+      const r = p.getBoundingClientRect()
+      if (r.width >= window.innerWidth * 0.8 && r.height >= window.innerHeight * 0.5) return p
+    }
+    p = p.parentElement
+  }
+  return null
+}
+
+interface HOverflowInfo {
+  container: string | null
+  scrollWidth: number
+  clientWidth: number
+  /** 容器可见区右边界（容器被祖先再裁一次时取更严的那个） */
+  clipLeft: number
+  clipRight: number
+  ok: boolean
+  /** 被这个容器**裁在可视区外**的可点击项（按可访问名点名） */
+  outside: string[]
+}
+
+interface ReachVerdict {
+  /** 断言用：自身在视口内 **且** 所在横向容器没有内容在外面 */
+  ok: boolean
+  /** 只算元素自身的矩形是否完全落在可用带内（把「容器溢出」单独拿出来，避免把看得见的项也报成不可见） */
+  selfOk: boolean
+  why: string[]
+  rect: { left: number; right: number; top: number; bottom: number; w: number; h: number }
+  band: { top: number; bottom: number }
+  hOverflow: HOverflowInfo
+}
+
+/**
+ * 「入口可达」判据（文件头通则的 ②③ 两条）。
+ *
+ * `band` **必须显式传**：页面级入口传 `pageBand()`，固定覆盖层内的元素传 `viewportBand()`
+ * —— 两套带不能互相替代（见 `viewportBand()` 的注释），所以不给默认值，逼调用方当场想清楚。
+ *
+ * 必须在**点击之前**量：点击会让浏览器把元素（若可获得焦点）滚进视野，量出来的就不是用户看到的。
+ *
+ * ②（`selfOk`）与③（`hOverflow.ok`）分开返回是有意的：一个「容器溢出」会让**同一行的每一项**
+ * 都带上 ③ 的失败，若只报一个合并布尔，报告会写成「0/4 在视口内」——而其中 3 项其实各自都看得见。
+ * 结论可以合并（`ok`），**证据不许合并**。
+ */
+function reachVerdict(el: HTMLElement, band: { top: number; bottom: number }): ReachVerdict {
+  const r = el.getBoundingClientRect()
+  const why: string[] = []
+  if (r.width <= 0 || r.height <= 0) why.push(`尺寸非正（${r.width.toFixed(1)}×${r.height.toFixed(1)}）`)
+  if (r.left < -0.5) why.push(`左边缘在视口外（left=${r.left.toFixed(1)}）`)
+  if (r.right > window.innerWidth + 0.5) why.push(`右边缘超出视口（right=${r.right.toFixed(1)} > innerWidth=${window.innerWidth}）`)
+  if (r.top < band.top - 0.5) why.push(`上边缘在可用带之上（top=${r.top.toFixed(1)} < ${band.top.toFixed(1)}）`)
+  if (r.bottom > band.bottom + 0.5) why.push(`下边缘在可用带之下（bottom=${r.bottom.toFixed(1)} > ${band.bottom.toFixed(1)}）`)
+  const selfOk = why.length === 0
+
+  const c = hClipContainerOf(el)
+  let hOverflow: HOverflowInfo = {
+    container: null, scrollWidth: 0, clientWidth: 0, clipLeft: 0, clipRight: 0, ok: true, outside: []
+  }
+  if (c) {
+    const cr = c.getBoundingClientRect()
+    const clipLeft = Math.max(cr.left, 0)
+    const clipRight = Math.min(cr.right, window.innerWidth)
+    // 「有东西在外面」= 容器内容比它的可视区宽。overflow-x: auto 只是让外面那部分**可以**滚进来，
+    // 不改变「默认看不见」这个事实 —— 而唯一的设置入口一旦落在那里，用户就是找不到。
+    const ok = c.scrollWidth <= c.clientWidth + 1
+    const outside = ok
+      ? []
+      : Array.from(c.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR))
+          .filter((x) => isRendered(x))
+          .filter((x) => {
+            const xr = x.getBoundingClientRect()
+            return xr.left < clipLeft - 0.5 || xr.right > clipRight + 0.5
+          })
+          .map((x) => `${accName(x) || describe(x)}[l${x.getBoundingClientRect().left.toFixed(1)}, r${x.getBoundingClientRect().right.toFixed(1)}]`)
+    hOverflow = {
+      container: describe(c),
+      scrollWidth: c.scrollWidth,
+      clientWidth: c.clientWidth,
+      clipLeft: Number(clipLeft.toFixed(1)),
+      clipRight: Number(clipRight.toFixed(1)),
+      ok,
+      outside
+    }
+    if (!ok) {
+      why.push(
+        `所在横向容器里有内容在可视区外：${hOverflow.container} scrollWidth=${hOverflow.scrollWidth} > clientWidth=${hOverflow.clientWidth}` +
+          `（可视区 [${hOverflow.clipLeft}, ${hOverflow.clipRight}]，在外面的是 ${hOverflow.outside.join('、') || '（未能点名）'}）`
+      )
+    }
+  }
+  return {
+    ok: selfOk && hOverflow.ok,
+    selfOk,
+    why,
+    rect: {
+      left: Number(r.left.toFixed(1)),
+      right: Number(r.right.toFixed(1)),
+      top: Number(r.top.toFixed(1)),
+      bottom: Number(r.bottom.toFixed(1)),
+      w: Number(r.width.toFixed(1)),
+      h: Number(r.height.toFixed(1))
+    },
+    band: { top: Number(band.top.toFixed(1)), bottom: Number(band.bottom.toFixed(1)) },
+    hOverflow
+  }
+}
+
+/** 把判据压成一行可读证据（含全部数字，供人复核）。 */
+function fmtReach(el: HTMLElement, v: ReachVerdict): string {
+  const name = accName(el) || describe(el)
+  const r = v.rect
+  const ov = v.hOverflow.container
+    ? `${v.hOverflow.container} scrollW${v.hOverflow.scrollWidth}/clientW${v.hOverflow.clientWidth}`
+    : '无横向裁剪容器'
+  const self = v.selfOk ? '自身在视口内' : `自身不在视口内（${v.why.filter((w) => !w.startsWith('所在横向容器')).join('；')}）`
+  return (
+    `「${name}」${self} rect[l${r.left}, r${r.right}, t${r.top}, b${r.bottom}, ${r.w}×${r.h}]` +
+    ` 视口宽${window.innerWidth} 可用带[${v.band.top}, ${v.band.bottom}] ${ov}` +
+    (!v.hOverflow.ok ? ` ⟂ 容器外还有 ${v.hOverflow.outside.join('、') || '内容'}` : '')
+  )
+}
+
+/** 一行入口的汇总：自身可见几个 / 容器是否溢出（两个结论分开给，见 `reachVerdict` 注释）。 */
+function fmtRow(row: Array<{ el: HTMLElement; v: ReachVerdict }>): string {
+  if (row.length === 0) return '未能量到（行内没定位到可点击项）'
+  const selfOk = row.filter((x) => x.v.selfOk).length
+  const ov = row[0].v.hOverflow
+  const hidden = row.filter((x) => !x.v.selfOk).map((x) => accName(x.el) || describe(x.el))
+  return (
+    `自身在视口内 ${selfOk}/${row.length}` +
+    (hidden.length ? `（自身越界：${hidden.join('、')}）` : '') +
+    `；容器 ${ov.ok ? '不溢出' : `溢出 scrollW${ov.scrollWidth}>clientW${ov.clientWidth}，可视区 [${ov.clipLeft}, ${ov.clipRight}]，在外面的是 ${ov.outside.join('、') || '（未能点名）'}`}`
+  )
 }
 
 function depthOf(el: Element): number {
@@ -190,6 +402,14 @@ const CLICKABLE_SELECTOR = 'button, a, [role="button"], [role="link"], [role="ta
 
 function visibleClickables(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR)).filter((el) => isVisible(el))
+}
+
+/**
+ * 所有**被渲染出来**的可点击元素 —— 不要求与视口有交集。
+ * 负向断言必须用它：用 `visibleClickables()` 去查「有没有」，会把「有，但被挤出屏幕」判成没有。
+ */
+function renderedClickables(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR)).filter((el) => isRendered(el))
 }
 
 /* ───────────────────────── 账单页行结构 ───────────────────────── */
@@ -460,7 +680,7 @@ async function checkA5(): Promise<GateCheck> {
   }
 }
 
-/** A6 分类管理页存在可见返回入口，点击后 activePage === 'profile' */
+/** A6 分类管理页存在**在视口内**的返回入口，点击后 activePage === 'profile' */
 async function checkA6(): Promise<GateCheck> {
   await nav('categories')
   await waitFor(() => Boolean(deepByText('分类管理')) || visibleClickables().length > 0)
@@ -470,27 +690,33 @@ async function checkA6(): Promise<GateCheck> {
     const inventory = visibleClickables().map((el) => accName(el)).filter(Boolean).slice(0, 12)
     return {
       id: 'A6',
-      title: '分类管理页有可见返回入口且点击后回到「我的」',
+      title: '分类管理页有在视口内的返回入口且点击后回到「我的」',
       pass: false,
       actual: '未找到任何可见的返回入口（可点击元素的可访问名无一匹配 /返回|back/i）',
-      threshold: '存在可见返回入口，点击后 activePage === "profile"',
+      threshold: '存在**在视口内**的返回入口，点击后 activePage === "profile"',
       detail: `当前可点击元素清单=${JSON.stringify(inventory)}`
     }
   }
   const target = cands[0]
+  // 判据必须在点击**之前**量（点击可能把元素滚进视野，之后量到的就不是用户看到的）
+  const reach = reachVerdict(target, pageBand())
   target.click()
-  const ok = await waitFor(() => useStore.getState().activePage === 'profile', 3000)
+  const acted = await waitFor(() => useStore.getState().activePage === 'profile', 3000)
+  const pass = reach.ok && acted
   return {
     id: 'A6',
-    title: '分类管理页有可见返回入口且点击后回到「我的」',
-    pass: ok,
-    actual: `找到 ${cands.length} 个候选返回入口（如「${accName(target)}」）；点击后 activePage = "${useStore.getState().activePage}"`,
-    threshold: '点击后 activePage === "profile"',
-    detail: ok ? undefined : '点击后未回到「我的」页'
+    title: '分类管理页有在视口内的返回入口且点击后回到「我的」',
+    pass,
+    actual: `找到 ${cands.length} 个候选返回入口（如「${accName(target)}」）；点击后 activePage = "${useStore.getState().activePage}"；${fmtReach(target, reach)}`,
+    threshold: '在视口内（水平完全可见 + 竖直落在内容带内 + 所在横向容器不溢出）且 点击后 activePage === "profile"',
+    detail: [
+      `点击行为=${acted ? 'ok' : '未回到「我的」页'}`,
+      `视口判据=${reach.ok ? 'ok' : reach.why.join('；')}`
+    ].join(' | ')
   }
 }
 
-interface SwitcherInfo { found: boolean; rect?: DOMRect; buttons: string[] }
+interface SwitcherInfo { found: boolean; rect?: DOMRect; buttons: string[]; els: HTMLElement[] }
 
 /** 语言切换器：一个可见容器内同时含「中文」与「English」两个按钮 */
 function findLanguageSwitcher(): SwitcherInfo {
@@ -498,43 +724,75 @@ function findLanguageSwitcher(): SwitcherInfo {
   for (const el of els) {
     if ((el.textContent ?? '').includes('中文') && (el.textContent ?? '').includes('English')) {
       const btns = Array.from(el.querySelectorAll<HTMLElement>('button')).filter(isVisible)
-      if (btns.length >= 2) return { found: true, rect: el.getBoundingClientRect(), buttons: btns.map((b) => accName(b)) }
+      if (btns.length >= 2) {
+        return { found: true, rect: el.getBoundingClientRect(), buttons: btns.map((b) => accName(b)), els: btns }
+      }
     }
   }
-  return { found: false, buttons: [] }
+  return { found: false, buttons: [], els: [] }
 }
 
-/** A7 「我的」页可点击到设置入口，点击后出现语言切换器（且切换器真的可用） */
+/** A7 「我的」页设置入口**在两种语言下都在视口内**，点击后出现**在视口内**的语言切换器（且切换器真的可用） */
 async function checkA7(): Promise<GateCheck> {
   const attempts: string[] = []
+  /** 按可访问名找「设置」入口；`excludeOverlay` 用来排除弹窗内部的按钮（弹窗此时可能开着）。 */
+  const findSettingsEntries = (excludeOverlay: HTMLElement | null): HTMLElement[] =>
+    renderedClickables().filter(
+      (el) => /设置|settings/i.test(accName(el)) && !(excludeOverlay && excludeOverlay.contains(el))
+    )
+  /** 入口所在的**那一行**（同一个横向裁剪容器里的全部可点击项）—— 一个入口被挤出屏幕，同行的都是嫌疑人。 */
+  const chipRowOf = (seed: HTMLElement): HTMLElement[] => {
+    const c = hClipContainerOf(seed)
+    if (!c) return [seed]
+    return Array.from(c.querySelectorAll<HTMLElement>(CLICKABLE_SELECTOR)).filter((x) => isRendered(x))
+  }
+  const rowVerdicts = (row: HTMLElement[]) => row.map((el) => ({ el, v: reachVerdict(el, pageBand()) }))
   {
     await nav('profile')
     await waitFor(() => visibleClickables().length > 0)
     await sleep(150)
-    const cands = visibleClickables().filter((el) => /设置|settings/i.test(accName(el)))
+    const cands = findSettingsEntries(null)
     if (cands.length === 0) {
+      // 「不存在」与「存在但用户看不到」必须分开报：前者是入口没做，后者是入口被藏在屏幕外，
+      // 修法完全不同。旧版只报「没有任何可见的可点击元素」，会把后者也说成前者。
+      const offscreen = renderedClickables().filter((el) => /设置|settings/i.test(accName(el)))
       const inventory = visibleClickables().map((el) => accName(el)).filter(Boolean).slice(0, 14)
       return {
         id: 'A7',
-        title: '「我的」页可点开设置入口并出现语言切换器',
+        title: '「我的」页有在视口内的设置入口，点击后出现语言切换器',
         pass: false,
-        actual: '「我的」页没有任何可见的可点击元素其可访问名匹配 /设置|settings/i',
-        threshold: '存在设置入口 → 点击后出现语言切换器',
-        detail: `当前可点击元素清单=${JSON.stringify(inventory)}`
+        actual: offscreen.length
+          ? `设置入口存在（${offscreen.length} 个）但一个都不在视口内：${offscreen.map((el) => fmtReach(el, reachVerdict(el, pageBand()))).join(' | ')}`
+          : '「我的」页没有任何匹配 /设置|settings/i 的可点击元素（入口根本没渲染）',
+        threshold: '存在**在视口内**的设置入口 → 点击后出现**在视口内**的语言切换器',
+        detail: `当前可见可点击元素清单=${JSON.stringify(inventory)}`
       }
     }
-    for (const el of cands) {
+    // 所有候选的视口判据都在点击**之前**一次量完：点击可能把元素滚进视野，逐个边点边量会拿到假绿
+    const reaches = cands.map((el) => reachVerdict(el, pageBand()))
+    for (let i = 0; i < cands.length; i++) {
+      const el = cands[i]
+      const reach = reaches[i]
       const name = accName(el)
+      const cnRow = rowVerdicts(chipRowOf(el))
+      const cnOk = cnRow.every((x) => x.v.ok)
       el.click()
       const appeared = await waitFor(() => findLanguageSwitcher().found, 1500)
       if (!appeared) { attempts.push(`「${name}」→ 未出现语言切换器`); continue }
       const sw = findLanguageSwitcher()
+      const overlay = sw.els.length > 0 ? fixedOverlayOf(sw.els[0]) : null
+      // 切换器自身也必须是「用户点得到的」：弹窗是 fixed 遮罩、按设计就盖住内容带，
+      // 所以这里用**视口**判据而不是内容带判据（把内容带套到弹窗上会把正常弹窗误判为不可达）。
+      const swReaches = sw.els.map((b) => reachVerdict(b, viewportBand()))
+      const swOk = swReaches.every((v) => v.ok)
       // 行为级：切换器的按钮必须真的能切换
       const btns = Array.from(document.querySelectorAll<HTMLElement>('button')).filter(
         (b) => isVisible(b) && (accName(b) === 'English' || accName(b) === '中文')
       )
       const target = btns.find((b) => accName(b) === 'English') ?? btns.find((b) => b.getAttribute('aria-pressed') !== 'true')
       let toggled = false
+      /** 英文态下的入口行判据（在切换成英文之后、还原中文之前量）。 */
+      let enRow: Array<{ el: HTMLElement; v: ReachVerdict }> = []
       if (target) {
         const label = accName(target)
         target.click()
@@ -544,30 +802,64 @@ async function checkA7(): Promise<GateCheck> {
           )
           return again.some((b) => b.getAttribute('aria-pressed') === 'true')
         }, 1500)
+        /**
+         * 【英文态】同一行入口必须**也**都在视口内。这一步不是锦上添花，是本缺陷的唯一显影剂：
+         * 中文 4 个 chip 恰好铺满 342px（0px 余量）不溢出，**英文标签更长**，
+         * `flex-wrap: nowrap; overflow-x: auto` 才把第 4 项「Settings」挤出可视区。
+         * 而英文态不是边缘场景 —— 它正是用户用过一次切换器之后的**唯一**状态，
+         * 此时设置入口不可达 ⇒ 用户再也切不回中文（单向陷阱）。只量中文，这条断言对真实事故是空过的。
+         */
+        if (toggled) {
+          await sleep(150)
+          const seed = el.isConnected ? el : findSettingsEntries(overlay)[0]
+          enRow = seed ? rowVerdicts(chipRowOf(seed)) : []
+        }
         // 还原成中文，避免污染后续断言
         const zh = Array.from(document.querySelectorAll<HTMLElement>('button')).filter((b) => isVisible(b) && accName(b) === '中文')
         if (toggled && zh.length > 0) { zh[0].click(); await sleep(150) }
       }
       // 收尾：关掉设置弹窗（它是 fixed 满屏遮罩，留着会污染后续量测的内容带）
-      const closeBtn = visibleClickables().find((b) => accName(b) === '关闭')
+      // 按钮名随语言变（关闭/Close），所以按两种语言 + 弹窗范围去找，不能只认「关闭」。
+      const closeBtn = overlay
+        ? Array.from(overlay.querySelectorAll<HTMLElement>('button')).filter(isVisible).find((b) => /关闭|close|完成|done/i.test(accName(b)))
+        : visibleClickables().find((b) => /关闭|close/i.test(accName(b)))
       if (closeBtn) { closeBtn.click(); await sleep(150) }
-      attempts.push(`「${name}」→ 出现语言切换器（${JSON.stringify(sw.buttons)}），切换可交互=${toggled}`)
+      const enOk = enRow.length > 0 && enRow.every((x) => x.v.ok)
+      const enHidden = new Set(enRow.flatMap((x) => x.v.hOverflow.outside))
+      attempts.push(
+        `「${name}」→ ${fmtReach(el, reach)}；出现语言切换器（${JSON.stringify(sw.buttons)}），切换器视口判据=${swOk ? 'ok' : '不通过'}，切换可交互=${toggled}`
+      )
+      const pass = reach.ok && cnOk && swOk && toggled && enOk
       return {
         id: 'A7',
-        title: '「我的」页可点开设置入口并出现语言切换器',
-        pass: toggled,
-        actual: `设置入口「${name}」点击后出现语言切换器，按钮=${JSON.stringify(sw.buttons)}`,
-        threshold: '出现语言切换器且切换按钮可交互（aria-pressed 随点击翻转）',
-        detail: toggled ? attempts.join(' | ') : `${attempts.join(' | ')}；切换器存在但点击未改变 aria-pressed`
+        title: '「我的」页设置入口在两种语言下都在视口内，点击后出现语言切换器',
+        pass,
+        actual:
+          `设置入口「${name}」${reach.selfOk ? '自身在视口内' : '自身不在视口内'}，点击后出现语言切换器，按钮=${JSON.stringify(sw.buttons)}；` +
+          `中文态入口行 ${fmtRow(cnRow)}；` +
+          `英文态入口行 ${fmtRow(enRow)}` +
+          (enOk || enHidden.size === 0 ? '' : `；英文态被容器裁在可视区外的入口：${[...enHidden].join('、')}`),
+        threshold:
+          '入口在视口内（自身完全可见 + 所在横向容器不溢出 scrollWidth ≤ clientWidth）；**中文与英文两种语言下都成立**；' +
+          '且 出现语言切换器且切换按钮在视口内且 aria-pressed 随点击翻转',
+        detail: [
+          attempts.join(' | '),
+          `分段结论：入口自身视口=${reach.selfOk ? 'ok' : reach.why.join('；')}`,
+          `入口所在容器=${reach.hOverflow.ok ? '不溢出' : `溢出 scrollW${reach.hOverflow.scrollWidth}>clientW${reach.hOverflow.clientWidth}，在外面的是 ${reach.hOverflow.outside.join('、')}`}`,
+          `中文态入口行逐项=${cnRow.map((x) => fmtReach(x.el, x.v)).join(' / ')}`,
+          `英文态入口行逐项=${enRow.length ? enRow.map((x) => fmtReach(x.el, x.v)).join(' / ') : '未能量到（语言切换后入口行未定位到）'}`,
+          `切换器视口=${swOk ? 'ok' : swReaches.filter((v) => !v.ok).map((v) => v.why.join('；')).join('；')}`,
+          `行为=${toggled ? 'ok' : '切换器存在但点击未改变 aria-pressed'}`
+        ].join('；')
       }
     }
   }
   return {
     id: 'A7',
-    title: '「我的」页可点开设置入口并出现语言切换器',
+    title: '「我的」页设置入口在两种语言下都在视口内，点击后出现语言切换器',
     pass: false,
     actual: attempts.join(' | ') || '未找到可用的设置入口',
-    threshold: '出现语言切换器且切换按钮可交互'
+    threshold: '入口在两种语言下都在视口内且 出现语言切换器且切换按钮在视口内'
   }
 }
 /** A8 安卓端「我的」页不存在「空壳 Tab」 */
@@ -577,20 +869,47 @@ async function checkA8(): Promise<GateCheck> {
   await sleep(150)
   const SHELL_LABELS = ['安全设置', '绑定管理', '危险操作']
   const hits: string[] = []
+  // 用 `renderedClickables()`（存在性）而不是 `visibleClickables()`（与视口有交集）：
+  // 「存在但被挤出屏幕」照样是一个导航项，用后者去查「有没有」会把它判成没有。
+  const all = renderedClickables()
+  // 这里用 `viewportBand()` 而不是 `pageBand()`：本页的底栏 Tab（首页/账单/统计/我的）
+  // 按设计就落在内容带之外（被底部悬浮层占住），用内容带判会把它们全报成「不可达」——
+  // 那是假阳性，会淹掉真正要找的东西（被 `overflow-x` 裁掉的入口）。
+  const band = viewportBand()
   for (const label of SHELL_LABELS) {
-    for (const el of visibleClickables()) {
+    for (const el of all) {
       if (accName(el) !== label) continue
-      hits.push(`${label}<${el.tagName.toLowerCase()}${el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''}>`)
+      const v = reachVerdict(el, band)
+      hits.push(
+        `${label}<${el.tagName.toLowerCase()}${el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''}>${v.ok ? '（在视口内）' : `（不在视口内：${v.why.join('；')}）`}`
+      )
     }
   }
-  const inventory = visibleClickables().map((el) => accName(el)).filter(Boolean)
+  const inventory = all.map((el) => accName(el)).filter(Boolean)
+  // 顺带把「被横向容器藏在可视区外」的可点击项点名 —— 这正是本页出过事故的机制。
+  // 只列这一类：底栏 Tab 落在内容带外是按设计如此（固定覆盖层），把它列进来是假阳性，
+  // 会淹掉真正要找的东西。
+  const hiddenByOverflow = new Map<string, string[]>()
+  for (const el of all) {
+    const v = reachVerdict(el, band)
+    if (v.hOverflow.ok || !v.hOverflow.container) continue
+    const arr = hiddenByOverflow.get(v.hOverflow.container) ?? []
+    arr.push(...v.hOverflow.outside)
+    hiddenByOverflow.set(v.hOverflow.container, arr)
+  }
+  const hiddenText =
+    hiddenByOverflow.size === 0
+      ? '没有被横向容器藏在可视区外的可点击项'
+      : [...hiddenByOverflow].map(([c, names]) => `${c} 外面：${[...new Set(names)].join('、')}`).join('；')
   return {
     id: 'A8',
     title: '「我的」页不存在空壳 Tab（安全设置/绑定管理/危险操作 不再作为导航项）',
     pass: hits.length === 0,
     actual: hits.length === 0 ? '三个空壳 Tab 均已不在「我的」页作为可点击导航项出现' : `仍存在 ${hits.length} 个空壳 Tab 导航项：${hits.join('、')}`,
-    threshold: '匹配 {安全设置, 绑定管理, 危险操作} 的可见可点击导航项数 = 0',
-    detail: `当前「我的」页可见可点击元素清单=${JSON.stringify(Array.from(new Set(inventory)).slice(0, 18))}`
+    threshold: '匹配 {安全设置, 绑定管理, 危险操作} 的**已渲染**可点击导航项数 = 0',
+    detail:
+      `当前「我的」页已渲染可点击元素清单=${JSON.stringify(Array.from(new Set(inventory)).slice(0, 18))}` +
+      `；${hiddenText}`
   }
 }
 
