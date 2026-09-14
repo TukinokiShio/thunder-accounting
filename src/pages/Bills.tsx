@@ -3,17 +3,32 @@
  * 支持：搜索（按分类/备注/金额）、时间段快速筛选（本周/本月/近3月/近6月/近一年）、
  * 分类筛选、支出/收入类型切换。
  * 列表项悬停显示编辑和删除按钮。
+ *
+ * ── 安卓窄屏（`isAndroid()` 为 true，逻辑宽 <640px）的差异 ──
+ * 1. 筛选区默认收起为一行「当前筛选状态」chip（≤52px），点击展开完整面板；
+ *    展开面板内仍是先前的 6 个控件与行为（时段/搜索/月份/分类/类型/清除），未删功能。
+ * 2. 账单行取消两个常驻 44px 图标按钮（它们把分类名挤到约 45px 后被裁切）：
+ *    点整行=编辑，长按整行=删除确认；行尾保留一个可见的删除图标入口
+ *    —— 长按删除没有可见线索，必须有一个用户看得见的入口。
+ * 3. 汇总行窄屏允许换行（原先无 flex-wrap，超宽会顶出 `.aurora-main` 的整页横向滚动条）。
+ * 4. 列表补最小加载态/错误态。
+ * 桌面（`isAndroid()` 为 false）分支的 DOM 与渲染逐位不变：全部新结构都由
+ * `isMobileLayout` 门控，桌面分支的 class 字符串与元素顺序与改动前完全一致。
  */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useStore } from '@/store'
-import { Search, Trash2, FilterX, Pencil } from 'lucide-react'
+import { Search, Trash2, FilterX, Pencil, Filter, ChevronDown } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths, subDays } from 'date-fns'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { isAndroid } from '@/platform'
 import type { Bill } from '@/types'
 
 /** 快速时间段选项 */
 type PeriodKey = 'week' | 'month' | '3months' | '6months' | 'year'
+
+/** 长按触发删除确认的阈值（ms） */
+const LONG_PRESS_MS = 500
 
 const PERIODS: { key: PeriodKey; calc: () => { start: string; end: string } }[] = [
   { key: 'week', calc: () => {
@@ -38,6 +53,113 @@ const PERIODS: { key: PeriodKey; calc: () => { start: string; end: string } }[] 
   }}
 ]
 
+interface MobileBillRowProps {
+  bill: Bill
+  icon: string
+  onEdit: (id: number) => void
+  onDelete: (bill: Bill) => void
+}
+
+/**
+ * 安卓窄屏账单行（两点触控交互）：
+ * - 点整行 → 编辑；长按整行 → 删除确认（长按后抑制随之而来的 click，避免又弹出编辑）。
+ * - 行尾常显一个删除图标按钮作为**可发现的**删除入口；它的触控盒仍是 44×44，
+ *   用负外边距把多出来的高度从行高里扣掉（否则 44px 会把行高撑到 70px 以上）。
+ */
+function MobileBillRow({ bill, icon, onEdit, onDelete }: MobileBillRowProps) {
+  const { t } = useLanguage()
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressed = useRef(false)
+
+  const clearTimer = () => {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+
+  const startPress = () => {
+    longPressed.current = false // 新手势开始：清掉上一次的抑制标记，避免吞掉本次点击
+    clearTimer()
+    timer.current = setTimeout(() => {
+      timer.current = null
+      longPressed.current = true
+      onDelete(bill)
+    }, LONG_PRESS_MS)
+  }
+
+  const handleClick = () => {
+    if (longPressed.current) {
+      longPressed.current = false
+      return
+    }
+    onEdit(bill.id)
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={t('编辑')}
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onEdit(bill.id)
+        }
+      }}
+      onPointerDown={startPress}
+      onPointerUp={clearTimer}
+      onPointerCancel={clearTimer}
+      onPointerLeave={clearTimer}
+      onContextMenu={(e) => e.preventDefault()}
+      className="flex items-start gap-2 px-4 py-2 select-none active:bg-[var(--accent-dim)] transition-colors"
+    >
+      <div className="w-8 h-8 mt-0.5 rounded-lg bg-[var(--bg2)] flex items-center justify-center text-base shrink-0">
+        {icon}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        {/* 分类名独占一行：宽度 = 行内宽 − 图标 32 − gap 8，长名换行而不是被裁掉 */}
+        <div className="flex items-center gap-1">
+          <span className="flex-1 min-w-0 text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
+            {bill.category1} · {bill.category2}
+          </span>
+          <button
+            type="button"
+            title={t('删除')}
+            aria-label={t('删除')}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(bill)
+            }}
+            className="min-h-11 min-w-11 -my-3 -mr-2 p-2 flex items-center justify-center rounded-lg text-gray-400 active:text-[var(--danger)] shrink-0"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+          <span className="shrink-0">{bill.date}</span>
+          {bill.note && (
+            <>
+              <span className="shrink-0">·</span>
+              <span className="truncate min-w-0 flex-1">{bill.note}</span>
+            </>
+          )}
+          <span
+            className="text-sm font-semibold shrink-0 ml-auto"
+            style={{ color: bill.type === 'income' ? 'var(--success)' : 'var(--danger)' }}
+          >
+            {bill.type === 'income' ? '+' : '-'}¥{bill.amount.toFixed(2)}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Bills() {
   const bills = useStore((s) => s.bills)
   const filterCategory1 = useStore((s) => s.filterCategory1)
@@ -59,6 +181,12 @@ export function Bills() {
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null)
   const [activePeriod, setActivePeriod] = useState<PeriodKey | null>(null)
+  /** 安卓窄屏：筛选面板是否展开（默认收起，渐进披露） */
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  /** 窄屏列表加载态/错误态（桌面零变化，故只在窄屏渲染这两个分支） */
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  const isMobileLayout = isAndroid()
 
   /** 快速时间段显示名（中文原文即词典 key，随语言切换） */
   const periodLabels: Record<PeriodKey, string> = {
@@ -69,10 +197,21 @@ export function Bills() {
     year: t('近一年')
   }
 
+  const load = useCallback(async () => {
+    setLoadState('loading')
+    try {
+      await refreshBills()
+      setLoadState('ready')
+    } catch (e) {
+      console.error('Failed to load bills:', e)
+      setLoadState('error')
+    }
+  }, [refreshBills])
+
   // 筛选条件变化时重新从数据库拉取账单
   useEffect(() => {
-    refreshBills()
-  }, [filterCategory1, filterMonth, filterDateRange, refreshBills])
+    void load()
+  }, [filterCategory1, filterMonth, filterDateRange, load])
 
   /** 点击快速时间段按钮 */
   const handlePeriodClick = (p: PeriodKey) => {
@@ -114,6 +253,17 @@ export function Bills() {
     setActivePeriod(null)
   }
 
+  /** 收起态显示的一行筛选摘要（无筛选时为「全部账单」） */
+  const filterSummary = (() => {
+    const parts: string[] = []
+    if (activePeriod) parts.push(periodLabels[activePeriod])
+    else if (filterMonth) parts.push(filterMonth)
+    if (filterCategory1) parts.push(filterCategory1)
+    if (filterType) parts.push(filterType === 'income' ? t('收入') : t('支出'))
+    if (search) parts.push(`"${search}"`)
+    return parts.length > 0 ? parts.join(' · ') : t('全部账单')
+  })()
+
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return
     try {
@@ -140,104 +290,136 @@ export function Bills() {
 
   return (
     <div className="page-view space-y-4">
-      {/* ── 筛选栏 ── */}
-      <div className="card bill-filter-card bill-filters p-4 space-y-3">
-        {/* 快速时间段 */}
-        <div className="bill-filter-periods flex items-center gap-1 rounded-lg p-1 w-fit">
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => handlePeriodClick(p.key)}
-              type="button"
-              aria-pressed={activePeriod === p.key}
-              className={`bill-filter-period px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                activePeriod === p.key
-                  ? 'is-active'
-                  : ''
-              }`}
-            >
-              {periodLabels[p.key]}
-            </button>
-          ))}
-        </div>
+      {/* ── 窄屏：筛选收起态（一行 chip，46px） ── */}
+      {isMobileLayout && !filtersOpen && (
+        <button
+          type="button"
+          onClick={() => setFiltersOpen(true)}
+          aria-label={t('展开筛选')}
+          aria-expanded={false}
+          className="card bill-filter-summary w-full flex items-center gap-2 px-4 py-3 text-left"
+        >
+          <Filter size={15} className="shrink-0 text-gray-400" />
+          <span className="flex-1 min-w-0 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+            {filterSummary}
+          </span>
+          <ChevronDown size={16} className="shrink-0 text-gray-400" />
+        </button>
+      )}
 
-        {/* 精确筛选 */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* 搜索框 */}
-          <div className="relative flex-1 min-w-[180px]">
-            <label htmlFor="bill-search" className="sr-only">
-              t('搜索账单')
-            </label>
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              id="bill-search"
-              type="text"
-              placeholder={t('搜索账单...')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="input-field bill-filter-control pl-8 text-sm"
-            />
+      {/* ── 筛选栏（桌面常驻；窄屏展开后可见） ── */}
+      {(!isMobileLayout || filtersOpen) && (
+        <div className="card bill-filter-card bill-filters p-4 space-y-3">
+          {isMobileLayout && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen(false)}
+                aria-expanded
+                className="text-xs font-medium px-2 py-2 -my-2 rounded-md text-gray-500 dark:text-gray-400 active:bg-[var(--accent-dim)]"
+              >
+                {t('收起')}
+              </button>
+            </div>
+          )}
+
+          {/* 快速时间段 */}
+          <div className="bill-filter-periods flex items-center gap-1 rounded-lg p-1 w-fit">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => handlePeriodClick(p.key)}
+                type="button"
+                aria-pressed={activePeriod === p.key}
+                className={`bill-filter-period px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  activePeriod === p.key
+                    ? 'is-active'
+                    : ''
+                }`}
+              >
+                {periodLabels[p.key]}
+              </button>
+            ))}
           </div>
 
-          {/* 月份筛选（精确到月） */}
-          <label htmlFor="bill-month" className="sr-only">
-            t('按月份筛选')
-          </label>
-          <input
-            id="bill-month"
-            type="month"
-            value={filterMonth}
-            onChange={(e) => {
-              setActivePeriod(null)
-              setFilterMonth(e.target.value)
-            }}
-            className="input-field bill-filter-control bill-filter-date w-auto text-sm"
-          />
+          {/* 精确筛选 */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 搜索框 */}
+            <div className="relative flex-1 min-w-[180px]">
+              <label htmlFor="bill-search" className="sr-only">
+                t('搜索账单')
+              </label>
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                id="bill-search"
+                type="text"
+                placeholder={t('搜索账单...')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="input-field bill-filter-control pl-8 text-sm"
+              />
+            </div>
 
-          {/* 分类筛选 */}
-          <label htmlFor="bill-category" className="sr-only">
-            t('按分类筛选')
-          </label>
-          <select
-            id="bill-category"
-            value={filterCategory1}
-            onChange={(e) => setFilterCategory1(e.target.value)}
-            className="input-field bill-filter-control bill-filter-select w-auto text-sm min-w-[120px]"
-          >
-            <option value="">{t('全部分类')}</option>
-            {(filterType === 'income' ? incomeCategories : expenseCategories).map((cat) => (
-              <option key={cat.name} value={cat.name}>{cat.icon} {cat.name}</option>
-            ))}
-          </select>
+            {/* 月份筛选（精确到月） */}
+            <label htmlFor="bill-month" className="sr-only">
+              t('按月份筛选')
+            </label>
+            <input
+              id="bill-month"
+              type="month"
+              value={filterMonth}
+              onChange={(e) => {
+                setActivePeriod(null)
+                setFilterMonth(e.target.value)
+              }}
+              className="input-field bill-filter-control bill-filter-date w-auto text-sm"
+            />
 
-          {/* 类型筛选 */}
-          <label htmlFor="bill-type" className="sr-only">
-            t('按类型筛选')
-          </label>
-          <select
-            id="bill-type"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
-            className="input-field bill-filter-control bill-filter-select w-auto text-sm min-w-[100px]"
-          >
-            <option value="">{t('全部类型')}</option>
-            <option value="expense">{t('支出')}</option>
-            <option value="income">{t('收入')}</option>
-          </select>
+            {/* 分类筛选 */}
+            <label htmlFor="bill-category" className="sr-only">
+              t('按分类筛选')
+            </label>
+            <select
+              id="bill-category"
+              value={filterCategory1}
+              onChange={(e) => setFilterCategory1(e.target.value)}
+              className="input-field bill-filter-control bill-filter-select w-auto text-sm min-w-[120px]"
+            >
+              <option value="">{t('全部分类')}</option>
+              {(filterType === 'income' ? incomeCategories : expenseCategories).map((cat) => (
+                <option key={cat.name} value={cat.name}>{cat.icon} {cat.name}</option>
+              ))}
+            </select>
 
-          {/* 清除筛选 */}
-          {hasFilters && (
-            <button onClick={clearFilters} className="btn-secondary text-sm flex items-center gap-1">
-              <FilterX size={14} />
-              {t('清除')}
-            </button>
-          )}
+            {/* 类型筛选 */}
+            <label htmlFor="bill-type" className="sr-only">
+              t('按类型筛选')
+            </label>
+            <select
+              id="bill-type"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as '' | 'expense' | 'income')}
+              className="input-field bill-filter-control bill-filter-select w-auto text-sm min-w-[100px]"
+            >
+              <option value="">{t('全部类型')}</option>
+              <option value="expense">{t('支出')}</option>
+              <option value="income">{t('收入')}</option>
+            </select>
+
+            {/* 清除筛选 */}
+            {hasFilters && (
+              <button onClick={clearFilters} className="btn-secondary text-sm flex items-center gap-1">
+                <FilterX size={14} />
+                {t('清除')}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* 汇总行 */}
+      {/* 汇总行（窄屏允许换行，避免顶出整页横向滚动条） */}
       {filtered.length > 0 && (
-        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 px-1">
+        <div className={`flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 px-1${isMobileLayout ? ' flex-wrap' : ''}`}>
           <span>{t('共 {n} 条记录').replace('{n}', String(filtered.length))}</span>
           <span>·</span>
           <span className="font-medium" style={{ color: 'var(--danger)' }}>
@@ -256,7 +438,18 @@ export function Bills() {
 
       {/* 账单列表 */}
       <div className="card bill-list-card overflow-hidden">
-        {filtered.length === 0 ? (
+        {isMobileLayout && loadState === 'loading' ? (
+          <div className="py-12 text-center text-sm text-gray-400 dark:text-gray-500">
+            {t('加载中...')}
+          </div>
+        ) : isMobileLayout && loadState === 'error' ? (
+          <div className="py-12 text-center">
+            <p className="text-sm" style={{ color: 'var(--danger)' }}>{t('加载失败，请重试')}</p>
+            <button type="button" onClick={() => void load()} className="btn-secondary text-sm mt-3">
+              {t('重试')}
+            </button>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-gray-400 dark:text-gray-500 text-sm">
               {bills.length === 0 ? t('还没有账单记录') : t('没有匹配的记录')}
@@ -268,58 +461,68 @@ export function Bills() {
         ) : (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {filtered.map((bill) => (
-              <div
-                key={bill.id}
-                className="flex items-center gap-4 px-5 py-3 hover:bg-[var(--accent-dim)] transition-colors group"
-              >
-                <div className="w-9 h-9 rounded-lg bg-[var(--bg2)] flex items-center justify-center text-lg shrink-0">
-                  {catIcon(bill.category1)}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {bill.category1} · {bill.category2}
-                    </span>
+              isMobileLayout ? (
+                <MobileBillRow
+                  key={bill.id}
+                  bill={bill}
+                  icon={catIcon(bill.category1)}
+                  onEdit={openEditDialog}
+                  onDelete={setDeleteTarget}
+                />
+              ) : (
+                <div
+                  key={bill.id}
+                  className="flex items-center gap-4 px-5 py-3 hover:bg-[var(--accent-dim)] transition-colors group"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-[var(--bg2)] flex items-center justify-center text-lg shrink-0">
+                    {catIcon(bill.category1)}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                    <span>{bill.date}</span>
-                    {bill.note && (
-                      <>
-                        <span>·</span>
-                        <span className="truncate max-w-[160px]">{bill.note}</span>
-                      </>
-                    )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {bill.category1} · {bill.category2}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                      <span>{bill.date}</span>
+                      {bill.note && (
+                        <>
+                          <span>·</span>
+                          <span className="truncate max-w-[160px]">{bill.note}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
+
+                  <span
+                    className="text-sm font-semibold shrink-0"
+                    style={{ color: bill.type === 'income' ? 'var(--success)' : 'var(--danger)' }}
+                  >
+                    {bill.type === 'income' ? '+' : '-'}¥{bill.amount.toFixed(2)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => openEditDialog(bill.id)}
+                    aria-label={t('编辑')}
+                    className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
+                    title={t('编辑')}
+                  >
+                    <Pencil size={14} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(bill)}
+                    aria-label={t('删除')}
+                    className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--danger)] hover:bg-[var(--danger-dim)] opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
+                    title={t('删除')}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-
-                <span
-                  className="text-sm font-semibold shrink-0"
-                  style={{ color: bill.type === 'income' ? 'var(--success)' : 'var(--danger)' }}
-                >
-                  {bill.type === 'income' ? '+' : '-'}¥{bill.amount.toFixed(2)}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => openEditDialog(bill.id)}
-                  aria-label={t('编辑')}
-                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--accent)] hover:bg-[var(--accent-dim)] opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
-                  title={t('编辑')}
-                >
-                  <Pencil size={14} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget(bill)}
-                  aria-label={t('删除')}
-                  className="min-h-11 min-w-11 p-2 rounded-lg text-gray-400 hover:text-[var(--danger)] hover:bg-[var(--danger-dim)] opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity"
-                  title={t('删除')}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              )
             ))}
           </div>
         )}

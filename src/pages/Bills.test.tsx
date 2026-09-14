@@ -1,10 +1,26 @@
 /**
  * Bills 页面（账单列表）组件测试。
- * 验证筛选控件、空状态、账单列表渲染、编辑/删除交互、金额格式、类型标签。
+ *
+ * 覆盖两端：
+ * - 安卓窄屏（`isAndroid()` 为 true，本文件的默认状态）：筛选默认收起、展开后才出现完整控件、
+ *   整行点击=编辑、长按整行=删除确认、每行一个可见删除入口、金额格式、类型筛选选项。
+ * - 桌面路径（`isAndroid()` 为 false）：筛选面板常驻、每行两个常驻图标按钮、无加载态
+ *   —— 锁住「桌面零变化」这条硬约束。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { Bills } from './Bills';
+
+/**
+ * 平台开关。`isAndroid()` 的实现是「读一次 DOM class」，测试里用这个可变开关代替，
+ * 以便同一个测试文件同时覆盖窄屏与桌面两条渲染路径。
+ * vi.mock 的工厂只闭包引用它，真正解引用发生在 render 时（模块体已求值完毕）。
+ */
+let androidLayout = true;
+
+vi.mock('@/platform', () => ({
+  isAndroid: () => androidLayout,
+}));
 
 // ─── Mock 函数 ───
 const mockRefreshBills = vi.fn().mockResolvedValue(undefined);
@@ -65,6 +81,11 @@ vi.mock('@/i18n/LanguageContext', () => ({
   LanguageProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+/** 取删除按钮的 mock，便于断言入参 */
+function deleteBillMock() {
+  return (window as any).electronAPI.deleteBill as ReturnType<typeof vi.fn>;
+}
+
 // ─── Mock electronAPI ───
 function mockElectronAPI() {
   (window as any).electronAPI = {
@@ -88,64 +109,93 @@ function createBill(overrides: Record<string, any> = {}) {
   };
 }
 
-describe('Bills', () => {
-  beforeEach(() => {
-    // Reset store state
-    storeState.bills = [];
-    storeState.filterCategory1 = '';
-    storeState.filterMonth = '';
-    storeState.filterDateRange = null;
-    storeState.filterType = '';
-    storeState.expenseCategories = [];
-    storeState.incomeCategories = [];
+/** 展开窄屏筛选面板 */
+function expandFilters() {
+  fireEvent.click(screen.getByRole('button', { name: '展开筛选' }));
+}
 
-    // Clear mock calls but keep resolved values
-    mockRefreshBills.mockClear();
-    mockRefreshBills.mockResolvedValue(undefined);
-    mockOpenEditDialog.mockClear();
-    mockSetFilterCategory1.mockClear();
-    mockSetFilterMonth.mockClear();
-    mockSetFilterDateRange.mockClear();
-    mockSetFilterType.mockClear();
-    mockNotifyChange.mockClear();
-    mockAddToast.mockClear();
+beforeEach(() => {
+  androidLayout = true;
 
-    mockElectronAPI();
-  });
+  // Reset store state
+  storeState.bills = [];
+  storeState.filterCategory1 = '';
+  storeState.filterMonth = '';
+  storeState.filterDateRange = null;
+  storeState.filterType = '';
+  storeState.expenseCategories = [];
+  storeState.incomeCategories = [];
 
-  // ─── 1. 渲染筛选控件 ───
-  it('should render filter controls', () => {
+  // Clear mock calls but keep resolved values
+  mockRefreshBills.mockClear();
+  mockRefreshBills.mockResolvedValue(undefined);
+  mockOpenEditDialog.mockClear();
+  mockSetFilterCategory1.mockClear();
+  mockSetFilterMonth.mockClear();
+  mockSetFilterDateRange.mockClear();
+  mockSetFilterType.mockClear();
+  mockNotifyChange.mockClear();
+  mockAddToast.mockClear();
+
+  mockElectronAPI();
+});
+
+describe('Bills（安卓窄屏）', () => {
+  // ─── 1. 筛选默认收起，展开后完整控件才出现 ───
+  it('should collapse filters by default and reveal all controls only after expanding', async () => {
     render(<Bills />);
+    await waitFor(() => expect(screen.queryByText('加载中...')).toBeNull());
 
-    // 搜索框
+    // 收起态：只有一行状态 chip；完整筛选面板不在 DOM 中
+    const expandBtn = screen.getByRole('button', { name: '展开筛选' });
+    expect(expandBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('全部账单')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('搜索账单...')).toBeNull();
+    expect(document.querySelector('input[type="month"]')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByText('本周')).toBeNull();
+
+    // 展开后：原有全部控件都在（搜索 / 月份 / 两个下拉 / 五个时段快捷键）
+    expandFilters();
     expect(screen.getByPlaceholderText('搜索账单...')).toBeInTheDocument();
-
-    // 月份筛选（type="month" 的 input）
     const monthInput = document.querySelector('input[type="month"]');
     expect(monthInput).toBeInTheDocument();
-
-    // 两个下拉框：分类筛选 + 类型筛选
-    const selects = screen.getAllByRole('combobox');
-    expect(selects.length).toBe(2);
-
-    // 快速时间段按钮
+    expect(screen.getAllByRole('combobox').length).toBe(2);
     expect(screen.getByText('本周')).toBeInTheDocument();
     expect(screen.getByText('本月')).toBeInTheDocument();
     expect(screen.getByText('近3月')).toBeInTheDocument();
     expect(screen.getByText('近6月')).toBeInTheDocument();
     expect(screen.getByText('近一年')).toBeInTheDocument();
+
+    // 可以再收回去
+    fireEvent.click(screen.getByText('收起'));
+    expect(screen.queryByPlaceholderText('搜索账单...')).toBeNull();
+    expect(screen.getByText('全部账单')).toBeInTheDocument();
   });
 
-  // ─── 2. 显示空列表状态（无账单） ───
-  it('should display empty state when there are no bills', () => {
+  // ─── 2. 收起态摘要反映当前筛选 ───
+  it('should summarize active filters in the collapsed chip', async () => {
+    storeState.filterCategory1 = '餐饮';
+    storeState.filterType = 'expense';
+
+    render(<Bills />);
+    await waitFor(() => expect(screen.queryByText('加载中...')).toBeNull());
+
+    // 摘要 = 分类 + 类型（无时段/月份时不显示空段）
+    expect(screen.getByText('餐饮 · 支出')).toBeInTheDocument();
+    expect(screen.queryByText('全部账单')).toBeNull();
+  });
+
+  // ─── 3. 显示空列表状态（无账单） ───
+  it('should display empty state when there are no bills', async () => {
     render(<Bills />);
 
-    expect(screen.getByText('还没有账单记录')).toBeInTheDocument();
+    expect(await screen.findByText('还没有账单记录')).toBeInTheDocument();
     expect(screen.getByText('点击右上角"记一笔"开始记账')).toBeInTheDocument();
   });
 
-  // ─── 3. 渲染账单列表行 ───
-  it('should render bill list rows when bills exist', () => {
+  // ─── 4. 渲染账单列表行 ───
+  it('should render bill list rows when bills exist', async () => {
     storeState.bills = [
       createBill({ id: 1, category1: '餐饮', category2: '午餐', amount: 58.5, type: 'expense' }),
       createBill({ id: 2, category1: '工资', category2: '月薪', amount: 10000, type: 'income' }),
@@ -155,7 +205,7 @@ describe('Bills', () => {
     render(<Bills />);
 
     // 分类名称应显示
-    expect(screen.getByText('餐饮 · 午餐')).toBeInTheDocument();
+    expect(await screen.findByText('餐饮 · 午餐')).toBeInTheDocument();
     expect(screen.getByText('工资 · 月薪')).toBeInTheDocument();
     expect(screen.getByText('交通 · 地铁')).toBeInTheDocument();
 
@@ -165,7 +215,7 @@ describe('Bills', () => {
     expect(screen.getByText(/收入合计/)).toBeInTheDocument();
   });
 
-  // ─── 4. 筛选月份变化触发 refreshBills ───
+  // ─── 5. 挂载拉取 + 月份筛选（需先展开面板） ───
   it('should call refreshBills on mount and handle month filter change', async () => {
     render(<Bills />);
 
@@ -174,28 +224,31 @@ describe('Bills', () => {
       expect(mockRefreshBills).toHaveBeenCalledTimes(1);
     });
 
-    // 模拟月份筛选变化
+    // 月份控件在展开面板内
+    expandFilters();
     const monthInput = document.querySelector('input[type="month"]') as HTMLInputElement;
     fireEvent.change(monthInput, { target: { value: '2026-07' } });
 
     expect(mockSetFilterMonth).toHaveBeenCalledWith('2026-07');
   });
 
-  // ─── 5. 点击编辑按钮调用 openEditDialog ───
-  it('should call openEditDialog when edit button is clicked', () => {
+  // ─── 6. 点整行 = 编辑 ───
+  it('should call openEditDialog when the row is tapped', async () => {
     storeState.bills = [createBill({ id: 42, category1: '购物', category2: '衣服' })];
 
     render(<Bills />);
 
-    // 编辑按钮通过 title="编辑" 定位（按钮有 opacity-0 但仍在 DOM 中）
-    const editBtn = screen.getByTitle('编辑');
-    fireEvent.click(editBtn);
+    const name = await screen.findByText('购物 · 衣服');
+    const row = name.closest('[role="button"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row).toHaveAccessibleName('编辑');
+    fireEvent.click(row);
 
     expect(mockOpenEditDialog).toHaveBeenCalledWith(42);
   });
 
-  // ─── 6. 删除按钮可见 ───
-  it('should render delete buttons for each bill row', () => {
+  // ─── 7. 每行一个可见删除入口（44px 触控盒） ───
+  it('should render one visible delete entry per bill row', async () => {
     storeState.bills = [
       createBill({ id: 1 }),
       createBill({ id: 2 }),
@@ -204,13 +257,44 @@ describe('Bills', () => {
 
     render(<Bills />);
 
-    // 每条账单都有一个删除按钮（opacity-0 但仍在 DOM）
-    const deleteBtns = screen.getAllByTitle('删除');
-    expect(deleteBtns.length).toBe(3);
+    await waitFor(() => {
+      expect(screen.getAllByTitle('删除').length).toBe(3);
+    });
+
+    // 触控目标不缩水：仍是 44×44 的盒子（多出的高度用负外边距从行高里扣掉）
+    for (const btn of screen.getAllByTitle('删除')) {
+      expect(btn.className).toContain('min-h-11');
+      expect(btn.className).toContain('min-w-11');
+    }
   });
 
-  // ─── 7. 金额显示格式（¥ 符号） ───
-  it('should display amounts with ¥ symbol and 2 decimal places', () => {
+  // ─── 8. 长按整行 = 删除确认，确认后真正删除 ───
+  it('should open the delete confirmation on long press and delete on confirm', async () => {
+    storeState.bills = [createBill({ id: 7, category1: '餐饮', category2: '晚餐' })];
+
+    render(<Bills />);
+
+    const name = await screen.findByText('餐饮 · 晚餐');
+    const row = name.closest('[role="button"]') as HTMLElement;
+    fireEvent.pointerDown(row);
+
+    // 长按阈值 500ms 后弹出复用现有 ConfirmDialog
+    const dialog = await screen.findByRole('dialog', undefined, { timeout: 3000 });
+    expect(within(dialog).getByText('确定要删除这条记录吗？删除后不可恢复。')).toBeInTheDocument();
+
+    // 长按抬起不应顺带触发「编辑」
+    fireEvent.pointerUp(row);
+    expect(mockOpenEditDialog).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '删除' }));
+    await waitFor(() => {
+      expect(deleteBillMock()).toHaveBeenCalledWith(7);
+    });
+    expect(mockNotifyChange).toHaveBeenCalled();
+  });
+
+  // ─── 9. 金额显示格式（¥ 符号） ───
+  it('should display amounts with ¥ symbol and 2 decimal places', async () => {
     storeState.bills = [
       createBill({ id: 1, type: 'expense', amount: 58.5 }),
       createBill({ id: 2, type: 'income', amount: 10000 }),
@@ -220,16 +304,17 @@ describe('Bills', () => {
     render(<Bills />);
 
     // 支出显示 "-¥"，收入显示 "+¥"
-    expect(screen.getByText('-¥58.50')).toBeInTheDocument();
+    expect(await screen.findByText('-¥58.50')).toBeInTheDocument();
     expect(screen.getByText('+¥10000.00')).toBeInTheDocument();
     expect(screen.getByText('-¥5.00')).toBeInTheDocument();
   });
 
-  // ─── 8. 收入/支出类型标签 ───
-  it('should render income and expense type filter options', () => {
+  // ─── 10. 收入/支出类型标签（在展开面板内） ───
+  it('should render income and expense type filter options', async () => {
     render(<Bills />);
+    await waitFor(() => expect(screen.queryByText('加载中...')).toBeNull());
 
-    // 类型筛选下拉框中应有三个选项
+    expandFilters();
     const selects = screen.getAllByRole('combobox');
     // 第二个 select 是类型筛选
     const typeSelect = selects[1] as HTMLSelectElement;
@@ -239,5 +324,50 @@ describe('Bills', () => {
     expect(screen.getByText('全部类型')).toBeInTheDocument();
     expect(screen.getByText('支出')).toBeInTheDocument();
     expect(screen.getByText('收入')).toBeInTheDocument();
+  });
+});
+
+describe('Bills（桌面路径，零变化）', () => {
+  beforeEach(() => {
+    androidLayout = false;
+  });
+
+  it('should keep the always-visible filter panel and no loading state', async () => {
+    render(<Bills />);
+    // 排空挂载时 refreshBills 的微任务：桌面不渲染加载态，挂载当帧即为终态
+    await act(async () => {});
+
+    // 桌面没有收起 chip / 摘要
+    expect(screen.queryByText('全部账单')).toBeNull();
+    expect(screen.queryByRole('button', { name: '展开筛选' })).toBeNull();
+
+    // 筛选面板常驻展开
+    expect(screen.getByPlaceholderText('搜索账单...')).toBeInTheDocument();
+    expect(document.querySelector('input[type="month"]')).toBeInTheDocument();
+    expect(screen.getAllByRole('combobox').length).toBe(2);
+    expect(screen.getByText('本周')).toBeInTheDocument();
+    expect(screen.getByText('本月')).toBeInTheDocument();
+    expect(screen.getByText('近3月')).toBeInTheDocument();
+    expect(screen.getByText('近6月')).toBeInTheDocument();
+    expect(screen.getByText('近一年')).toBeInTheDocument();
+
+    // 桌面不渲染加载态：无账单时直接是空状态
+    expect(screen.queryByText('加载中...')).toBeNull();
+    expect(screen.getByText('还没有账单记录')).toBeInTheDocument();
+  });
+
+  it('should keep the two per-row icon buttons on the desktop path', async () => {
+    storeState.bills = [createBill({ id: 5, category1: '餐饮', category2: '早餐' })];
+
+    render(<Bills />);
+    await waitFor(() => expect(mockRefreshBills).toHaveBeenCalled());
+
+    // 行的可点区域由行内的编辑按钮承担（不是整行 role=button）
+    const editBtn = screen.getByTitle('编辑');
+    fireEvent.click(editBtn);
+    expect(mockOpenEditDialog).toHaveBeenCalledWith(5);
+
+    expect(screen.getAllByTitle('删除').length).toBe(1);
+    expect(document.querySelector('[role="button"][aria-label="编辑"]')).toBeNull();
   });
 });
