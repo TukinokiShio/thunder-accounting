@@ -324,9 +324,11 @@ export function Stats() {
                             }
                           : {})}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
+                        {/* max-sm: 限定 —— 这两条是给窄屏（308px 卡内宽）防溢出用的，
+                            ≥640px 不出现，class 集与改动前一致（详见 Home.tsx 的纪律说明） */}
+                        <div className="flex items-center gap-2 max-sm:min-w-0">
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                          <span className="text-gray-700 dark:text-gray-300 truncate">{row.category1}</span>
+                          <span className="text-gray-700 dark:text-gray-300 max-sm:truncate">{row.category1}</span>
                         </div>
                         <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
                           <span>{row.count} {t('笔')}</span>

@@ -6,6 +6,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const readSource = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), 'utf8');
+/**
+ * 剥掉块注释（含 JSX 注释）与整行注释，只对**真实代码**做类名断言。
+ * 注释里举例说明 CSS 层叠（比如写明 `sm:leading-normal` 为什么不是复位）是允许的，
+ * 不能被下列断言误伤。
+ */
+const stripComments = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 const indexCss = readSource('src/index.css');
 const homeSource = readSource('src/pages/Home.tsx');
 const statsSource = readSource('src/pages/Stats.tsx');
@@ -138,10 +145,29 @@ describe('Layout', () => {
     // 6 张卡堆高约 630px（用户实测抱怨空间利用率差）。
     // 新契约把基类定为 2 列 —— 412px 得 2 列、640~1023px 仍是 2 列（基类生效）、≥1024px 由 lg 接管 3 列。
     expect(homeSource).toContain('home-stats-grid grid grid-cols-2 lg:grid-cols-3 gap-4')
-    // 桌面零变化：窄屏压缩的每一处尺寸都必须在 ≥640px 处显式复位为原值，缺一条就会改到桌面渲染。
+
+    // 桌面零变化（一）：窄屏压缩过的「已有类」用 `sm:` 显式还原为原值。
     expect(homeSource).toContain('p-3 sm:p-4')
+    expect(homeSource).toContain('mb-1.5 sm:mb-2')
     expect(homeSource).toContain('w-7 h-7 sm:w-8 sm:h-8')
-    expect(homeSource).toContain('text-base sm:text-lg font-bold leading-tight sm:leading-normal')
+    expect(homeSource).toContain('text-base sm:text-lg font-bold max-sm:leading-tight text-gray-900 dark:text-gray-100')
+
+    // 桌面零变化（二）：原代码没有、纯为窄屏加的类必须用 `max-sm:` 限定，≥640px **不存在**该类。
+    // 反面教材（9a8cd57 已修）：`leading-tight sm:leading-normal` 看似复位，实则不是 ——
+    // Tailwind 编译产物里 `.sm\:text-lg`(line-height:1.75rem=28px) 排在 `.sm\:leading-normal`
+    // (line-height:1.5) 之前，同特指度下后者胜，于是把 18px 字的行高改成 27px、12px 字的改成 18px。
+    expect(homeSource).toContain('max-sm:shrink-0')
+    expect(homeSource).toContain('max-sm:min-w-0 max-sm:truncate')
+    expect(homeSource).toContain('mt-0.5 max-sm:leading-tight')
+    expect(statsSource).toContain('flex items-center gap-2 max-sm:min-w-0')
+    expect(statsSource).toContain('dark:text-gray-300 max-sm:truncate')
+
+    // 结构性保证：Home.tsx 里 `leading-` 只允许以 `max-sm:` 前缀出现。
+    // 这样「以为复位了其实没复位」的错以后再进不来（注释已剥离，见 stripComments）。
+    const homeLeadingTokens = stripComments(homeSource).match(/[\w:-]*leading-[\w-]+/g) ?? [];
+    expect(homeLeadingTokens.length).toBeGreaterThan(0); // 防「扫不到 → 过滤后为空 → 恒真」
+    expect(homeLeadingTokens.filter((token) => !token.startsWith('max-sm:'))).toEqual([]);
+
     expect(statsSource).toContain('stats-toolbar flex flex-wrap')
     expect(statsSource).toContain('stats-summary-grid grid grid-cols-2 sm:grid-cols-4')
     expect(profileSource).toContain('profile-layout page-view w-full min-w-0 flex min-h-full flex-col')
