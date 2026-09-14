@@ -215,9 +215,13 @@ exe/              AGENTS.md 规定的固定安装验收目录
    `npm run typecheck` 实为 `tsc --noEmit -p tsconfig.mobile.json && -p tsconfig.node.json && -p tsconfig.scripts.json`
    —— **只覆盖 `mobile/` + `main-process/` + `scripts/`，不含 `tsconfig.web.json`（即 `src/**`，整个应用主体）**。
    - **在此之前不要假定 `src/` 的类型被检查过。**「typecheck 通过」这句话在过去相当长时间里**不包含 `src/`**。
-   - 实测（2026-09-14 21:08，主工作树，可复现）：
-     `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json` → 默认堆 **exit=2、6 处错误、无 OOM**；
+   - 实测（2026-09-14 21:08，主工作树，可复现；**该值依赖工作树里一处未提交改动，见下**）：
+     `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json` → 默认堆 **exit=2、6 处错误**；
      加 `--max-old-space-size=4096` → exit=1、同样 6 处。
+   - ⚠️ **「6 处」的前提**：工作树的 `tsconfig.web.json` 已被加上 `"main-process/sql.js.d.ts"`（未提交，mtime 16:13）。
+     **没有这一行时是 11 处** —— 少了它 `sql.js` 在 web 项目里没有类型声明，多出 `TS7016×2` + `TS7006×3`。
+     这 5 条与 TS6307 是**同一根因的投影**（文件不在项目里 → 模块解析不到 → 缺声明 / implicit any）。
+     ⇒ 引用本条数字时**必须同时说明这一行是否在位**，否则两个数会互相矛盾。
      6 处性质：**4× TS6307**（`composite: true` 要求项目列出全部文件；`src/database-*.test.ts` 与
      `main-process/database/*` 互相引用但不在 web 的 include 里 —— **配置问题**）+
      1× TS2741（`AuthGuard.test.tsx:48` 桩缺 `emailVerified`）+ 1× TS2353（`CategoryManager.test.tsx:87` 桩多 `addCategory`）。
@@ -234,6 +238,16 @@ exe/              AGENTS.md 规定的固定安装验收目录
      取原文则**报出来的错误码与位置必须与当年逐字相同**，替代解释被消除。
    - 实证：手抄版只复现了 `TS7022`（因为抄的片段没碰到 `sib.tagName`）；取 `git show f21b359:…pathOf()` 原文后，
      `TS7022` 与 `TS18046` 两个码都逐字报出、位置也对上。
+32. **环境内存压力会造成两类「假信号」—— 先怀疑资源，再怀疑代码（2026-09-14 实证）**：
+   同一棵树、同一条命令，当机器内存被压到极低时会出现：
+   - `tsc` 以 **exit 134** abort —— Node 按**可用**内存自动收缩默认堆 → `Scavenge … allocation failure`
+   - `npm run test` 默认并发下 **vitest worker spawn 失败**（`errno -4094 / code UNKNOWN`），
+     表现为「29 passed / 18 Errors」这种**被腰斩**的结果；而降到 `--maxWorkers=2` 同一棵树
+     **48 files / 507 tests 全绿**
+   - **判据**：资源恢复后**重跑同一条命令即正常** ⇒ 是环境瞬时状态，**不是 tsc / 配置 / 代码的属性**。
+   - **不要把假信号写进结论或规则**：本次「11 处错误 + OOM」的报告正是这两种假信号叠加的结果，
+     真实错误数是 **6**（且其中 5 条还是同一根因的投影）。
+   - 实践：跑重型检查前先确认没有别的进程在抢内存（本项目常见三者并发：Chromium 门禁 + tsc + vitest）。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
