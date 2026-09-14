@@ -133,11 +133,19 @@ describe('Layout', () => {
   });
 
   it('should keep narrow-page layout contracts in source', () => {
-    expect(homeSource).toContain('home-stats-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3');
-    expect(statsSource).toContain('stats-toolbar flex flex-wrap');
-    expect(statsSource).toContain('stats-summary-grid grid grid-cols-2 sm:grid-cols-4');
-    expect(profileSource).toContain('profile-layout page-view w-full min-w-0 flex min-h-full flex-col');
-    expect(profileSource).toContain('md:flex-row');
+    // 【有意更新 2026-09】首页统计卡由「窄屏单列」改为「窄屏一行两卡」：
+    // 旧契约 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' 在 412px（安卓 WebView）上退化为单列，
+    // 6 张卡堆高约 630px（用户实测抱怨空间利用率差）。
+    // 新契约把基类定为 2 列 —— 412px 得 2 列、640~1023px 仍是 2 列（基类生效）、≥1024px 由 lg 接管 3 列。
+    expect(homeSource).toContain('home-stats-grid grid grid-cols-2 lg:grid-cols-3 gap-4')
+    // 桌面零变化：窄屏压缩的每一处尺寸都必须在 ≥640px 处显式复位为原值，缺一条就会改到桌面渲染。
+    expect(homeSource).toContain('p-3 sm:p-4')
+    expect(homeSource).toContain('w-7 h-7 sm:w-8 sm:h-8')
+    expect(homeSource).toContain('text-base sm:text-lg font-bold leading-tight sm:leading-normal')
+    expect(statsSource).toContain('stats-toolbar flex flex-wrap')
+    expect(statsSource).toContain('stats-summary-grid grid grid-cols-2 sm:grid-cols-4')
+    expect(profileSource).toContain('profile-layout page-view w-full min-w-0 flex min-h-full flex-col')
+    expect(profileSource).toContain('md:flex-row')
   });
 
   // Toast 测试已移至 App.test.tsx（Toast 不再在 Layout 内）

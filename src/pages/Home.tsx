@@ -147,14 +147,17 @@ export function Home() {
 
   return (
     <div className="page-view w-full min-w-0 space-y-6">
-      {/* Stat cards */}
-      <div className="home-stats-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Stat cards
+          窄屏（<640px，即安卓 WebView 的 412px）一行两卡：基类直接 2 列，避免落到单列把 6 张卡
+          堆成约 630px。640~1023px 仍为 2 列（基类生效），≥1024px 由 lg:grid-cols-3 接管。
+          卡内所有尺寸都带 sm: 复位，保证 ≥640px 的渲染与改动前逐位一致。 */}
+      <div className="home-stats-grid grid grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon
           return (
             <div
               key={card.label}
-              className="card home-dashboard-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-4"
+              className="card home-dashboard-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-3 sm:p-4"
               role="button"
               tabIndex={0}
               aria-label={`${t('查看明细')} ${card.label}`}
@@ -166,14 +169,17 @@ export function Home() {
                 }
               }}
             >
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${card.color}`}>
+              <div className="flex items-center gap-2 mb-1.5 sm:mb-2 min-w-0">
+                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${card.color}`}>
                   <Icon size={16} />
                 </div>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{card.label}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 truncate">{card.label}</span>
               </div>
-              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{card.value}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{card.detail}</p>
+              {/* 数值：窄屏降到 text-base 以留出溢出余量；符号位与两位小数一律保留，不裁切 */}
+              <p className="text-base sm:text-lg font-bold leading-tight sm:leading-normal text-gray-900 dark:text-gray-100">
+                {card.value}
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-tight sm:leading-normal">{card.detail}</p>
             </div>
           )
         })}

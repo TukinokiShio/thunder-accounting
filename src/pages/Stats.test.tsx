@@ -2,10 +2,22 @@
  * Stats 页面（统计图表）组件测试。
  * 验证时间段切换、支出/收入汇总卡片、空数据状态、
  * 饼图/折线图 SVG 渲染、统计数据摘要金额。
+ * 另覆盖安卓端的层级收敛：图表动画时长统一 300ms、Legend 去重、
+ * 二级下钻默认收起、全量明细默认折叠且窄屏为两列（无横向溢出）。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Stats } from './Stats';
+import { ANDROID_PLATFORM_CLASS } from '@/platform';
+
+const statsSource = readFileSync(resolve(process.cwd(), 'src/pages/Stats.tsx'), 'utf8');
+
+/** 门控方式与 CategoryManager.editmode.test.tsx 一致：`<html>` 上的 platform-android 类 */
+const setAndroid = (on: boolean) => {
+  document.documentElement.classList.toggle(ANDROID_PLATFORM_CLASS, on);
+};
 
 // ─── Mock 状态 ───
 const mockAddToast = vi.fn();
@@ -73,8 +85,13 @@ function mockElectronAPI(expenseData?: any, incomeData?: any) {
 
 describe('Stats', () => {
   beforeEach(() => {
+    setAndroid(false);
     mockAddToast.mockClear();
     mockElectronAPI();
+  });
+
+  afterEach(() => {
+    setAndroid(false);
   });
 
   // ─── 1. 渲染统计页面标题（时间段选择器按钮） ───
@@ -173,5 +190,126 @@ describe('Stats', () => {
   it('should render export CSV button', () => {
     render(<Stats />);
     expect(screen.getByText('导出 CSV')).toBeInTheDocument();
+  });
+
+  // ─── 10. 桌面端保留原有的 5 列全量明细表（改动不得波及 ≥640px） ───
+  it('should keep the 5-column category details table on desktop', async () => {
+    const { container } = render(<Stats />);
+
+    await waitFor(() => {
+      expect(container.querySelector('table')).not.toBeNull();
+    });
+    const table = container.querySelector('table') as HTMLElement;
+    // 5 个表头（「总笔数」在汇总卡里也出现，故必须在表内断言）
+    expect(within(table).getByText('一级分类')).toBeInTheDocument();
+    expect(within(table).getByText('二级分类')).toBeInTheDocument();
+    expect(within(table).getByText('总笔数')).toBeInTheDocument();
+    expect(within(table).getByText('金额')).toBeInTheDocument();
+    expect(within(table).getByText('占比')).toBeInTheDocument();
+    // 桌面端不做折叠：不存在展开/收起入口，也没有下钻提示
+    expect(screen.queryByTestId('stats-details-toggle')).toBeNull();
+    expect(screen.queryByTestId('stats-details-panel')).toBeNull();
+    expect(screen.queryByText('点击分类查看二级明细')).toBeNull();
+  });
+
+  // ─── 11. 图表动画时长统一为 300ms（源码级契约） ───
+  // recharts 不走 DOM 暴露 animationDuration，只能在源码层锁定：
+  // 每一个 <Pie> 与 <Line> 都必须显式带上 CHART_ANIM_DURATION，且其值为 300。
+  // 这是历史踩坑点（默认 1500ms，安卓 WebView 上拖沓），Stats 曾是唯一未统一处。
+  it('should apply 300ms animation to every Pie and Line in source', () => {
+    expect(statsSource).toContain('const CHART_ANIM_DURATION = 300');
+
+    const pieCount = (statsSource.match(/<Pie\b/g) ?? []).length;
+    const lineCount = (statsSource.match(/<Line\b/g) ?? []).length;
+    const animatedCount = (statsSource.match(/animationDuration=\{CHART_ANIM_DURATION\}/g) ?? []).length;
+
+    expect(pieCount).toBe(2);
+    expect(lineCount).toBe(1);
+    expect(animatedCount).toBe(pieCount + lineCount);
+  });
+
+  // ─── 12. Legend 已删除（小表是 Legend 的超集，分类名+占比不重复渲染） ───
+  it('should not render any recharts Legend anymore', () => {
+    // 只对「代码」断言：注释里提到 Legend 是被允许的（说明去重理由），因此不能用全文 includes。
+    const rechartsImport = statsSource.match(/import \{[\s\S]*?\} from 'recharts'/)?.[0] ?? '';
+    expect(rechartsImport).not.toContain('Legend');
+    expect(statsSource).not.toContain('renderLegend');
+    expect(statsSource).not.toMatch(/<Legend[\s/>]/);
+  });
+});
+
+describe('Stats 安卓端层级收敛', () => {
+  beforeEach(() => {
+    setAndroid(true);
+    mockAddToast.mockClear();
+    mockElectronAPI();
+  });
+
+  afterEach(() => {
+    setAndroid(false);
+  });
+
+  // ─── 1. 二级下钻默认收起，点击一级分类才展开，且可收起 ───
+  it('should keep the subcategory drill-down collapsed until a category is tapped', async () => {
+    render(<Stats />);
+
+    await waitFor(() => {
+      expect(screen.getByText('支出分类占比')).toBeInTheDocument();
+    });
+    // 默认不渲染整张卡（省约 434px），二级分类数据完全不进 DOM
+    expect(screen.queryByTestId('stats-subcategory-card')).toBeNull();
+    expect(screen.queryByText('午餐')).toBeNull();
+    // 下钻入口必须可发现：一级分类小表上方有显式提示
+    expect(screen.getByText('点击分类查看二级明细')).toBeInTheDocument();
+
+    // 一级分类小表每一行就是下钻入口
+    const row = screen.getByRole('button', { name: '餐饮 二级分类' });
+    expect(row.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(row);
+
+    const card = await screen.findByTestId('stats-subcategory-card');
+    expect(card).toBeInTheDocument();
+    // 选中态明确：行高亮 + aria-pressed，卡内给出「收起」
+    expect(row.getAttribute('aria-pressed')).toBe('true');
+    expect(card.textContent).toContain('餐饮');
+    expect(screen.getByText('午餐')).toBeInTheDocument();
+    expect(screen.getByText('晚餐')).toBeInTheDocument();
+    // 未选中其它分类时不应带出它们
+    expect(screen.queryByText('地铁')).toBeNull();
+
+    // 收起后回到默认态
+    fireEvent.click(screen.getByTestId('stats-drill-close'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('stats-subcategory-card')).toBeNull();
+    });
+  });
+
+  // ─── 2. 全量明细默认折叠，展开后为「分类 + 金额」两列，无横向溢出结构 ───
+  it('should keep the full details collapsed by default and show two columns when expanded', async () => {
+    const { container } = render(<Stats />);
+
+    await waitFor(() => {
+      expect(screen.getByText('分类明细')).toBeInTheDocument();
+    });
+
+    const toggle = screen.getByTestId('stats-details-toggle');
+    expect(toggle.textContent).toBe('展开');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('stats-details-panel')).toBeNull();
+    // 折叠态下二级明细不进 DOM
+    expect(screen.queryByText('餐饮 · 午餐')).toBeNull();
+
+    fireEvent.click(toggle);
+
+    const panel = screen.getByTestId('stats-details-panel');
+    expect(panel).toBeInTheDocument();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.textContent).toBe('收起');
+    expect(screen.getByText('餐饮 · 午餐')).toBeInTheDocument();
+    // 主信息只有「分类 + 金额」；笔数与占比降为行内次要信息 → 不再有 5 列表格可横滑
+    expect(container.querySelector('table')).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('stats-details-panel')).toBeNull();
   });
 });

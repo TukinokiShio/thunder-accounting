@@ -1,22 +1,30 @@
 /**
  * 统计概览页面。
- * 展示支出/收入汇总卡片、支出分类环形图（一级 + 二级下钻）+ Legend + 明细表、
- * 每日支出趋势折线图。
+ * 信息层级收敛为 5 层：结论（4 张汇总卡）→ 分解（一级环形图 + 明细小表）→ 下钻（二级，按需展开）
+ * → 趋势（折线图）→ 明细（全量表，默认折叠）。
  * 支持本月 / 上月 / 近3个月三个时间粒度切换，以及 CSV 导出。
  *
  * 参考：https://github.com/qsor/budget-manager（图表+表格组合模式）
  *       https://github.com/iambhavesh55/personal-finance-dashboard（Legend 替代 inline labels）
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type KeyboardEvent } from 'react'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Legend
+  LineChart, Line, XAxis, YAxis, CartesianGrid
 } from 'recharts'
 import { Download, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { isAndroid } from '@/platform'
 import type { StatsResult } from '@/types'
+
+/**
+ * 图表入场动画时长（ms）。
+ * recharts 2.15.4 默认 1500ms，安卓 WebView 上体感明显拖沓；项目约定新图表一律 300ms
+ * （见 `src/components/StatCardDetailDialog.tsx` 的同名常量）。本页曾是唯一未统一处。
+ */
+const CHART_ANIM_DURATION = 300
 
 const COLORS = [
   'var(--accent)', 'var(--danger)', 'var(--success)', 'var(--warn)', 'var(--accent-h)',
@@ -30,26 +38,11 @@ function pct(value: number, total: number): string {
 }
 
 /**
- * 自定义 Legend 渲染函数：显示颜色圆点 + 分类名 + 百分比。
- * Legend 代替 inline label，彻底避免标签重叠问题。
+ * 注意：本页**不再使用 recharts 的 Legend 组件**（为避免歧义，此处不写出尖括号形式）。
+ * 原先两张环形图各挂一个自定义 Legend（分类名 + 占比），而同一张卡内紧邻的一级/二级明细
+ * 小表渲染的是「分类名 + 笔数 + 金额 + 占比」—— 小表是 Legend 的**超集**（多出笔数与金额），
+ * 所以去重方向是删 Legend、留小表；分类名与占比由小表承担，不再重复表达。
  */
-type LegendEntry = { value?: string; color?: string; payload?: { value?: number } }
-const renderLegend = ({ payload }: { payload?: LegendEntry[] }) => {
-  if (!payload) return null
-  return (
-    <ul className="flex flex-wrap gap-x-3 gap-y-1 justify-center text-xs mt-2">
-      {payload.map((entry) => (
-        <li key={entry.value} className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-          <span>{entry.value}</span>
-          <span className="text-gray-400 dark:text-gray-500">
-            {pct(entry.payload?.value ?? 0, payload.reduce((s: number, p: LegendEntry) => s + (p.payload?.value ?? 0), 0))}
-          </span>
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 /** 自定义 tooltip 内容：分类名 + 金额 + 笔数 + 占比 */
 const renderTooltip = (
@@ -82,8 +75,22 @@ export function Stats() {
   const [incomeStats, setIncomeStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  /** 安卓端下钻层选中的一级分类（null = 收起，二级环形图与小表都不渲染） */
+  const [drillCategory, setDrillCategory] = useState<string | null>(null)
+  /** 安卓端「明细层」（全量表）是否展开，默认折叠 */
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const addToast = useStore((s) => s.addToast)
   const { t } = useLanguage()
+
+  /**
+   * 平台判定：安卓竖屏可用内容高仅 711px，而本页图表原先硬编码 240/240/260 = 740px
+   * （首屏的 104%），且二级环形图默认渲染、全量表 5 列在 308px 容器里横向溢出 76px。
+   * 这些结构性收敛只对安卓端生效；桌面（Electron）走下面的 `!android` 分支，DOM 与渲染
+   * 与改动前逐位一致。桌面不做下钻/折叠，也没有额外包一层标题容器。
+   */
+  const android = isAndroid()
+  const PIE_HEIGHT = android ? 200 : 240
+  const LINE_HEIGHT = android ? 200 : 260
 
   const now = new Date()
 
@@ -167,8 +174,14 @@ export function Stats() {
 
   const topCategory1 = stats?.byCategory1[0]?.category1 ?? null
 
-  const subPieData = topCategory1
-    ? stats?.byCategory2.filter((c) => c.category1 === topCategory1)
+  /**
+   * 下钻层的一级分类：安卓端默认 null（收起，省约 434px），点击卡1 小表某一行后才有值；
+   * 桌面端沿用旧行为「默认展示金额最大的一级分类」，故此处取 topCategory1，值与原实现相同。
+   */
+  const drillCategory1 = android ? drillCategory : topCategory1
+
+  const subPieData = drillCategory1
+    ? stats?.byCategory2.filter((c) => c.category1 === drillCategory1)
         .map((c) => ({ name: c.category2, value: c.total }))
     : []
   const safeSubPieData = subPieData ?? []
@@ -255,10 +268,10 @@ export function Stats() {
 
           {/* ── 图表区 ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 环形图 1：支出分类占比（Legend + 明细表替代 inline label） */}
+            {/* 环形图 1：支出分类占比（分类名 + 占比由下方小表承担，已移除 Legend 以去重） */}
             <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('支出分类占比')}</h3>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={PIE_HEIGHT}>
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -269,76 +282,51 @@ export function Stats() {
                     outerRadius={85}
                     innerRadius={50}
                     strokeWidth={0}
+                    animationDuration={CHART_ANIM_DURATION}
                   >
                     {pieData.map((_, idx) => (
                       <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip content={renderTooltip(totalAmount, t, stats?.byCategory2)} />
-                  <Legend content={renderLegend} />
                 </PieChart>
               </ResponsiveContainer>
-              {/* 一级分类明细小表 */}
+              {/* 一级分类明细小表：Legend 的超集（多出笔数/金额），分类名与占比在此渲染。
+                  安卓端每一行同时是下钻入口（点击展开卡2 的二级分类环形图 + 小表）。 */}
               {stats.byCategory1.length > 0 && (
                 <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
-                  {stats.byCategory1.map((row, idx) => (
-                    <div key={row.category1} className="flex items-center justify-between py-1.5 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                        <span className="text-gray-700 dark:text-gray-300">{row.category1}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                        <span>{row.count} {t('笔')}</span>
-                        <span className="font-medium text-gray-900 dark:text-gray-100">¥{row.total.toFixed(2)}</span>
-                        <span className="text-gray-400">{pct(row.total, totalAmount)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 环形图 2：二级分类下钻 */}
-            <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                {topCategory1 ? `${t('「')}${topCategory1}${t('」')}${t('二级分类')}` : t('二级分类明细')}
-              </h3>
-              {safeSubPieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie
-                      data={safeSubPieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={85}
-                      innerRadius={50}
-                      strokeWidth={0}
-                    >
-                      {safeSubPieData.map((_, idx) => (
-                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={renderTooltip(totalAmount, t)} />
-                    <Legend content={renderLegend} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-[240px] text-gray-400 dark:text-gray-500 text-sm">
-                  {t('暂无数据')}
-                </div>
-              )}
-              {/* 二级分类明细小表 */}
-              {safeSubPieData.length > 0 && topCategory1 && (
-                <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
-                  {stats.byCategory2
-                    .filter(c => c.category1 === topCategory1)
-                    .map((row, idx) => (
-                      <div key={row.category2} className="flex items-center justify-between py-1.5 text-xs">
-                        <div className="flex items-center gap-2">
+                  {/* 下钻入口的可发现性：安卓端显式给一行提示（桌面端不渲染该节点，DOM 不变） */}
+                  {android && (
+                    <p className="mb-1 text-xs text-gray-400 dark:text-gray-500">{t('点击分类查看二级明细')}</p>
+                  )}
+                  {stats.byCategory1.map((row, idx) => {
+                    const selected = android && drillCategory === row.category1
+                    return (
+                      <div
+                        key={row.category1}
+                        /* 桌面端保持原 class 字符串，安卓端才追加可点击态 */
+                        className={android
+                          ? `-mx-1 flex items-center justify-between px-1 py-1.5 text-xs rounded ${selected ? 'bg-[var(--accent-dim)]' : ''}`
+                          : 'flex items-center justify-between py-1.5 text-xs'}
+                        {...(android
+                          ? {
+                              role: 'button' as const,
+                              tabIndex: 0,
+                              'aria-pressed': selected,
+                              'aria-label': `${row.category1} ${t('二级分类')}`,
+                              onClick: () => setDrillCategory(selected ? null : row.category1),
+                              onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  setDrillCategory(selected ? null : row.category1)
+                                }
+                              }
+                            }
+                          : {})}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
-                          <span className="text-gray-700 dark:text-gray-300">{row.category2}</span>
+                          <span className="text-gray-700 dark:text-gray-300 truncate">{row.category1}</span>
                         </div>
                         <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
                           <span>{row.count} {t('笔')}</span>
@@ -346,15 +334,95 @@ export function Stats() {
                           <span className="text-gray-400">{pct(row.total, totalAmount)}</span>
                         </div>
                       </div>
-                    ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
 
+            {/* 环形图 2：二级分类下钻。
+                安卓端默认不渲染（整卡省约 434px），由卡1 小表点击一级分类触发，卡内提供「收起」；
+                桌面端维持旧行为（默认展示金额最大的一级分类），DOM 与渲染不变。 */}
+            {(!android || drillCategory1 !== null) && (
+              <div
+                className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5"
+                {...(android ? { 'data-testid': 'stats-subcategory-card' } : {})}
+              >
+                {android ? (
+                  <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                      {`${t('「')}${drillCategory1}${t('」')}${t('二级分类')}`}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setDrillCategory(null)}
+                      data-testid="stats-drill-close"
+                      className="shrink-0 text-xs font-medium text-[var(--accent)] min-h-[32px] px-1"
+                    >
+                      {t('收起')}
+                    </button>
+                  </div>
+                ) : (
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                    {topCategory1 ? `${t('「')}${topCategory1}${t('」')}${t('二级分类')}` : t('二级分类明细')}
+                  </h3>
+                )}
+                {safeSubPieData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={PIE_HEIGHT}>
+                    <PieChart>
+                      <Pie
+                        data={safeSubPieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={85}
+                        innerRadius={50}
+                        strokeWidth={0}
+                        animationDuration={CHART_ANIM_DURATION}
+                      >
+                        {safeSubPieData.map((_, idx) => (
+                          <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={renderTooltip(totalAmount, t)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div
+                    className="flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm"
+                    style={{ height: PIE_HEIGHT }}
+                  >
+                    {t('暂无数据')}
+                  </div>
+                )}
+                {/* 二级分类明细小表 */}
+                {safeSubPieData.length > 0 && drillCategory1 && (
+                  <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
+                    {stats.byCategory2
+                      .filter(c => c.category1 === drillCategory1)
+                      .map((row, idx) => (
+                        <div key={row.category2} className="flex items-center justify-between py-1.5 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[idx % COLORS.length] }} />
+                            <span className="text-gray-700 dark:text-gray-300">{row.category2}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+                            <span>{row.count} {t('笔')}</span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">¥{row.total.toFixed(2)}</span>
+                            <span className="text-gray-400">{pct(row.total, totalAmount)}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 折线图 */}
             <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5 lg:col-span-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">{t('每日支出趋势')}</h3>
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={LINE_HEIGHT}>
                 <LineChart data={lineData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                   <XAxis
@@ -389,44 +457,89 @@ export function Stats() {
                     strokeWidth={2}
                     dot={{ r: 2, fill: 'var(--accent)', strokeWidth: 0 }}
                     activeDot={{ r: 4, fill: 'var(--accent-h)', strokeWidth: 2, stroke: 'var(--bg-card)' }}
+                    animationDuration={CHART_ANIM_DURATION}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* ── 全量分类明细表 ── */}
-          <div className="card stats-card dark:bg-gray-800 dark:border-gray-700 p-5">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('分类明细')}</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-700">
-                    <th className="text-left py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('一级分类')}</th>
-                    <th className="text-left py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('二级分类')}</th>
-                    <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('总笔数')}</th>
-                    <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('金额')}</th>
-                    <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('占比')}</th>
-                  </tr>
-                </thead>
-                <tbody>
+          {/* ── 全量分类明细表 ──
+              安卓端默认折叠（一行标题 + 展开按钮）；展开后只显示「分类 + 金额」两列主信息，
+              笔数与占比降为次要行内信息 —— 原 5 列表格在 308px 容器里内容约 384px，
+              必须横滑才能看到金额与占比，这里彻底消除横向溢出。
+              桌面端仍渲染原来的 5 列表格（DOM 与渲染不变，也不显示折叠按钮）。 */}
+          {android ? (
+            <div className="card stats-card dark:bg-gray-800 dark:border-gray-700 p-5">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('分类明细')}</h3>
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((open) => !open)}
+                  aria-expanded={detailsOpen}
+                  aria-controls="stats-details-panel"
+                  data-testid="stats-details-toggle"
+                  className="shrink-0 text-xs font-medium text-[var(--accent)] min-h-[32px] px-1"
+                >
+                  {detailsOpen ? t('收起') : t('展开')}
+                </button>
+              </div>
+              {detailsOpen && (
+                <div id="stats-details-panel" data-testid="stats-details-panel">
                   {stats.byCategory2.map((row, idx) => (
-                    <tr key={idx} className="border-b border-gray-50 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-750 transition-colors">
-                      <td className="py-2 px-3 text-gray-900 dark:text-gray-200">{row.category1}</td>
-                      <td className="py-2 px-3 text-gray-600 dark:text-gray-400">{row.category2}</td>
-                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{row.count}</td>
-                      <td className="py-2 px-3 text-right text-gray-900 dark:text-gray-200 font-medium">
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 py-2 border-b border-gray-50 dark:border-gray-700"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-900 dark:text-gray-200 truncate">
+                          {row.category1} · {row.category2}
+                        </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          {row.count} {t('笔')} · {pct(row.total, totalAmount)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-medium text-gray-900 dark:text-gray-200">
                         ¥{row.total.toFixed(2)}
-                      </td>
-                      <td className="py-2 px-3 text-right text-gray-400 dark:text-gray-500">
-                        {pct(row.total, totalAmount)}
-                      </td>
-                    </tr>
+                      </span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="card stats-card dark:bg-gray-800 dark:border-gray-700 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('分类明细')}</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-gray-700">
+                      <th className="text-left py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('一级分类')}</th>
+                      <th className="text-left py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('二级分类')}</th>
+                      <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('总笔数')}</th>
+                      <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('金额')}</th>
+                      <th className="text-right py-2 px-3 text-gray-500 dark:text-gray-400 font-medium">{t('占比')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.byCategory2.map((row, idx) => (
+                      <tr key={idx} className="border-b border-gray-50 dark:border-gray-700 hover:bg-gray-50/50 dark:hover:bg-gray-750 transition-colors">
+                        <td className="py-2 px-3 text-gray-900 dark:text-gray-200">{row.category1}</td>
+                        <td className="py-2 px-3 text-gray-600 dark:text-gray-400">{row.category2}</td>
+                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{row.count}</td>
+                        <td className="py-2 px-3 text-right text-gray-900 dark:text-gray-200 font-medium">
+                          ¥{row.total.toFixed(2)}
+                        </td>
+                        <td className="py-2 px-3 text-right text-gray-400 dark:text-gray-500">
+                          {pct(row.total, totalAmount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
