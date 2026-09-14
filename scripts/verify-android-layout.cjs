@@ -70,10 +70,32 @@ function log(...a) {
 
 /* ── 0. 参数与前置检查 ─────────────────────────────────────────────────────── */
 
+/**
+ * 规范化 root：统一成**文件系统上的规范大小写**（盘符大小写）。
+ *
+ * 实测踩到（与桌面门禁 `verify-desktop-parity.cjs` 的 `canonDir` 同一类缺陷）：
+ * Windows 下 `e:\...` 与 `E:\...` 是同一个目录，但 vite 的 `html-inline-proxy` 按
+ * **路径字符串**匹配模块 id —— 若本脚本是被一个**小写盘符的绝对路径**调起的
+ * （例如 `node e:/Code/.../verify-android-layout.cjs`，正是自动化脚本常干的事），
+ * `__dirname` 就是小写，`root` 跟着是小写，而 vite 内部 realpath 出的是大写，
+ * 于是整条构建失败：
+ *   `[vite:html-inline-proxy] Could not load E:/.../probe.html?html-proxy&inline-css&index=0.css ... No matching HTML proxy module found`
+ * 报错看着像「探针页构建失败」，其实只是盘符大小写 —— 本门禁是 `prebuild:android`
+ * 的一环，这种失败会直接卡住出包。
+ */
+function canonDir(p) {
+  const r = path.resolve(p)
+  try {
+    return fs.realpathSync.native(r)
+  } catch {
+    return r
+  }
+}
+
 function parseArgs(argv) {
-  const out = { root: path.resolve(SCRIPT_DIR, '..'), json: null }
+  const out = { root: canonDir(path.resolve(SCRIPT_DIR, '..')), json: null }
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--root') out.root = path.resolve(argv[++i])
+    if (argv[i] === '--root') out.root = canonDir(argv[++i])
     else if (argv[i] === '--json') out.json = argv[++i]
   }
   return out

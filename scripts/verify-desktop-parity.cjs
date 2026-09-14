@@ -462,8 +462,13 @@ function compare(base, cur) {
    *   Σ probes[].reasons.length === 循环内 diffs.push 的次数
    * 今天那个「逐项说绿、汇总说红」的缺陷，本质就是两层各算各的。断言这条等式之后，
    * 「报告里 PASS 而汇总里有该探针的差异」从「已经修好」变成「不可能再回归」。
+   *
+   * 数的是**产物**而不是**动作**（gp-18 的改法）：早先这里是手工 `probeDiffCount++`，
+   * 循环里六处自增。只要将来有人补一个 `diffs.push` 却忘了 `++`（或忘了配 reason），
+   * 锁就漏了 —— 那条探针会重新打印 PASS。改成「循环前后的 `diffs.length` 之差」之后，
+   * 忘不忘都拦得住：忘加 `++` 这件事本身已经不存在了。
    */
-  let probeDiffCount = 0
+  const diffsBeforeProbes = diffs.length
   /**
    * 归一化记录：**不计入 diffs**（所以不影响退出码），但必须在报告里**出声** ——
    * 静默地把两项差异变绿，和「门禁看不见」是同一种病，只是方向相反。
@@ -480,7 +485,6 @@ function compare(base, cur) {
       const reason = `探针缺失：基线=${b ? '有' : '无'} / 当前=${c ? '有' : '无'}`
       diffs.push({ where: name, kind: '探针缺失', detail: `基线=${b ? '有' : '无'} 当前=${c ? '有' : '无'}` })
       probes.push({ name, keys: [], reasons: [reason] })
-      probeDiffCount++
       continue
     }
     if (!b.found && !c.found) {
@@ -488,14 +492,12 @@ function compare(base, cur) {
       const reason = '探针失效：两侧都未找到该元素（比对空过，必须修正探针本身）'
       probes.push({ name, found: [false, false], keys: [], text: [b.text, c.text], vacuous: true, reasons: [reason] })
       diffs.push({ where: name, kind: '探针失效（两侧都未找到该元素）', detail: '该探针已空过，必须修正探针本身' })
-      probeDiffCount++
       continue
     }
     if (b.found !== c.found) {
       const reason = `命中情况不同：基线 found=${b.found} / 当前 found=${c.found}`
       probes.push({ name, found: [b.found, c.found], keys: [], text: [b.text, c.text], vacuous: false, reasons: [reason] })
       diffs.push({ where: name, kind: '探针命中情况不同', detail: `基线 found=${b.found} / 当前 found=${c.found}` })
-      probeDiffCount++
       continue
     }
     // 聚合量空过（元素级 vacuity 之外的第二类空过）：元素在，但聚合量为空 ⇒ 什么都没看见。
@@ -504,7 +506,19 @@ function compare(base, cur) {
       const reason = `聚合量空过：观测样本数 基线=${b.observed} / 当前=${c.observed}（元素找到了，但聚合量是空的）`
       probes.push({ name, found: [true, true], keys: [], text: [b.text, c.text], vacuous: true, reasons: [reason], observed: [b.observed, c.observed] })
       diffs.push({ where: name, kind: '聚合量空过（探针找到了元素但聚合量为空）', detail: `观测样本数 基线=${b.observed} / 当前=${c.observed}` })
-      probeDiffCount++
+      continue
+    }
+    // 聚合量的**契约**（`observed === 0` 的补集，gp-18 指出的第三类空过）：只判「全空」抓不到
+    // 「半瞎」—— 6 张卡只认出 3 个时，两侧同样是「3 个……配色 N 种」，一模一样 ⇒ PASS，
+    // 而探针有一半没看见。契约由探针自己声明（`expectObserved`），两侧**各自**都要满足。
+    if (typeof b.expectObserved === 'number' && (b.observed !== b.expectObserved || c.observed !== c.expectObserved)) {
+      const reason = `聚合量不符合契约：本该看见 ${b.expectObserved} 个样本，基线=${b.observed} / 当前=${c.observed}（只看见一部分和全都看不见同样不可信）`
+      probes.push({ name, found: [true, true], keys: [], text: [b.text, c.text], vacuous: true, reasons: [reason], observed: [b.observed, c.observed] })
+      diffs.push({
+        where: name,
+        kind: '聚合量不符合契约（观测数 ≠ 声明契约）',
+        detail: `本该看见 ${b.expectObserved} 个，基线=${b.observed} / 当前=${c.observed}`
+      })
       continue
     }
     const reasons = []
@@ -521,7 +535,6 @@ function compare(base, cur) {
         kind: delta.boundary ? `命中的元素文本不同（${delta.boundary}）` : '命中的元素文本不同（可能量到了不同元素）',
         detail: delta.detail
       })
-      probeDiffCount++
     }
     const keys = []
     for (const k of Object.keys(b.s)) {
@@ -530,11 +543,12 @@ function compare(base, cur) {
       if (!equal) {
         reasons.push(`computed style 不同：${k}`)
         diffs.push({ where: name, kind: 'computed style 不同', detail: `${k}: 基线 ${b.s[k]} → 当前 ${c.s[k]}` })
-        probeDiffCount++
       }
     }
     probes.push({ name, found: [true, true], keys, text: [b.text, c.text], vacuous: false, reasons, notes })
   }
+  // 产物对产物：循环里 push 了几条 diffs，就必须有几条 reasons 与之对应。
+  const probeDiffCount = diffs.length - diffsBeforeProbes
   const reasonsTotal = probes.reduce((n, p) => n + ((p.reasons && p.reasons.length) || 0), 0)
   const probeInvariant = { probeDiffCount, reasonsTotal, ok: probeDiffCount === reasonsTotal }
 

@@ -429,7 +429,9 @@ async function checkA5(): Promise<GateCheck> {
     let card: HTMLElement | null = labelEl
     let el: HTMLElement | null = labelEl
     while (el && el !== document.body) {
-      const parent = el.parentElement
+      // 显式标注：`el` 在循环里被重新赋值，不标注会形成自引用推断 ⇒ TS7022（整条链退化成 any）。
+      // 这条与 desktop-driver.ts 的 pathOf 是同一形状，加 scripts 类型门禁后一起现形。
+      const parent: HTMLElement | null = el.parentElement
       if (!parent) break
       const inside = LABELS.filter((l) => parent.textContent?.includes(l)).length
       if (inside > 1) break

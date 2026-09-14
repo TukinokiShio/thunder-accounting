@@ -60,6 +60,12 @@ interface ProbeRec {
    * 即：元素找到了，但探针什么都没看见。`observed === 0` 必须按空过处理。
    */
   observed?: number
+  /**
+   * 聚合量**本该**看见的样本数（契约）。声明它之后，`observed !== expectObserved` 即判失败 ——
+   * 因为 `observed === 0` 只能抓「全瞎」，抓不到「半瞎」：6 张卡只认出 3 个时，两侧同样是
+   * 「3 个……配色 N 种」，一模一样 ⇒ PASS，而探针其实有一半没看见（gp-18 第三类空过的补集）。
+   */
+  expectObserved?: number
   s: StyleMap
 }
 
@@ -197,7 +203,9 @@ function pathOf(el: Element): string {
   const parts: string[] = []
   let cur: Element | null = el
   while (cur && cur !== document.documentElement) {
-    const parent = cur.parentElement
+    // 显式标注：`cur` 在循环里会被重新赋值，不标注的话 TS 无法推断 `parent` 的类型，
+    // 于是整条链退化成 any（TS7022 / TS18046）。加 `scripts/**` 类型门禁后这两条才现形。
+    const parent: Element | null = cur.parentElement
     if (!parent) break
     const tag = cur.tagName
     let ord = 0
@@ -234,10 +242,11 @@ function fnv1a(s: string): number {
   return h >>> 0
 }
 
-/** 聚合量：既给打印用的截断串，也给判据用无损摘要，并可声明「我看见了几个样本」。 */
+/** 聚合量：既给打印用的（全文）串，也给判据用无损摘要，并可声明「我看见了几个 / 本该看见几个」。 */
 interface MetricOut {
   text: string
   observed?: number
+  expect?: number
 }
 
 function probeEl(
@@ -260,6 +269,7 @@ function probeEl(
     s: styleOf(el, keys)
   }
   if (m && typeof m.observed === 'number') rec.observed = m.observed
+  if (m && typeof m.expect === 'number') rec.expectObserved = m.expect
   return rec
 }
 
@@ -399,6 +409,7 @@ const PROBE_SPECS: ProbeSpec[] = [
     keys: [],
     find: () => q('.home-stats-grid'),
     metric: () => {
+      const grid = q('.home-stats-grid')
       const boxes = Array.from(document.querySelectorAll<HTMLElement>('.home-stats-grid *')).filter(
         (el) => el.children.length === 1 && el.firstElementChild?.tagName.toLowerCase() === 'svg'
       )
@@ -407,11 +418,15 @@ const PROBE_SPECS: ProbeSpec[] = [
         return `${s.color} / ${s.backgroundColor}`
       })
       const uniq = Array.from(new Set(pairs))
-      // 文件头的 6 张卡是已知契约；`observed` 把「我看见了几个图标盒」交给比对层，
-      // 于是「聚合量为空」不再能和「两侧真的一样」混淆（见 ProbeRec.observed）。
+      // `observed` + `expect` 把「我看见了几个图标盒 / 本该看见几个」交给比对层。
+      // 契约不写死数字，而是**从 DOM 自身推出**：grid 的直接子节点就是卡片数，
+      // 每张卡都该恰好贡献一个图标盒 ⇒ 两者必须相等。于是「半瞎」（6 张卡只认出 3 个）
+      // 与「全瞎」（0 个）都会被抓，而 Home 若**合理地**增减卡片（两侧同步变化）不会误报
+      // —— 那种变化本来就该由节点数/结构通道去报。
       return {
         text: `${boxes.length} 个图标盒（尺寸 ${boxes.map((b) => getComputedStyle(b).width).join(',')}），配色 ${uniq.length} 种：${uniq.join(' | ')}`,
-        observed: boxes.length
+        observed: boxes.length,
+        expect: grid ? grid.children.length : 0
       }
     }
   },
