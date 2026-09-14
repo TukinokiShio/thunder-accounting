@@ -24,6 +24,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.mobile.json",
+    "prebuild:android": "node scripts/verify-android-layout.cjs && node scripts/verify-desktop-parity.cjs",
     "build:android": "vite build --config vite.mobile.config.mjs && cap sync android",
     "android:accept": "node scripts/android-acceptance.cjs"
   },
