@@ -248,6 +248,22 @@ exe/              AGENTS.md 规定的固定安装验收目录
    - **不要把假信号写进结论或规则**：本次「11 处错误 + OOM」的报告正是这两种假信号叠加的结果，
      真实错误数是 **6**（且其中 5 条还是同一根因的投影）。
    - 实践：跑重型检查前先确认没有别的进程在抢内存（本项目常见三者并发：Chromium 门禁 + tsc + vitest）。
+33. **`clientWidth − scrollWidth` 恒为 0 —— 不能拿它当「余量」判据（2026-09-14 实证）**：
+   `scrollWidth` 被 clamp 到**不小于** `clientWidth`，所以两者之差**恒为 0**（为负时也被 clamp 成 0）。
+   拿它做判据只会写出**永远通过**或**永远失败**的假断言。
+   - **正确量法**：同一行**最右可点击项的 `right`** 到**容器可见右边界**的距离。
+   - 连带更正：曾据此把中文态报成「**0px 余量**」，实测是 **26px** —— 中文态不是"恰好塞满"，
+     而是「**看起来还有空间**」，**这才是它在真机上不显影的原因**。
+   - 同族的判据错配：**用 `className` 正则匹配 `overflow-x-(auto|scroll|hidden)` 抓不到 CSS 文件里的裁剪**
+     （那是 Tailwind 工具类；本项目 `mobile/android.css` 的 `overflow-x: auto` 不在 className 里）
+     ⇒ 必须读 **computed style**：`getComputedStyle(el).overflowX`。
+34. **屏幕度量的两个口径可以互相换算（2026-09-14 收敛）**：
+   - `几何带 = 视口高 − 顶栏(64 + inset_top) − 导航条(56 + inset_bottom)`
+   - `净可写区 = 几何带 − 36px`
+     （36 = `.aurora-main` 的 `padding-top: 1.25rem` 20px + `.page-viewport` 的 `padding: 1rem` 16px）
+   - 真机（inset 24/24）：`747 − 36 = 711`；无头 Chromium（inset 0/0）：`795 − 36 = 759`
+   ⇒ **711 与 795 不是互相矛盾的两个数，是同一量在两种条件下的值。**
+     报其中任何一个都必须同时说明条件（有无 inset、是否含内边距），否则会被当成口径冲突。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
