@@ -42,6 +42,24 @@ interface PageRec {
 interface ProbeRec {
   found: boolean
   text?: string
+  /**
+   * **未截断**原串的摘要（FNV-1a 32 位）。跨侧文本判据用它，`text` 只用于打印。
+   *
+   * 为什么必须分开（gp-18 指出的有损判据）：`text` 有 60/300 字符上限，而跨侧比对
+   * 若用 `text`，则**超过上限的部分两侧会被同样砍掉 ⇒ 判为相等**。截断是砍尾巴，
+   * 所以「清单最尾部那几张卡变了」这类差异会被静默吞掉。原则：
+   * **呈现可以有损，判据必须无损。**
+   */
+  textHash?: number
+  /**
+   * 聚合量观测到的样本数（元素级 vacuity 之外的第二类空过）。
+   *
+   * 为什么需要：探针的 `find` 只保证「元素在」，`keys: []` 的聚合探针对自己的样式零贡献，
+   * 全部信号都在 metric 上。若聚合的标记结构变了（如 svg 外层多包一层），metric 会输出
+   * 「0 个……配色 0 种：」—— **两侧完全一致 ⇒ PASS，且不触发任何元素级护栏**。
+   * 即：元素找到了，但探针什么都没看见。`observed === 0` 必须按空过处理。
+   */
+  observed?: number
   s: StyleMap
 }
 
@@ -206,17 +224,43 @@ function q<T extends Element = HTMLElement>(sel: string): T | null {
   return document.querySelector<T>(sel)
 }
 
-function probeEl(name: string, el: Element | null | undefined, keys: string[], metric?: () => string): ProbeRec {
+/** FNV-1a 32 位：给「未截断原串」算摘要，用作无损文本判据。 */
+function fnv1a(s: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h >>> 0
+}
+
+/** 聚合量：既给打印用的截断串，也给判据用无损摘要，并可声明「我看见了几个样本」。 */
+interface MetricOut {
+  text: string
+  observed?: number
+}
+
+function probeEl(
+  name: string,
+  el: Element | null | undefined,
+  keys: string[],
+  metric?: () => MetricOut
+): ProbeRec {
   if (!el) return { found: false, s: {} }
-  const raw = metric ? metric().trim() : (el.textContent || '').trim()
+  const m = metric ? metric() : null
+  const raw = (m ? m.text : el.textContent || '').trim()
   // 元素文本沿用原来的 60 字符上限（既有探针的输出不受影响）；
   // metric 是**派生的聚合量**，需要放下完整清单，给更宽的上限。
+  // 注意：上限只影响打印，判据一律用 textHash（无损）。
   const cap = metric ? 300 : 60
-  return {
+  const rec: ProbeRec = {
     found: true,
     text: raw.length > cap ? `${raw.slice(0, cap - 3)}...` : raw,
+    textHash: fnv1a(raw),
     s: styleOf(el, keys)
   }
+  if (m && typeof m.observed === 'number') rec.observed = m.observed
+  return rec
 }
 
 /* ── 页面导航 ───────────────────────────────────────────────────────────── */
@@ -320,7 +364,7 @@ interface ProbeSpec {
   keys: string[]
   find: () => Element | null | undefined
   /** 可选的**派生聚合量**：替代元素的 textContent 参与跨侧文本比对（见 home.iconColorSet）。 */
-  metric?: () => string
+  metric?: () => MetricOut
 }
 
 const PROBE_SPECS: ProbeSpec[] = [
@@ -363,7 +407,12 @@ const PROBE_SPECS: ProbeSpec[] = [
         return `${s.color} / ${s.backgroundColor}`
       })
       const uniq = Array.from(new Set(pairs))
-      return `${boxes.length} 个图标盒（尺寸 ${boxes.map((b) => getComputedStyle(b).width).join(',')}），配色 ${uniq.length} 种：${uniq.join(' | ')}`
+      // 文件头的 6 张卡是已知契约；`observed` 把「我看见了几个图标盒」交给比对层，
+      // 于是「聚合量为空」不再能和「两侧真的一样」混淆（见 ProbeRec.observed）。
+      return {
+        text: `${boxes.length} 个图标盒（尺寸 ${boxes.map((b) => getComputedStyle(b).width).join(',')}），配色 ${uniq.length} 种：${uniq.join(' | ')}`,
+        observed: boxes.length
+      }
     }
   },
   {

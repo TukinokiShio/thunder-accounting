@@ -328,6 +328,18 @@ function compare(base, cur) {
   /* 命名探针：逐项比对 */
   const probeNames = Array.from(new Set([...Object.keys(base.dump.probes), ...Object.keys(cur.dump.probes)]))
   const probes = []
+  /**
+   * 「两层不许打架」的回归锁（gp-18 指出：只修症状、没上锁）。
+   *
+   * 探针循环里每一处 `diffs.push` 都**同时**对应一条 `reasons`（缺失 / 失效 / 命中不同 /
+   * 文本不同 / 每个不等 key），所以不变量是**精确等式**：
+   *   Σ probes[].reasons.length === 循环内 diffs.push 的次数
+   * 今天那个「逐项说绿、汇总说红」的缺陷，本质就是两层各算各的。断言这条等式之后，
+   * 「报告里 PASS 而汇总里有该探针的差异」从「已经修好」变成「不可能再回归」。
+   */
+  let probeDiffCount = 0
+  /** 文本判据：优先用**未截断**原串的摘要（呈现可以有损，判据必须无损）。 */
+  const textKey = (rec) => (typeof rec.textHash === 'number' ? `h:${rec.textHash}` : `t:${rec.text || ''}`)
   for (const name of probeNames) {
     const b = base.dump.probes[name]
     const c = cur.dump.probes[name]
@@ -339,6 +351,7 @@ function compare(base, cur) {
       const reason = `探针缺失：基线=${b ? '有' : '无'} / 当前=${c ? '有' : '无'}`
       diffs.push({ where: name, kind: '探针缺失', detail: `基线=${b ? '有' : '无'} 当前=${c ? '有' : '无'}` })
       probes.push({ name, keys: [], reasons: [reason] })
+      probeDiffCount++
       continue
     }
     if (!b.found && !c.found) {
@@ -346,18 +359,30 @@ function compare(base, cur) {
       const reason = '探针失效：两侧都未找到该元素（比对空过，必须修正探针本身）'
       probes.push({ name, found: [false, false], keys: [], text: [b.text, c.text], vacuous: true, reasons: [reason] })
       diffs.push({ where: name, kind: '探针失效（两侧都未找到该元素）', detail: '该探针已空过，必须修正探针本身' })
+      probeDiffCount++
       continue
     }
     if (b.found !== c.found) {
       const reason = `命中情况不同：基线 found=${b.found} / 当前 found=${c.found}`
       probes.push({ name, found: [b.found, c.found], keys: [], text: [b.text, c.text], vacuous: false, reasons: [reason] })
       diffs.push({ where: name, kind: '探针命中情况不同', detail: `基线 found=${b.found} / 当前 found=${c.found}` })
+      probeDiffCount++
+      continue
+    }
+    // 聚合量空过（元素级 vacuity 之外的第二类空过）：元素在，但聚合量为空 ⇒ 什么都没看见。
+    // 若不判，两侧会输出同样的「0 个……0 种：」⇒ PASS，而现有护栏全部够不着。
+    if (b.observed === 0 || c.observed === 0) {
+      const reason = `聚合量空过：观测样本数 基线=${b.observed} / 当前=${c.observed}（元素找到了，但聚合量是空的）`
+      probes.push({ name, found: [true, true], keys: [], text: [b.text, c.text], vacuous: true, reasons: [reason], observed: [b.observed, c.observed] })
+      diffs.push({ where: name, kind: '聚合量空过（探针找到了元素但聚合量为空）', detail: `观测样本数 基线=${b.observed} / 当前=${c.observed}` })
+      probeDiffCount++
       continue
     }
     const reasons = []
-    if ((b.text || '') !== (c.text || '')) {
+    if (textKey(b) !== textKey(c)) {
       reasons.push('命中的元素文本不同（可能量到了不同元素）')
       diffs.push({ where: name, kind: '命中的元素文本不同（可能量到了不同元素）', detail: `基线 "${b.text}" / 当前 "${c.text}"` })
+      probeDiffCount++
     }
     const keys = []
     for (const k of Object.keys(b.s)) {
@@ -366,10 +391,13 @@ function compare(base, cur) {
       if (!equal) {
         reasons.push(`computed style 不同：${k}`)
         diffs.push({ where: name, kind: 'computed style 不同', detail: `${k}: 基线 ${b.s[k]} → 当前 ${c.s[k]}` })
+        probeDiffCount++
       }
     }
     probes.push({ name, found: [true, true], keys, text: [b.text, c.text], vacuous: false, reasons })
   }
+  const reasonsTotal = probes.reduce((n, p) => n + ((p.reasons && p.reasons.length) || 0), 0)
+  const probeInvariant = { probeDiffCount, reasonsTotal, ok: probeDiffCount === reasonsTotal }
 
   /* 结构计数 */
   const counts = []
@@ -393,7 +421,7 @@ function compare(base, cur) {
     if (bv !== cv) diffs.push({ where: `env.${f}`, kind: '环境量不同', detail: `基线 ${JSON.stringify(bv)} / 当前 ${JSON.stringify(cv)}` })
   }
 
-  return { pages, probes, counts, diffs }
+  return { pages, probes, counts, diffs, probeInvariant }
 }
 
 /* ── 报告 ───────────────────────────────────────────────────────────────── */
@@ -420,6 +448,11 @@ function printReport(base, cur, cmp) {
 
   log('')
   log('── 关键元素逐项比对（基线 → 当前）───────────────────────────────────')
+  const inv = cmp.probeInvariant
+  log(
+    `口径自检：探针段 diffs 次数 ${inv.probeDiffCount} ${inv.ok ? '==' : '!='} 探针段 reasons 总数 ${inv.reasonsTotal}` +
+      `（要求精确相等：逐项与汇总两层不许各算各的）`
+  )
   for (const p of cmp.probes) {
     const reasons = p.reasons && p.reasons.length ? p.reasons : p.vacuous ? ['探针失效：两侧都未找到该元素（比对空过）'] : []
     log(`${reasons.length === 0 ? 'PASS' : 'FAIL'}  ${p.name}`)
@@ -513,7 +546,7 @@ function main() {
           instrument: { src: args.gateSrc, fingerprint: instrumentAfter, scratch: args.scratch },
           baseline: { root: base.root, androidCssInPage: base.androidCssInPage, dump: base.dump },
           current: { root: cur.root, androidCssInPage: cur.androidCssInPage, dump: cur.dump },
-          compare: { pages: cmp.pages, probes: cmp.probes, counts: cmp.counts, diffs: cmp.diffs }
+          compare: { pages: cmp.pages, probes: cmp.probes, counts: cmp.counts, diffs: cmp.diffs, probeInvariant: cmp.probeInvariant }
         },
         null,
         2
@@ -524,6 +557,16 @@ function main() {
     log(`原始量测 JSON：${p}`)
   }
 
+  // 「两层不许打架」的回归锁：等式不成立说明报告口径本身坏了，此时任何 PASS/FAIL 都不可信
+  // ⇒ 拒绝出结论（退出码 2 = 环境/仪器未就绪），而不是当成某个差异去比大小。
+  if (!cmp.probeInvariant.ok) {
+    fail(
+      `SKIP —— 报告口径自检未通过：探针段的 diffs.push 次数 ${cmp.probeInvariant.probeDiffCount} ` +
+        `≠ 探针段的 reasons 总数 ${cmp.probeInvariant.reasonsTotal}。\n` +
+        `  逐项段与差异汇总段对不上 ⇒ 本次报告不可信（这正是「逐项说绿、汇总说红」那类缺陷的形状）。`,
+      2
+    )
+  }
   if (envFail.length > 0) {
     fail(
       `SKIP —— 反向自检未通过，说明量到的不是桌面布局，比对结论无效（${envFail.length} 条）：\n` +
