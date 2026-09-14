@@ -26,6 +26,9 @@
  *   node scripts/verify-desktop-parity.cjs                          # 基线默认 ../ta-gate-baseline
  *   node scripts/verify-desktop-parity.cjs --baseline <dir> --current <dir>
  *   node scripts/verify-desktop-parity.cjs --json out/desktop-parity.json
+ *   node scripts/verify-desktop-parity.cjs --gate-src <dir> --scratch <name>   # 并发运行时用冻结仪器 + 独立 scratch
+ *
+ * 目录参数一律经 `canonDir()` 规范化（Windows 盘符大小写不一致会让构建直接失败，见下）。
  *
  * 退出码：
  *   0 = 两侧逐项相等（且环境自检全部成立）
@@ -36,6 +39,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const { createHarness } = require('./lib/layout-harness.cjs')
 
 const SCRIPT_DIR = __dirname
@@ -84,18 +88,70 @@ function log(...a) {
 
 /* ── 参数 ───────────────────────────────────────────────────────────────── */
 
+/**
+ * 规范化待测目录：统一成**文件系统上的规范大小写**。
+ *
+ * 为什么必须做（实测踩到，不是防御性编程）：Windows 下 `e:\...` 与 `E:\...` 指向同一个目录，
+ * 但 vite 的 `html-inline-proxy` 是**按路径字符串**匹配模块 id 的 —— 它内部走 realpath 拿到
+ * `E:\Code\...\probe.html?html-proxy&inline-css&index=0.css`，而地图键是用调用方给的
+ * `e:\Code\...` 建的，两边字符串不等 ⇒ 构建直接失败：
+ *   `[vite:html-inline-proxy] Could not load ...?html-proxy&inline-css&index=0.css ... No matching HTML proxy module found`
+ * 触发条件：`parseArgs` 的默认值来自 `__dirname`（盘符为 `E:`），而 `--baseline ../x` /
+ * `--current ../x` 是相对路径、经 `path.resolve(process.cwd(), ...)` 解析（盘符为 `e:`）——
+ * 于是**只要用户显式传一次目录参数，门禁就整条不可用**（默认路径反而正常，最难发现的那种）。
+ * 安卓门禁不受影响：它只有一个 root（`REPO_ROOT`），两侧同源不可能大小写不一致。
+ */
+function canonDir(p) {
+  const r = path.resolve(p)
+  try {
+    return fs.realpathSync.native(r)
+  } catch {
+    return r
+  }
+}
+
 function parseArgs(argv) {
   const out = {
-    current: REPO_ROOT,
-    baseline: path.resolve(REPO_ROOT, '..', 'ta-gate-baseline'),
+    current: canonDir(REPO_ROOT),
+    baseline: canonDir(path.resolve(REPO_ROOT, '..', 'ta-gate-baseline')),
+    // 探针/驱动/夹具的**来源目录**（默认就是仓库里的那份）。可指向一份冻结副本 ——
+    // 当有多个人/多个 agent 同时在同一工作树里跑门禁时，共享的探针文件会被别人改到，
+    // 于是「基线侧按桌面渲染、当前侧按安卓渲染」这种**单侧污染**会静默发生（实测踩到）。
+    // 冻结一份副本再用 --gate-src 指过去，两侧读的就是同一份不会变的仪器。
+    gateSrc: GATE_SRC_DIR,
+    // scratch 目录名：默认与安卓门禁及其它运行**分开**，避免两次并发运行互相 rm -rf 对方中间产物。
+    scratch: 'desktop-parity',
     json: null
   }
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--baseline') out.baseline = path.resolve(argv[++i])
-    else if (argv[i] === '--current') out.current = path.resolve(argv[++i])
+    if (argv[i] === '--baseline') out.baseline = canonDir(argv[++i])
+    else if (argv[i] === '--current') out.current = canonDir(argv[++i])
+    else if (argv[i] === '--gate-src') out.gateSrc = canonDir(argv[++i])
+    else if (argv[i] === '--scratch') out.scratch = argv[++i]
     else if (argv[i] === '--json') out.json = argv[++i]
   }
   return out
+}
+
+/**
+ * 仪器指纹：探针 / 驱动 / 夹具 / harness 自身的内容摘要。
+ *
+ * 为什么需要：门禁的**两侧共用同一份仪器**（探针由 srcDir 复制进各自的 scratch）。
+ * 如果这份仪器在「采基线」与「采当前」之间被改动，两次量测就不是同一个尺子 —— 而结果
+ * 看上去仍然是一份正常的报告（静默污染）。实测发生过：另一进程在两次采集之间把
+ * `desktop-probe.tsx` 加上 `platform-android`，于是基线侧量成桌面、当前侧量成安卓，
+ * 报出天量「差异」却看不出原因。把指纹算出来并在两侧之间断言相等，这类污染就从
+ * 「看不出来」变成「硬拒绝」（退出码 2）。
+ */
+function instrumentFingerprint(dir) {
+  const h = crypto.createHash('sha256')
+  for (const f of ['desktop-probe.tsx', 'desktop-driver.ts', 'fixture.ts']) {
+    h.update(f)
+    h.update(fs.readFileSync(path.join(dir, f)))
+  }
+  h.update('layout-harness.cjs')
+  h.update(fs.readFileSync(path.join(SCRIPT_DIR, 'lib', 'layout-harness.cjs')))
+  return h.digest('hex').slice(0, 16)
 }
 
 function preflight(root, which) {
@@ -108,14 +164,14 @@ function preflight(root, which) {
 
 /* ── 采集一侧 ───────────────────────────────────────────────────────────── */
 
-function capture(root, which, browser) {
+function capture(root, which, browser, args) {
   log('')
   log(`──── 采集 ${which} 侧 ────────────────────────────────────────────────`)
   const scratch = harness.prepareScratch(root, {
-    srcDir: GATE_SRC_DIR,
+    srcDir: args.gateSrc,
     files: ['desktop-probe.tsx', 'desktop-driver.ts', 'fixture.ts'],
     probeEntry: './desktop-probe.tsx',
-    scratchDir: 'desktop-parity',
+    scratchDir: args.scratch,
     define: {}
   })
   const builtHtml = harness.buildProbe(root, scratch, browser)
@@ -396,15 +452,35 @@ function main() {
   log(`  current : ${args.current}`)
   log(`  baseline: ${args.baseline}`)
   log(`  viewport: ${VIEWPORT_W}×${VIEWPORT_H}（桌面路径；探针页**不含** platform-android）`)
+  log(`  gate-src: ${args.gateSrc}`)
+  log(`  scratch : out/${args.scratch}`)
+
+  const instrumentBefore = instrumentFingerprint(args.gateSrc)
+  log(`  仪器指纹: ${instrumentBefore}（探针/驱动/夹具/harness 的内容摘要）`)
 
   preflight(args.baseline, '基线')
   preflight(args.current, '当前')
+  for (const f of ['desktop-probe.tsx', 'desktop-driver.ts', 'fixture.ts']) {
+    if (!fs.existsSync(path.join(args.gateSrc, f))) fail(`--gate-src 里缺少 ${f}：${args.gateSrc}`, 2)
+  }
 
   const browser = harness.findBrowser()
   if (!browser) fail(harness.missingBrowserHelp(), 2)
 
-  const base = capture(args.baseline, '基线', browser)
-  const cur = capture(args.current, '当前', browser)
+  const base = capture(args.baseline, '基线', browser, args)
+  const cur = capture(args.current, '当前', browser, args)
+
+  // 两侧必须用**同一把尺子**。仪器在两次采集之间被动过 ⇒ 报告无效，直接拒绝（不是加容差）。
+  const instrumentAfter = instrumentFingerprint(args.gateSrc)
+  if (instrumentBefore !== instrumentAfter) {
+    fail(
+      `SKIP —— 门禁的仪器文件在两次采集之间被改动（${instrumentBefore} → ${instrumentAfter}）。\n` +
+        `  两侧量的不是同一把尺子，本次报告无效。请确认没有另一个进程/agent 正在编辑\n` +
+        `  ${args.gateSrc}（或改用 --gate-src 指向一份冻结副本）。`,
+      2
+    )
+  }
+
   base.envFailed = selfCheck(base)
   cur.envFailed = selfCheck(cur)
 
@@ -424,6 +500,7 @@ function main() {
       JSON.stringify(
         {
           viewport: { w: VIEWPORT_W, h: VIEWPORT_H },
+          instrument: { src: args.gateSrc, fingerprint: instrumentAfter, scratch: args.scratch },
           baseline: { root: base.root, androidCssInPage: base.androidCssInPage, dump: base.dump },
           current: { root: cur.root, androidCssInPage: cur.androidCssInPage, dump: cur.dump },
           compare: { pages: cmp.pages, probes: cmp.probes, counts: cmp.counts, diffs: cmp.diffs }
