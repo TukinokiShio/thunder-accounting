@@ -54,6 +54,7 @@ const renderLegend = ({ payload }: { payload?: LegendEntry[] }) => {
 /** 自定义 tooltip 内容：分类名 + 金额 + 笔数 + 占比 */
 const renderTooltip = (
   total: number,
+  t: (key: string) => string,
   byCategory2?: StatsResult['byCategory2']
 ) => ({ active, payload }: any) => {
   if (!active || !payload?.length) return null
@@ -69,7 +70,7 @@ const renderTooltip = (
       <p className="font-medium">{name}</p>
       <p className="text-[var(--text2)]">¥{value.toFixed(2)}</p>
       <p className="text-[var(--text3)] text-xs">
-        {pct(value, total)} · {count !== null ? `${count} 笔` : ''}
+        {pct(value, total)} · {count !== null ? `${count} ${t('笔')}` : ''}
       </p>
     </div>
   )
@@ -82,7 +83,7 @@ export function Stats() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const addToast = useStore((s) => s.addToast)
-  const { t, language } = useLanguage()
+  const { t } = useLanguage()
 
   const now = new Date()
 
@@ -92,14 +93,14 @@ export function Stats() {
         return {
           start: format(startOfMonth(now), 'yyyy-MM-dd'),
           end: format(endOfMonth(now), 'yyyy-MM-dd'),
-          label: language === 'zh' ? format(now, 'yyyy年M月') : format(now, 'MMM yyyy')
+          label: format(now, t('yyyy年M月'))
         }
       case 'lastMonth': {
         const lm = subMonths(now, 1)
         return {
           start: format(startOfMonth(lm), 'yyyy-MM-dd'),
           end: format(endOfMonth(lm), 'yyyy-MM-dd'),
-          label: language === 'zh' ? format(lm, 'yyyy年M月') : format(lm, 'MMM yyyy')
+          label: format(lm, t('yyyy年M月'))
         }
       }
       case 'last3Months': {
@@ -273,7 +274,7 @@ export function Stats() {
                       <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip content={renderTooltip(totalAmount, stats?.byCategory2)} />
+                  <Tooltip content={renderTooltip(totalAmount, t, stats?.byCategory2)} />
                   <Legend content={renderLegend} />
                 </PieChart>
               </ResponsiveContainer>
@@ -300,7 +301,7 @@ export function Stats() {
             {/* 环形图 2：二级分类下钻 */}
             <div className="card stats-card min-w-0 dark:bg-gray-800 dark:border-gray-700 p-5">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                {topCategory1 ? `「${topCategory1}」${t('二级分类')}` : t('二级分类明细')}
+                {topCategory1 ? `${t('「')}${topCategory1}${t('」')}${t('二级分类')}` : t('二级分类明细')}
               </h3>
               {safeSubPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={240}>
@@ -319,7 +320,7 @@ export function Stats() {
                         <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip content={renderTooltip(totalAmount)} />
+                    <Tooltip content={renderTooltip(totalAmount, t)} />
                     <Legend content={renderLegend} />
                   </PieChart>
                 </ResponsiveContainer>

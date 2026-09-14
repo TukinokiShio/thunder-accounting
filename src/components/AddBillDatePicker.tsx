@@ -11,7 +11,6 @@ interface Props {
   onChange: (value: string) => void
 }
 
-const WEEKDAYS_ZH = ['一', '二', '三', '四', '五', '六', '日']
 const WEEKDAYS_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 function parseDateValue(value: string): Date | null {
@@ -31,7 +30,7 @@ function toDateValue(date: Date): string {
 }
 
 export function AddBillDatePicker({ id, value, onChange }: Props) {
-  const { language } = useLanguage()
+  const { t, language } = useLanguage()
   const rootRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -139,11 +138,14 @@ export function AddBillDatePicker({ id, value, onChange }: Props) {
   const calendarEnd = endOfWeek(endOfMonth(viewDate), { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd })
   const today = parseDateValue(formatLocalDate()) ?? new Date()
-  const weekdays = language === 'zh' ? WEEKDAYS_ZH : WEEKDAYS_EN
-  const monthLabel = language === 'zh' ? format(viewDate, 'yyyy年M月') : format(viewDate, 'MMMM yyyy')
-  const calendarLabel = language === 'zh' ? '选择日期' : 'Choose date'
-  const previousMonthLabel = language === 'zh' ? '上个月' : 'Previous month'
-  const nextMonthLabel = language === 'zh' ? '下个月' : 'Next month'
+  // 中文星期缩写为单字符，直接以字为词典 key 交由语言层解析
+  const weekdays = language === 'zh'
+    ? [t('一'), t('二'), t('三'), t('四'), t('五'), t('六'), t('日')]
+    : WEEKDAYS_EN
+  const monthLabel = format(viewDate, t('yyyy年M月'))
+  const calendarLabel = t('选择日期')
+  const previousMonthLabel = t('上个月')
+  const nextMonthLabel = t('下个月')
   // 注意：模态根也带 .aurora-shell（Portal 作用域替身），必须用 :not(.aurora-portal-root) 排除，
   // 否则选择器不再唯一，可能把浮层挂到模态里而不是应用外壳上。
   const portalTarget = typeof document !== 'undefined'
@@ -255,7 +257,7 @@ export function AddBillDatePicker({ id, value, onChange }: Props) {
                     data-selected={isSelected ? 'true' : undefined}
                     data-today={isToday ? 'true' : undefined}
                     data-outside-month={!isSameMonth(day, viewDate) ? 'true' : undefined}
-                    aria-label={language === 'zh' ? format(day, 'yyyy年M月d日') : format(day, 'MMMM d, yyyy')}
+                    aria-label={format(day, t('yyyy年M月d日'))}
                     aria-pressed={isSelected}
                     aria-current={isToday ? 'date' : undefined}
                     onFocus={() => setActiveDate(day)}

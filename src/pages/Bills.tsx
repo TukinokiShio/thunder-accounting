@@ -15,24 +15,24 @@ import type { Bill } from '@/types'
 /** 快速时间段选项 */
 type PeriodKey = 'week' | 'month' | '3months' | '6months' | 'year'
 
-const PERIODS: { key: PeriodKey; labelKey: string; calc: () => { start: string; end: string } }[] = [
-  { key: 'week', labelKey: '本周', calc: () => {
+const PERIODS: { key: PeriodKey; calc: () => { start: string; end: string } }[] = [
+  { key: 'week', calc: () => {
     const now = new Date()
     return { start: format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'), end: format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd') }
   }},
-  { key: 'month', labelKey: '本月', calc: () => {
+  { key: 'month', calc: () => {
     const now = new Date()
     return { start: format(startOfMonth(now), 'yyyy-MM-dd'), end: format(endOfMonth(now), 'yyyy-MM-dd') }
   }},
-  { key: '3months', labelKey: '近3月', calc: () => {
+  { key: '3months', calc: () => {
     const now = new Date()
     return { start: format(startOfMonth(subMonths(now, 2)), 'yyyy-MM-dd'), end: format(endOfMonth(now), 'yyyy-MM-dd') }
   }},
-  { key: '6months', labelKey: '近6月', calc: () => {
+  { key: '6months', calc: () => {
     const now = new Date()
     return { start: format(startOfMonth(subMonths(now, 5)), 'yyyy-MM-dd'), end: format(endOfMonth(now), 'yyyy-MM-dd') }
   }},
-  { key: 'year', labelKey: '近一年', calc: () => {
+  { key: 'year', calc: () => {
     const now = new Date()
     return { start: format(subDays(now, 365), 'yyyy-MM-dd'), end: format(now, 'yyyy-MM-dd') }
   }}
@@ -54,11 +54,20 @@ export function Bills() {
   const addToast = useStore((s) => s.addToast)
   const expenseCategories = useStore((s) => s.expenseCategories)
   const incomeCategories = useStore((s) => s.incomeCategories)
-  const { t, language } = useLanguage()
+  const { t } = useLanguage()
 
   const [search, setSearch] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null)
   const [activePeriod, setActivePeriod] = useState<PeriodKey | null>(null)
+
+  /** 快速时间段显示名（中文原文即词典 key，随语言切换） */
+  const periodLabels: Record<PeriodKey, string> = {
+    week: t('本周'),
+    month: t('本月'),
+    '3months': t('近3月'),
+    '6months': t('近6月'),
+    year: t('近一年')
+  }
 
   // 筛选条件变化时重新从数据库拉取账单
   useEffect(() => {
@@ -147,7 +156,7 @@ export function Bills() {
                   : ''
               }`}
             >
-              {t(p.labelKey)}
+              {periodLabels[p.key]}
             </button>
           ))}
         </div>
@@ -157,7 +166,7 @@ export function Bills() {
           {/* 搜索框 */}
           <div className="relative flex-1 min-w-[180px]">
             <label htmlFor="bill-search" className="sr-only">
-              {language === 'zh' ? '搜索账单' : 'Search bills'}
+              t('搜索账单')
             </label>
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -172,7 +181,7 @@ export function Bills() {
 
           {/* 月份筛选（精确到月） */}
           <label htmlFor="bill-month" className="sr-only">
-            {language === 'zh' ? '按月份筛选' : 'Filter by month'}
+            t('按月份筛选')
           </label>
           <input
             id="bill-month"
@@ -187,7 +196,7 @@ export function Bills() {
 
           {/* 分类筛选 */}
           <label htmlFor="bill-category" className="sr-only">
-            {language === 'zh' ? '按分类筛选' : 'Filter by category'}
+            t('按分类筛选')
           </label>
           <select
             id="bill-category"
@@ -203,7 +212,7 @@ export function Bills() {
 
           {/* 类型筛选 */}
           <label htmlFor="bill-type" className="sr-only">
-            {language === 'zh' ? '按类型筛选' : 'Filter by type'}
+            t('按类型筛选')
           </label>
           <select
             id="bill-type"

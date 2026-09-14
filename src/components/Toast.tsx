@@ -4,6 +4,7 @@
  * 每条通知 5 秒后自动消失。
  */
 import { useStore } from '@/store'
+import { useLanguage } from '@/i18n/LanguageContext'
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react'
 
 // Toast 类型 → Lucide 图标映射
@@ -16,6 +17,7 @@ const iconMap = {
 export function ToastContainer() {
   const toasts = useStore((s) => s.toasts)
   const removeToast = useStore((s) => s.removeToast)
+  const { t } = useLanguage()
 
   if (toasts.length === 0) return null
 
@@ -35,7 +37,7 @@ export function ToastContainer() {
             <span className="text-sm flex-1">{toast.message}</span>
             <button
               onClick={() => removeToast(toast.id)}
-              aria-label="关闭通知"
+              aria-label={t('关闭通知')}
               className="shrink-0 rounded-md p-1 opacity-50 hover:opacity-100 transition-opacity"
             >
               <X size={14} />

@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { useStore } from '@/store'
 import { isAndroid } from '@/platform'
+import { useLanguage } from '@/i18n/LanguageContext'
 import { LoginPage } from '@/pages/Login'
 
 interface Props {
@@ -11,13 +12,14 @@ interface Props {
 export function AuthGuard({ children }: Props) {
   const user = useStore(s => s.user)
   const isCheckingSession = useStore(s => s.isCheckingSession)
+  const { t } = useLanguage()
 
   if (isCheckingSession) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-gray-900">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-400">加载中...</p>
+          <p className="text-sm text-gray-400">{t('加载中...')}</p>
         </div>
       </div>
     )

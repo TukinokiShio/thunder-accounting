@@ -33,12 +33,12 @@ export function Layout({ children, onOpenSettings }: Props) {
   }, [theme])
 
   const syncIcon = () => {
-    if (!user) return <span title="未登录"><CloudOff size={16} className="text-gray-400" /></span>
+    if (!user) return <span title={t('未登录')}><CloudOff size={16} className="text-gray-400" /></span>
     switch (syncStatus) {
-      case 'syncing': return <span title="同步中"><CloudCog size={16} className="text-[var(--accent)] animate-spin" /></span>
-      case 'error': return <span title="同步失败"><CloudOff size={16} className="text-red-400" /></span>
-      case 'offline': return <span title="离线"><CloudOff size={16} className="text-gray-400" /></span>
-      default: return <span title="已同步"><Cloud size={16} className="text-green-500" /></span>
+      case 'syncing': return <span title={t('同步中')}><CloudCog size={16} className="text-[var(--accent)] animate-spin" /></span>
+      case 'error': return <span title={t('同步失败')}><CloudOff size={16} className="text-red-400" /></span>
+      case 'offline': return <span title={t('离线')}><CloudOff size={16} className="text-gray-400" /></span>
+      default: return <span title={t('已同步')}><Cloud size={16} className="text-green-500" /></span>
     }
   }
 

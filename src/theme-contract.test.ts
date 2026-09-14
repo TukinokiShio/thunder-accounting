@@ -88,7 +88,8 @@ describe('semantic theme contract', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 
     expect(toast).toContain('aurora-toast-icon')
-    expect(toast).toContain('aria-label="关闭通知"')
+    // 关闭按钮的无障碍名必须存在；i18n 完整化后中文原文作为词典 key 经 t() 解析，zh 输出逐字符不变
+    expect(toast).toContain("aria-label={t('关闭通知')}")
     expect(css).toMatch(/\.aurora-toast-icon[\s\S]*border-radius:\s*8px[\s\S]*var\(--toast-accent\)/)
     expect(css).toMatch(/\.aurora-toast-success\s*\{\s*--toast-accent:\s*var\(--success\)/)
     expect(css).toMatch(/\.aurora-toast-error\s*\{\s*--toast-accent:\s*var\(--danger\)/)

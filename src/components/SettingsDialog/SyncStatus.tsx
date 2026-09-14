@@ -50,7 +50,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
     }
     const passwordClasses = [/[a-z]/, /[A-Z]/, /\d/, /[()!@#$%^&*|?><_\-]/]
     if (newPassword.length < 8 || newPassword.length > 32 || passwordClasses.filter(pattern => pattern.test(newPassword)).length < 3) {
-      setPwdError('新密码需为 8-32 位，并包含小写字母、大写字母、数字、特殊字符中的至少三类')
+      setPwdError(t('新密码需为 8-32 位，并包含小写字母、大写字母、数字、特殊字符中的至少三类'))
       return
     }
     if (!codeSent || !verifyCode) {
@@ -145,7 +145,7 @@ export function SyncStatus({ user, t, language, addToast, onLogout }: Props) {
                   className="px-3 py-2 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap flex items-center gap-1"
                 >
                   {sendingCode ? <Loader2 size={12} className="animate-spin" /> : null}
-                  {codeSent ? (language === 'zh' ? '已发送' : 'Sent') : t('发送验证码')}
+                  {codeSent ? t('已发送') : t('发送验证码')}
                 </button>
               </div>
               <button

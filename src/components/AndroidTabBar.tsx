@@ -16,10 +16,10 @@ import { useLanguage } from '@/i18n/LanguageContext'
 
 /** 4 Tab 与侧栏 5 项的关系：分类管理不占 Tab，归入「我的」（见 Profile 页入口） */
 const TABS = [
-  { id: 'home' as const, label: '首页', icon: Home },
-  { id: 'bills' as const, label: '账单', icon: FileText },
-  { id: 'stats' as const, label: '统计', icon: PieChart },
-  { id: 'profile' as const, label: '我的', icon: User }
+  { id: 'home' as const, icon: Home },
+  { id: 'bills' as const, icon: FileText },
+  { id: 'stats' as const, icon: PieChart },
+  { id: 'profile' as const, icon: User }
 ]
 
 export function AndroidTabBar() {
@@ -27,6 +27,14 @@ export function AndroidTabBar() {
   const setActivePage = useStore((s) => s.setActivePage)
   const openAddDialog = useStore((s) => s.openAddDialog)
   const { t } = useLanguage()
+
+  /** Tab 显示名（中文原文即词典 key，随语言切换） */
+  const tabLabels: Record<(typeof TABS)[number]['id'], string> = {
+    home: t('首页'),
+    bills: t('账单'),
+    stats: t('统计'),
+    profile: t('我的')
+  }
 
   const renderTab = (tab: (typeof TABS)[number]) => {
     const Icon = tab.icon
@@ -39,10 +47,10 @@ export function AndroidTabBar() {
         onClick={() => setActivePage(tab.id)}
         className={`android-tab${isActive ? ' android-tab-active' : ''}`}
         aria-current={isActive ? 'page' : undefined}
-        aria-label={t(tab.label)}
+        aria-label={tabLabels[tab.id]}
       >
         <Icon size={22} className="android-tab-icon" aria-hidden="true" />
-        <span className="android-tab-label">{t(tab.label)}</span>
+        <span className="android-tab-label">{tabLabels[tab.id]}</span>
       </button>
     )
   }

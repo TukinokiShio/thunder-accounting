@@ -59,12 +59,10 @@ function isPasswordValid(pwd: string): boolean {
   return pwd.length >= 8 && pwd.length <= 32 && classes.filter(pattern => pattern.test(pwd)).length >= 3
 }
 
-function bindingError(e: unknown, lang: Parameters<typeof friendlyError>[1]): string {
+function bindingError(e: unknown, lang: Parameters<typeof friendlyError>[1], t: (key: string) => string): string {
   const raw = e instanceof Error ? e.message : String(e)
   if (raw.includes('binding_mapping_pending')) {
-    return lang === 'zh'
-      ? 'CloudBase Auth 已完成绑定，但账号映射尚未同步。请配置 CLOUDBASE_API_KEY 后刷新重试。'
-      : 'CloudBase Auth binding completed, but the account mapping is pending. Configure CLOUDBASE_API_KEY and retry.'
+    return t('CloudBase Auth 已完成绑定，但账号映射尚未同步。请配置 CLOUDBASE_API_KEY 后刷新重试。')
   }
   return friendlyError(e, lang)
 }
@@ -87,7 +85,7 @@ function LocalModeCloudNotice({ message }: { message: string }) {
 
 export default function ProfilePage() {
   const { user, addToast, appLogout, setActivePage } = useStore()
-  const { lang } = useLanguage()
+  const { t, lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<Tab>('info')
 
   // 安卓首版为纯本地单机：无云端账号能力 → cloudAvailable 初值直接是 false（桌面仍是 null=检测中）
@@ -163,7 +161,7 @@ export default function ProfilePage() {
     account?.nickname ||
     user?.nickname ||
     (visibleEmail.split('@')[0] ?? '') ||
-    '未知用户'
+    t('未知用户')
   const boundEmail = visibleEmail
   const boundPhone = account?.phone && !isInternalPhone(account.phone) ? account.phone : ''
 
@@ -172,29 +170,29 @@ export default function ProfilePage() {
     if (!accountId) return
     navigator.clipboard.writeText(accountId)
     setCopied(true)
-    addToast('success', '已复制账号ID')
+    addToast('success', t('已复制账号ID'))
     setTimeout(() => setCopied(false), 2000)
   }
 
   // ── 退出登录 ──
   const handleLogout = async () => {
     await appLogout()
-    addToast('info', '已退出登录')
+    addToast('info', t('已退出登录'))
   }
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'info', label: '账号信息', icon: <User size={16} /> },
-    { id: 'security', label: '安全设置', icon: <Lock size={16} /> },
-    { id: 'binding', label: '绑定管理', icon: <Link size={16} /> },
-    { id: 'stats', label: '数据概览', icon: <BarChart3 size={16} /> },
-    { id: 'danger', label: '危险操作', icon: <AlertTriangle size={16} /> },
+    { id: 'info', label: t('账号信息'), icon: <User size={16} /> },
+    { id: 'security', label: t('安全设置'), icon: <Lock size={16} /> },
+    { id: 'binding', label: t('绑定管理'), icon: <Link size={16} /> },
+    { id: 'stats', label: t('数据概览'), icon: <BarChart3 size={16} /> },
+    { id: 'danger', label: t('危险操作'), icon: <AlertTriangle size={16} /> },
   ]
 
   return (
     <div className="profile-layout page-view w-full min-w-0 flex min-h-full flex-col gap-4 md:flex-row">
       {/* ── 左侧标签导航 ── */}
       <aside className="profile-nav w-full min-w-0 shrink-0 md:w-48">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">个人中心</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">{t('个人中心')}</h2>
         <nav className="space-y-1">
           {tabs.map(tab => (
             <button
@@ -218,11 +216,9 @@ export default function ProfilePage() {
             type="button"
             onClick={() => setActivePage('categories')}
             className="profile-action mt-3 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-            aria-label="分类管理"
+            aria-label={t('分类管理')}
           >
-            <Tags size={16} aria-hidden="true" />
-            分类管理
-            <ChevronRight size={14} className="ml-auto" aria-hidden="true" />
+            <Tags size={16} aria-hidden="true" />{t('分类管理')}<ChevronRight size={14} className="ml-auto" aria-hidden="true" />
           </button>
         )}
       </aside>
@@ -243,7 +239,7 @@ export default function ProfilePage() {
             accountStatus={accountStatus}
             onRetry={loadAccount}
             language={lang}
-            retryLabel={lang === 'zh' ? '点击重试' : 'Retry'}
+            retryLabel={t('点击重试')}
           />
         )}
         {activeTab === 'security' && (
@@ -264,16 +260,16 @@ export default function ProfilePage() {
         {activeTab === 'stats' && statsStatus === 'loading' && (
           <ProfileStatus
             kind="loading"
-            message={lang === 'zh' ? '正在加载数据概览…' : 'Loading data overview…'}
+            message={t('正在加载数据概览…')}
           />
         )}
         {activeTab === 'stats' && statsStatus === 'error' && (
           <ProfileStatus
             kind="error"
-            message={lang === 'zh' ? '数据概览加载失败' : 'Failed to load data overview'}
-            detail={lang === 'zh' ? '请检查本地账本状态后重试。' : 'Check the local ledger and try again.'}
+            message={t('数据概览加载失败')}
+            detail={t('请检查本地账本状态后重试。')}
             onRetry={loadStats}
-            retryLabel={lang === 'zh' ? '点击重试' : 'Retry'}
+            retryLabel={t('点击重试')}
           />
         )}
         {activeTab === 'stats' && statsStatus === 'ready' && stats && hasUserStats(stats) && (
@@ -282,8 +278,8 @@ export default function ProfilePage() {
         {activeTab === 'stats' && statsStatus === 'ready' && (!stats || !hasUserStats(stats)) && (
           <ProfileStatus
             kind="empty"
-            message={lang === 'zh' ? '暂无数据概览' : 'No data overview yet'}
-            detail={lang === 'zh' ? '记录账单后，这里会显示你的累计收支。' : 'Record a bill to see your totals here.'}
+            message={t('暂无数据概览')}
+            detail={t('记录账单后，这里会显示你的累计收支。')}
           />
         )}
         {activeTab === 'danger' && (
@@ -353,18 +349,14 @@ function ProfileStatus({
  * 当 .env 缺失或 CLOUDBASE_API_KEY 无效时，Profile 顶部统一展示
  */
 function CloudUnavailableNotice() {
+  const { t } = useLanguage()
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
       <AlertCircle size={20} className="text-amber-500 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-semibold text-amber-800">云端服务未配置</h3>
-        <p className="text-xs text-amber-700 mt-1">
-          当前应用未配置 CLOUDBASE_API_KEY（安装版可将 <code className="px-1 bg-amber-100 rounded">.env</code> 放在 exe 同级目录），
-          云端数据库同步与账号映射暂不可用；登录态下的 Auth 绑定、注销和修改密码会走独立链路。
-        </p>
-        <p className="text-xs text-amber-700 mt-1">
-          本地功能（账号信息查看、数据概览、退出登录）仍可正常使用。
-        </p>
+        <h3 className="text-sm font-semibold text-amber-800">{t('云端服务未配置')}</h3>
+        <p className="text-xs text-amber-700 mt-1">{t('当前应用未配置 CLOUDBASE_API_KEY（安装版可将')} <code className="px-1 bg-amber-100 rounded">.env</code> {t('放在 exe 同级目录）， 云端数据库同步与账号映射暂不可用；登录态下的 Auth 绑定、注销和修改密码会走独立链路。')}</p>
+        <p className="text-xs text-amber-700 mt-1">{t('本地功能（账号信息查看、数据概览、退出登录）仍可正常使用。')}</p>
       </div>
     </div>
   )
@@ -388,19 +380,20 @@ function InfoTab({
   language: 'zh' | 'en'
   retryLabel: string
 }) {
+  const { t } = useLanguage()
   return (
     <div className="max-w-2xl space-y-6">
       {accountStatus === 'loading' && (
         <ProfileStatus
           kind="loading"
-          message={language === 'zh' ? '正在加载账号信息…' : 'Loading account information…'}
+          message={t('正在加载账号信息…')}
         />
       )}
       {accountStatus === 'error' && (
         <ProfileStatus
           kind="error"
-          message={language === 'zh' ? '账号信息加载失败' : 'Failed to load account information'}
-          detail={language === 'zh' ? '现有登录账号仍可使用；恢复连接后可重试。' : 'Your current session is still available; retry when the connection recovers.'}
+          message={t('账号信息加载失败')}
+          detail={t('现有登录账号仍可使用；恢复连接后可重试。')}
           onRetry={onRetry}
           retryLabel={retryLabel}
         />
@@ -408,8 +401,8 @@ function InfoTab({
       {accountStatus === 'ready' && !email && !accountId && (
         <ProfileStatus
           kind="empty"
-          message={language === 'zh' ? '暂无账号绑定信息' : 'No account binding information yet'}
-          detail={language === 'zh' ? '可以在“绑定管理”中添加邮箱或手机号。' : 'Add an email or phone number in Bindings.'}
+          message={t('暂无账号绑定信息')}
+          detail={t('可以在“绑定管理”中添加邮箱或手机号。')}
         />
       )}
       <div className="flex items-center gap-4">
@@ -418,39 +411,37 @@ function InfoTab({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-xl font-semibold text-gray-900 truncate">{nickname}</h3>
-          <p className="text-sm text-gray-500 truncate">{email || '雷霆记账用户'}</p>
+          <p className="text-sm text-gray-500 truncate">{email || t('雷霆记账用户')}</p>
         </div>
       </div>
 
       <div className="profile-surface rounded-xl p-4">
-        <label className="text-xs text-gray-500 mb-1 block">雷霆记账账号</label>
+        <label className="text-xs text-gray-500 mb-1 block">{t('雷霆记账账号')}</label>
         <div className="flex items-center gap-2">
           <code className="text-lg font-mono font-bold text-gray-800 tracking-wider flex-1">
-            {accountId || '加载中...'}
+            {accountId || t('加载中...')}
           </code>
           <button
             onClick={onCopy}
             disabled={!accountId}
             className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 transition-colors"
-            title="复制账号ID"
+            title={t('复制账号ID')}
           >
             {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-            {copied ? '已复制' : '复制'}
+            {copied ? t('已复制') : t('复制')}
           </button>
         </div>
-        <p className="text-xs text-gray-400 mt-2">
-          你的雷霆记账专属账号ID，可用于登录、找回账号和跨设备数据同步。
-        </p>
+        <p className="text-xs text-gray-400 mt-2">{t('你的雷霆记账专属账号ID，可用于登录、找回账号和跨设备数据同步。')}</p>
       </div>
 
       <div className="profile-surface flex items-center gap-4 p-4 rounded-xl">
         <Mail size={20} className="text-gray-400 shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-500">邮箱</p>
-          <p className="text-sm text-gray-800 truncate">{email || '未绑定邮箱'}</p>
+          <p className="text-xs text-gray-500">{t('邮箱')}</p>
+          <p className="text-sm text-gray-800 truncate">{email || t('未绑定邮箱')}</p>
         </div>
         {email && (
-          <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">已绑定</span>
+          <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">{t('已绑定')}</span>
         )}
       </div>
 
@@ -458,9 +449,7 @@ function InfoTab({
         onClick={onLogout}
         className="profile-action profile-danger-outline inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
       >
-        <LogOut size={16} />
-        退出登录
-      </button>
+        <LogOut size={16} />{t('退出登录')}</button>
     </div>
   )
 }
@@ -482,12 +471,12 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
   const [submitting, setSubmitting] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { addToast } = useStore()
-  const { lang } = useLanguage()
+  const { t, lang } = useLanguage()
 
   // 可用渠道
   const channels: Array<{ key: 'email' | 'phone'; label: string; value: string }> = []
-  if (email) channels.push({ key: 'email', label: '邮箱', value: email })
-  if (phone) channels.push({ key: 'phone', label: '手机号', value: phone })
+  if (email) channels.push({ key: 'email', label: t('邮箱'), value: email })
+  if (phone) channels.push({ key: 'phone', label: t('手机号'), value: phone })
 
   // 点击外部关闭下拉
   useEffect(() => {
@@ -513,7 +502,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
   // 发送验证码
   const handleSendCode = async () => {
     if (channels.length === 0) {
-      addToast('error', '请先在「绑定管理」中绑定邮箱或手机号')
+      addToast('error', t('请先在「绑定管理」中绑定邮箱或手机号'))
       return
     }
     // 只有 1 个渠道时直接发送，不显示选择器
@@ -525,9 +514,9 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
       await window.electronAPI.sendReauthCode(target === 'phone' ? 'phone_code' : 'email_code')
       setCodeSent(true)
       setVerifyChannel(target) // 记住用户选择（多个渠道时）
-      addToast('success', `验证码已发送到${target === 'phone' ? '手机' : '邮箱'}`)
+      addToast('success', target === 'phone' ? t('验证码已发送到手机') : t('验证码已发送到邮箱'))
     } catch (e) {
-      addToast('error', bindingError(e, lang))
+      addToast('error', bindingError(e, lang, t))
     } finally {
       setSending(false)
     }
@@ -536,28 +525,28 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
   // 提交修改
   const handleSubmit = async () => {
     if (!code) {
-      addToast('error', '请先发送并填写验证码')
+      addToast('error', t('请先发送并填写验证码'))
       return
     }
     if (!isPasswordValid(newPwd)) {
-      addToast('error', '新密码需为 8-32 位，并包含小写字母、大写字母、数字、特殊字符中的至少三类')
+      addToast('error', t('新密码需为 8-32 位，并包含小写字母、大写字母、数字、特殊字符中的至少三类'))
       return
     }
     if (newPwd !== confirmPwd) {
-      addToast('error', '两次输入的密码不一致')
+      addToast('error', t('两次输入的密码不一致'))
       return
     }
     setSubmitting(true)
     try {
       if (!verifyChannel) {
-        addToast('error', '请选择验证方式并发送验证码')
+        addToast('error', t('请选择验证方式并发送验证码'))
         return
       }
       await window.electronAPI.changePassword(newPwd, code)
-      addToast('success', '密码修改成功，请使用新密码重新登录')
+      addToast('success', t('密码修改成功，请使用新密码重新登录'))
       reset()
     } catch (e) {
-      addToast('error', bindingError(e, lang))
+      addToast('error', bindingError(e, lang, t))
     } finally {
       setSubmitting(false)
     }
@@ -568,10 +557,8 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
     return (
       <div className="max-w-2xl space-y-6">
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <Shield size={20} className="profile-accent-icon" />
-          安全设置
-        </h2>
-        <LocalModeCloudNotice message="本版本为本地模式，未接入云端账号服务，因此「修改密码」不可用。" />
+          <Shield size={20} className="profile-accent-icon" />{t('安全设置')}</h2>
+        <LocalModeCloudNotice message={t('本版本为本地模式，未接入云端账号服务，因此「修改密码」不可用。')} />
       </div>
     )
   }
@@ -579,9 +566,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <Shield size={20} className="profile-accent-icon" />
-        安全设置
-      </h2>
+        <Shield size={20} className="profile-accent-icon" />{t('安全设置')}</h2>
 
       {/* 修改密码卡片 */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -589,15 +574,15 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
           <div className="flex items-center gap-3">
             <Key size={18} className="text-gray-400" />
             <div>
-              <p className="text-sm font-medium text-gray-900">修改密码</p>
-              <p className="text-xs text-gray-500">无需旧密码，验证身份后即可设置新密码</p>
+              <p className="text-sm font-medium text-gray-900">{t('修改密码')}</p>
+              <p className="text-xs text-gray-500">{t('无需旧密码，验证身份后即可设置新密码')}</p>
             </div>
           </div>
           <button
             onClick={() => setExpanded(!expanded)}
             className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
           >
-            {expanded ? '收起' : '修改'}
+            {expanded ? t('收起') : t('修改')}
             <ChevronRight size={14} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
           </button>
         </div>
@@ -605,15 +590,13 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
         {expanded && (
           <div className="px-4 pb-4 pt-2 space-y-3 border-t border-gray-100 bg-gray-50/50">
             {channels.length === 0 ? (
-              <div className="text-sm text-amber-600 p-3 bg-amber-50 rounded-lg">
-                ⚠ 请先在「绑定管理」中绑定邮箱或手机号
-              </div>
+              <div className="text-sm text-amber-600 p-3 bg-amber-50 rounded-lg">{t('⚠ 请先在「绑定管理」中绑定邮箱或手机号')}</div>
             ) : (
               <>
                 {/* 渠道选择（只在多个渠道时显示） */}
                 {channels.length > 1 && (
                   <div ref={dropdownRef} className="relative">
-                    <label className="text-xs text-gray-500 block mb-1">验证方式</label>
+                    <label className="text-xs text-gray-500 block mb-1">{t('验证方式')}</label>
                     <button
                       onClick={() => setShowChannelDropdown(!showChannelDropdown)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-left flex items-center justify-between"
@@ -621,7 +604,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                       <span>
                         {verifyChannel
                           ? channels.find(c => c.key === verifyChannel)?.label
-                          : '请选择验证方式'}
+                          : t('请选择验证方式')}
                       </span>
                       <ChevronDown size={14} className="text-gray-400" />
                     </button>
@@ -648,8 +631,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
 
                 {/* 单渠道时的明确展示 */}
                 {channels.length === 1 && !verifyChannel && (
-                  <div className="text-xs text-gray-600">
-                    验证码将发送到 {channels[0].label}：{channels[0].value}
+                  <div className="text-xs text-gray-600">{t('验证码将发送到')} {channels[0].label}{t('：')}{channels[0].value}
                   </div>
                 )}
 
@@ -661,25 +643,24 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                 >
                   {sending && <Loader2 size={14} className="animate-spin" />}
                   <Send size={14} />
-                  {codeSent ? '重新发送验证码' : '发送验证码'}
+                  {codeSent ? t('重新发送验证码') : t('发送验证码')}
                 </button>
 
                 {codeSent && (
                   <>
                     <div>
-                      <label className="text-xs text-gray-500 block mb-1">验证码</label>
+                      <label className="text-xs text-gray-500 block mb-1">{t('验证码')}</label>
                       <input
                         value={code}
                         onChange={e => setCode(e.target.value)}
                         className="profile-input w-full px-3 py-2 rounded-lg text-sm"
-                        placeholder="输入收到的验证码"
+                        placeholder={t('输入收到的验证码')}
                         maxLength={6}
                       />
                     </div>
 
                     <div>
-                      <label className="text-xs text-gray-500 block mb-1">
-                        新密码 <span className="text-gray-400">（8-32 位，至少包含三类字符）</span>
+                      <label className="text-xs text-gray-500 block mb-1">{t('新密码')} <span className="text-gray-400">{t('（8-32 位，至少包含三类字符）')}</span>
                       </label>
                       <div className="relative">
                         <input
@@ -687,7 +668,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                           value={newPwd}
                           onChange={e => setNewPwd(e.target.value)}
                           className="profile-input w-full px-3 py-2 pr-10 rounded-lg text-sm"
-                          placeholder="输入新密码"
+                          placeholder={t('输入新密码')}
                         />
                         <button
                           type="button"
@@ -700,7 +681,7 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                     </div>
 
                     <div>
-                      <label className="text-xs text-gray-500 block mb-1">确认新密码</label>
+                      <label className="text-xs text-gray-500 block mb-1">{t('确认新密码')}</label>
                       <div className="relative">
                         <input
                           type={showPwd ? 'text' : 'password'}
@@ -709,11 +690,11 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                           className={`profile-input w-full px-3 py-2 pr-10 rounded-lg text-sm ${
                             confirmPwd && newPwd !== confirmPwd ? 'is-invalid' : ''
                           }`}
-                          placeholder="再次输入新密码"
+                          placeholder={t('再次输入新密码')}
                         />
                       </div>
                       {confirmPwd && newPwd !== confirmPwd && (
-                        <p className="text-xs text-red-500 mt-1">两次密码不一致</p>
+                        <p className="text-xs text-red-500 mt-1">{t('两次密码不一致')}</p>
                       )}
                     </div>
 
@@ -723,16 +704,12 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
                         disabled={submitting || !code || !newPwd || newPwd !== confirmPwd || !isPasswordValid(newPwd)}
                         className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {submitting && <Loader2 size={14} className="animate-spin" />}
-                        确认修改
-                      </button>
+                        {submitting && <Loader2 size={14} className="animate-spin" />}{t('确认修改')}</button>
                       <button
                         onClick={reset}
                         className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
                       >
-                        <X size={14} />
-                        取消
-                      </button>
+                        <X size={14} />{t('取消')}</button>
                     </div>
                   </>
                 )}
@@ -745,13 +722,11 @@ function SecurityTab({ email, phone, cloudAvailable }: { email: string; phone: s
       {/* 安全提示 */}
       <div className="profile-security-tip rounded-xl p-4 text-sm">
         <p className="profile-security-tip-title font-medium mb-1 flex items-center gap-2">
-          <Shield size={14} />
-          安全提示
-        </p>
+          <Shield size={14} />{t('安全提示')}</p>
         <ul className="profile-security-tip-list list-disc list-inside space-y-1">
-          <li>密码应包含字母、数字和特殊字符</li>
-          <li>不要在多个平台使用相同密码</li>
-          <li>如发现异常登录，请立即修改密码</li>
+          <li>{t('密码应包含字母、数字和特殊字符')}</li>
+          <li>{t('不要在多个平台使用相同密码')}</li>
+          <li>{t('如发现异常登录，请立即修改密码')}</li>
         </ul>
       </div>
     </div>
@@ -768,15 +743,14 @@ function BindingTab({ email, phone, onChange, cloudAvailable }: {
   onChange: () => void | Promise<void>
   cloudAvailable?: boolean
 }) {
+  const { t } = useLanguage()
   // 安卓本地模式：无云端账号能力 → 邮箱/手机绑定整体不可用，改为降级说明
   if (isAndroid() && !cloudAvailable) {
     return (
       <div className="max-w-2xl space-y-6">
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <Link size={20} className="profile-accent-icon" />
-          绑定管理
-        </h2>
-        <LocalModeCloudNotice message="本版本为本地模式，未接入云端账号服务，因此邮箱/手机绑定不可用。" />
+          <Link size={20} className="profile-accent-icon" />{t('绑定管理')}</h2>
+        <LocalModeCloudNotice message={t('本版本为本地模式，未接入云端账号服务，因此邮箱/手机绑定不可用。')} />
       </div>
     )
   }
@@ -784,12 +758,8 @@ function BindingTab({ email, phone, onChange, cloudAvailable }: {
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <Link size={20} className="profile-accent-icon" />
-        绑定管理
-      </h2>
-      <p className="text-sm text-gray-500">
-        绑定邮箱和手机号可以增强账号安全性，用于找回密码和接收重要通知。
-        {email && !phone && ' 至少需要保留一种绑定方式。'}
+        <Link size={20} className="profile-accent-icon" />{t('绑定管理')}</h2>
+      <p className="text-sm text-gray-500">{t('绑定邮箱和手机号可以增强账号安全性，用于找回密码和接收重要通知。')}{email && !phone && t(' 至少需要保留一种绑定方式。')}
       </p>
 
       <EmailBindingCard boundEmail={email} boundPhone={phone} onChange={onChange} />
@@ -820,13 +790,13 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   const [unbindStep, setUnbindStep] = useState<'idle' | 'code-sent'>('idle')
   const [sendingUnbind, setSendingUnbind] = useState(false)
   const { addToast } = useStore()
-  const { lang } = useLanguage()
+  const { t, lang } = useLanguage()
 
   const reset = () => { setTarget(''); setCode(''); setVid(''); setReauthCode(''); setReauthVid(''); setStep('idle') }
 
   const sendCode = async () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) {
-      addToast('error', '请输入正确的邮箱地址')
+      addToast('error', t('请输入正确的邮箱地址'))
       return
     }
     setSending(true)
@@ -834,35 +804,35 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       const r = await window.electronAPI.sendBindCode(target)
       setVid(r.verificationId)
       setStep('code-sent')
-      addToast('success', `验证码已发送到邮箱 ${target}，10分钟内有效`)
+      addToast('success', t('验证码已发送到邮箱 {email}，10分钟内有效').replace('{email}', target))
     } catch (e) {
-      addToast('error', bindingError(e, lang))
+      addToast('error', bindingError(e, lang, t))
     } finally {
       setSending(false)
     }
   }
 
   const confirmBind = async () => {
-    if (!code || !vid) { addToast('error', '请输入邮箱验证码'); return }
+    if (!code || !vid) { addToast('error', t('请输入邮箱验证码')); return }
     if (!reauthCode || !reauthVid) {
       setSending(true)
       try {
         const r = await window.electronAPI.sendBindingReauthCode()
         setReauthVid(r.verificationId)
         setStep('reauth-sent')
-        addToast('success', '邮箱验证码已收到，请再验证当前绑定渠道，有效期10分钟')
-      } catch (e) { addToast('error', bindingError(e, lang)) }
+        addToast('success', t('邮箱验证码已收到，请再验证当前绑定渠道，有效期10分钟'))
+      } catch (e) { addToast('error', bindingError(e, lang, t)) }
       finally { setSending(false) }
       return
     }
     setBinding(true)
     try {
       await window.electronAPI.bindEmail(target, code, vid, reauthCode, reauthVid)
-      addToast('success', '邮箱绑定成功')
+      addToast('success', t('邮箱绑定成功'))
       reset()
       await onChange()
     } catch (e) {
-      addToast('error', bindingError(e, lang))
+      addToast('error', bindingError(e, lang, t))
     } finally {
       setBinding(false)
     }
@@ -871,7 +841,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   const sendUnbindCode = async () => {
     if (!boundEmail) return
     if (!boundPhone) {
-      addToast('error', '当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台')
+      addToast('error', t('当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台'))
       return
     }
     setSendingUnbind(true)
@@ -879,7 +849,7 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       const r = await window.electronAPI.sendBindCode(boundEmail)
       setUnbindVid(r.verificationId)
       setUnbindStep('code-sent')
-      addToast('success', '验证码已发送到邮箱')
+      addToast('success', t('验证码已发送到邮箱'))
     } catch (e) {
       addToast('error', friendlyError(e, lang))
     } finally {
@@ -888,11 +858,11 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
   }
 
   const confirmUnbind = async () => {
-    if (!unbindCode || !unbindVid) { addToast('error', '请输入验证码'); return }
+    if (!unbindCode || !unbindVid) { addToast('error', t('请输入验证码')); return }
     setUnbinding(true)
     try {
       await window.electronAPI.unbindEmail(unbindCode, unbindVid)
-      addToast('success', '邮箱解绑成功')
+      addToast('success', t('邮箱解绑成功'))
       setUnbindCode(''); setUnbindVid(''); setUnbindStep('idle')
       await onChange()
     } catch (e) {
@@ -908,9 +878,9 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
         <div className="flex items-center gap-3">
           <Mail size={18} className="text-gray-400" />
           <div>
-            <p className="text-sm font-medium text-gray-900">邮箱</p>
+            <p className="text-sm font-medium text-gray-900">{t('邮箱')}</p>
             <p className={`text-xs truncate max-w-[200px] ${boundEmail ? 'text-gray-500' : 'profile-unbound-label'}`}>
-              {boundEmail || '未绑定邮箱'}
+              {boundEmail || t('未绑定邮箱')}
             </p>
           </div>
         </div>
@@ -920,13 +890,11 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
             disabled={sendingUnbind}
             className="profile-action profile-danger-outline inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-50"
           >
-            {sendingUnbind && <Loader2 size={14} className="animate-spin" />}
-            解绑
-          </button>
+            {sendingUnbind && <Loader2 size={14} className="animate-spin" />}{t('解绑')}</button>
         )}
         {!boundEmail && (
           <button onClick={() => setExpanded(v => !v)} className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg">
-            {expanded ? '取消' : '绑定'}
+            {expanded ? t('取消') : t('绑定')}
           </button>
         )}
       </div>
@@ -934,12 +902,12 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
       {/* 解绑流程 */}
       {unbindStep === 'code-sent' && (
         <div className="profile-danger-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
-          <p className="text-xs text-red-700">验证码已发送到：{boundEmail}</p>
+          <p className="text-xs text-red-700">{t('验证码已发送到：')}{boundEmail}</p>
           <div className="profile-field-shell">
             <input
               value={unbindCode}
               onChange={e => setUnbindCode(e.target.value)}
-              placeholder="输入验证码"
+              placeholder={t('输入验证码')}
               maxLength={6}
               className="profile-input w-full px-3 py-2 rounded-lg text-sm"
             />
@@ -950,16 +918,12 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
               disabled={unbinding || !unbindCode}
             className="profile-danger-button inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {unbinding && <Loader2 size={14} className="animate-spin" />}
-              确认解绑邮箱
-            </button>
+              {unbinding && <Loader2 size={14} className="animate-spin" />}{t('确认解绑邮箱')}</button>
             <button
               onClick={() => { setUnbindCode(''); setUnbindVid(''); setUnbindStep('idle') }}
             className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
-              <X size={14} />
-              取消
-            </button>
+              <X size={14} />{t('取消')}</button>
           </div>
         </div>
       )}
@@ -972,41 +936,40 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
               type="email"
               value={target}
               onChange={e => setTarget(e.target.value)}
-              placeholder="输入要绑定的邮箱"
+              placeholder={t('输入要绑定的邮箱')}
               className="profile-input w-full px-3 py-2 rounded-lg text-sm"
             />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
-            <button type="button" onClick={() => void sendCode()} disabled={!target || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('输入验证码')} maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={!target || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? t('发送中…') : t('获取验证码')}</button>
           </div>
         </div>
       )}
 
       {!boundEmail && expanded && step === 'reauth-sent' && (
         <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
-          <p className="profile-accent-text text-xs">验证码已发送到当前绑定渠道，请先验证身份（有效期10分钟）</p>
+          <p className="profile-accent-text text-xs">{t('验证码已发送到当前绑定渠道，请先验证身份（有效期10分钟）')}</p>
           <div className="profile-field-shell">
-            <input value={reauthCode} onChange={e => setReauthCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入当前渠道验证码" maxLength={6} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+            <input value={reauthCode} onChange={e => setReauthCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('输入当前渠道验证码')} maxLength={6} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => void confirmBind()} disabled={!reauthCode || sending} className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-              {sending && <Loader2 size={14} className="animate-spin" />} 验证身份并绑定邮箱
-            </button>
-            <button onClick={reset} className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"><X size={14} />取消</button>
+              {sending && <Loader2 size={14} className="animate-spin" />} {t('验证身份并绑定邮箱')}</button>
+            <button onClick={reset} className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"><X size={14} />{t('取消')}</button>
           </div>
         </div>
       )}
 
       {!boundEmail && expanded && step === 'code-sent' && (
         <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
-          <p className="profile-accent-text text-xs">验证码已发送到：{target}</p>
+          <p className="profile-accent-text text-xs">{t('验证码已发送到：')}{target}</p>
           <div className="profile-field-shell">
-            <input type="email" value={target} onChange={e => setTarget(e.target.value)} placeholder="输入要绑定的邮箱" className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+            <input type="email" value={target} onChange={e => setTarget(e.target.value)} placeholder={t('输入要绑定的邮箱')} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
-            <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('输入验证码')} maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? t('发送中…') : t('获取验证码')}</button>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1014,16 +977,12 @@ function EmailBindingCard({ boundEmail, boundPhone, onChange }: {
               disabled={binding || !code}
             className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {binding && <Loader2 size={14} className="animate-spin" />}
-              验证邮箱并继续
-            </button>
+              {binding && <Loader2 size={14} className="animate-spin" />}{t('验证邮箱并继续')}</button>
             <button
               onClick={reset}
             className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
-              <X size={14} />
-              取消
-            </button>
+              <X size={14} />{t('取消')}</button>
           </div>
         </div>
       )}
@@ -1051,18 +1010,18 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
   const [unbindStep, setUnbindStep] = useState<'idle' | 'code-sent'>('idle')
   const [sendingUnbind, setSendingUnbind] = useState(false)
   const { addToast } = useStore()
-  const { lang } = useLanguage()
+  const { t, lang } = useLanguage()
 
   const reset = () => { setTarget(''); setCode(''); setVid(''); setStep('idle') }
 
   const sendCode = async () => {
-    if (target.length !== 11) { addToast('error', '请输入11位手机号'); return }
+    if (target.length !== 11) { addToast('error', t('请输入11位手机号')); return }
     setSending(true)
     try {
       const r = await window.electronAPI.sendBindCode(target)
       setVid(r.verificationId)
       setStep('code-sent')
-      addToast('success', '验证码已发送到手机')
+      addToast('success', t('验证码已发送到手机'))
     } catch (e) {
       addToast('error', friendlyError(e, lang))
     } finally {
@@ -1071,11 +1030,11 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
   }
 
   const confirmBind = async () => {
-    if (!code || !vid) { addToast('error', '请输入验证码'); return }
+    if (!code || !vid) { addToast('error', t('请输入验证码')); return }
     setBinding(true)
     try {
       await window.electronAPI.bindPhone(target, code, vid)
-      addToast('success', '手机号绑定成功')
+      addToast('success', t('手机号绑定成功'))
       reset()
       await onChange()
     } catch (e) {
@@ -1088,7 +1047,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
   const sendUnbindCode = async () => {
     if (!boundPhone) return
     if (!boundEmail) {
-      addToast('error', '当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台')
+      addToast('error', t('当前只绑定一个平台，不能进行解绑操作，请先绑定另一个平台'))
       return
     }
     setSendingUnbind(true)
@@ -1096,7 +1055,7 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
       const r = await window.electronAPI.sendBindCode(boundPhone)
       setUnbindVid(r.verificationId)
       setUnbindStep('code-sent')
-      addToast('success', '验证码已发送到手机')
+      addToast('success', t('验证码已发送到手机'))
     } catch (e) {
       addToast('error', friendlyError(e, lang))
     } finally {
@@ -1105,11 +1064,11 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
   }
 
   const confirmUnbind = async () => {
-    if (!unbindCode || !unbindVid) { addToast('error', '请输入验证码'); return }
+    if (!unbindCode || !unbindVid) { addToast('error', t('请输入验证码')); return }
     setUnbinding(true)
     try {
       await window.electronAPI.unbindPhone(unbindCode, unbindVid)
-      addToast('success', '手机号解绑成功')
+      addToast('success', t('手机号解绑成功'))
       setUnbindCode(''); setUnbindVid(''); setUnbindStep('idle')
       await onChange()
     } catch (e) {
@@ -1125,8 +1084,8 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
         <div className="flex items-center gap-3">
           <Phone size={18} className="text-gray-400" />
           <div>
-            <p className="text-sm font-medium text-gray-900">手机号</p>
-            <p className={`text-xs ${boundPhone ? 'text-gray-500' : 'profile-unbound-label'}`}>{boundPhone || '未绑定手机号'}</p>
+            <p className="text-sm font-medium text-gray-900">{t('手机号')}</p>
+            <p className={`text-xs ${boundPhone ? 'text-gray-500' : 'profile-unbound-label'}`}>{boundPhone || t('未绑定手机号')}</p>
           </div>
         </div>
         {boundPhone && unbindStep === 'idle' && (
@@ -1135,13 +1094,11 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             disabled={sendingUnbind}
             className="profile-action profile-danger-outline inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg disabled:opacity-50"
           >
-            {sendingUnbind && <Loader2 size={14} className="animate-spin" />}
-            解绑
-          </button>
+            {sendingUnbind && <Loader2 size={14} className="animate-spin" />}{t('解绑')}</button>
         )}
         {!boundPhone && (
           <button onClick={() => setExpanded(v => !v)} className="profile-action inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg">
-            {expanded ? '取消' : '绑定'}
+            {expanded ? t('取消') : t('绑定')}
           </button>
         )}
       </div>
@@ -1149,12 +1106,12 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
       {/* 解绑流程 */}
       {unbindStep === 'code-sent' && (
         <div className="profile-danger-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
-          <p className="text-xs text-red-700">验证码已发送到：{boundPhone}</p>
+          <p className="text-xs text-red-700">{t('验证码已发送到：')}{boundPhone}</p>
           <div className="profile-field-shell">
             <input
               value={unbindCode}
               onChange={e => setUnbindCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="输入验证码"
+              placeholder={t('输入验证码')}
               className="profile-input w-full px-3 py-2 rounded-lg text-sm"
             />
           </div>
@@ -1164,16 +1121,12 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
               disabled={unbinding || !unbindCode}
             className="profile-danger-button inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {unbinding && <Loader2 size={14} className="animate-spin" />}
-              确认解绑手机号
-            </button>
+              {unbinding && <Loader2 size={14} className="animate-spin" />}{t('确认解绑手机号')}</button>
             <button
               onClick={() => { setUnbindCode(''); setUnbindVid(''); setUnbindStep('idle') }}
             className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
-              <X size={14} />
-              取消
-            </button>
+              <X size={14} />{t('取消')}</button>
           </div>
         </div>
       )}
@@ -1185,27 +1138,27 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
             <input
               value={target}
               onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))}
-              placeholder="输入11位手机号"
+              placeholder={t('输入11位手机号')}
               maxLength={11}
               className="profile-input w-full px-3 py-2 rounded-lg text-sm"
             />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
-            <button type="button" onClick={() => void sendCode()} disabled={target.length !== 11 || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('输入验证码')} maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={target.length !== 11 || sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? t('发送中…') : t('获取验证码')}</button>
           </div>
         </div>
       )}
 
       {!boundPhone && expanded && step === 'code-sent' && (
         <div className="profile-step mt-4 pl-11 space-y-3 -mx-5 -mb-5 px-5 pb-5 pt-4 border-t">
-          <p className="profile-accent-text text-xs">验证码已发送到：{target}</p>
+          <p className="profile-accent-text text-xs">{t('验证码已发送到：')}{target}</p>
           <div className="profile-field-shell">
-            <input value={target} onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="输入11位手机号" maxLength={11} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
+            <input value={target} onChange={e => setTarget(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder={t('输入11位手机号')} maxLength={11} className="profile-input w-full px-3 py-2 rounded-lg text-sm" />
           </div>
           <div className="profile-code-field flex items-center">
-            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="输入验证码" maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
-            <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? '发送中…' : '获取验证码'}</button>
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('输入验证码')} maxLength={6} className="profile-input min-w-0 flex-1 px-3 text-sm" />
+            <button type="button" onClick={() => void sendCode()} disabled={sending} className="profile-code-action h-full shrink-0 px-3 text-sm">{sending ? t('发送中…') : t('获取验证码')}</button>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1213,25 +1166,19 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
               disabled={binding || !code}
             className="profile-accent-action inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
             >
-              {binding && <Loader2 size={14} className="animate-spin" />}
-              确认绑定手机号
-            </button>
+              {binding && <Loader2 size={14} className="animate-spin" />}{t('确认绑定手机号')}</button>
             <button
               onClick={reset}
             className="profile-action inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
             >
-              <X size={14} />
-              取消
-            </button>
+              <X size={14} />{t('取消')}</button>
           </div>
         </div>
       )}
 
       {/* 安全提示：解绑后只剩一种绑定 */}
       {!boundPhone && boundEmail && (
-        <p className="text-xs text-gray-400 mt-3 pl-11">
-          提示：解绑邮箱后，账号将无法通过邮箱找回密码
-        </p>
+        <p className="text-xs text-gray-400 mt-3 pl-11">{t('提示：解绑邮箱后，账号将无法通过邮箱找回密码')}</p>
       )}
     </div>
   )
@@ -1242,28 +1189,27 @@ function PhoneBindingCard({ boundPhone, boundEmail, onChange }: {
 // ═════════════════════════════════════════════════════════════════
 
 function StatsTab({ stats }: { stats: UserStats }) {
+  const { t } = useLanguage()
   const net = stats.totalIncome - stats.totalExpense
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <BarChart3 size={20} className="profile-accent-icon" />
-        数据概览
-      </h2>
+        <BarChart3 size={20} className="profile-accent-icon" />{t('数据概览')}</h2>
 
       <div className="grid grid-cols-2 gap-4">
-        <StatCard label="账单总数" value={stats.billCount} variant="gold" />
-        <StatCard label="分类总数" value={stats.categoryCount} variant="green" />
-        <StatCard label="累计支出" value={`¥${stats.totalExpense.toLocaleString()}`} variant="red" />
-        <StatCard label="累计收入" value={`¥${stats.totalIncome.toLocaleString()}`} variant="emerald" />
+        <StatCard label={t('账单总数')} value={stats.billCount} variant="gold" />
+        <StatCard label={t('分类总数')} value={stats.categoryCount} variant="green" />
+        <StatCard label={t('累计支出')} value={`¥${stats.totalExpense.toLocaleString()}`} variant="red" />
+        <StatCard label={t('累计收入')} value={`¥${stats.totalIncome.toLocaleString()}`} variant="emerald" />
       </div>
 
       <div className="profile-stat profile-stat-neutral rounded-xl p-4">
-        <p className="text-xs profile-stat-gold-label font-medium">净收支</p>
+        <p className="text-xs profile-stat-gold-label font-medium">{t('净收支')}</p>
         <p className={`text-2xl font-bold mt-1 ${net >= 0 ? 'profile-stat-income-label' : 'profile-stat-expense-label'}`}>
           ¥{net.toLocaleString()}
         </p>
         <p className="text-xs text-gray-500 mt-1">
-          {net >= 0 ? '收大于支' : '支大于收'} · {stats.totalIncome >= stats.totalExpense ? '盈余' : '亏损'}
+          {net >= 0 ? t('收大于支') : t('支大于收')} · {stats.totalIncome >= stats.totalExpense ? t('盈余') : t('亏损')}
         </p>
       </div>
     </div>
@@ -1310,7 +1256,7 @@ function DangerTab({
   const [sending, setSending] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const { addToast } = useStore()
-  const { lang } = useLanguage()
+  const { t, lang } = useLanguage()
 
   // 可用注销验证渠道
   const verifyTarget = phone || email
@@ -1324,14 +1270,14 @@ function DangerTab({
 
   const sendCode = async () => {
     if (!verifyTarget) {
-      addToast('error', '请先在「绑定管理」中绑定邮箱或手机号')
+      addToast('error', t('请先在「绑定管理」中绑定邮箱或手机号'))
       return
     }
     setSending(true)
     try {
       await window.electronAPI.sendReauthCode(verifyType === 'phone' ? 'phone_code' : 'email_code')
       setStep('code-sent')
-      addToast('success', `验证码已发送到${verifyType === 'phone' ? '手机' : '邮箱'}`)
+      addToast('success', verifyType === 'phone' ? t('验证码已发送到手机') : t('验证码已发送到邮箱'))
     } catch (e) {
       addToast('error', friendlyError(e, lang))
     } finally {
@@ -1341,14 +1287,14 @@ function DangerTab({
 
   const handleDelete = async () => {
     if (confirmText !== accountId) {
-      addToast('error', `请输入正确的账号ID ${accountId} 确认注销`)
+      addToast('error', t('请输入正确的账号ID {id} 确认注销').replace('{id}', accountId))
       return
     }
-    if (!code) { addToast('error', '请输入验证码'); return }
+    if (!code) { addToast('error', t('请输入验证码')); return }
     setDeleting(true)
     try {
       const result = await window.electronAPI.deleteAccount(code)
-      addToast('success', result.cleanupPending ? '账号已注销，云端数据正在后台清理' : '账号和云端数据已注销')
+      addToast('success', result.cleanupPending ? t('账号已注销，云端数据正在后台清理') : t('账号和云端数据已注销'))
       setTimeout(onDeleted, 500)
     } catch (e) {
       addToast('error', friendlyError(e, lang))
@@ -1362,10 +1308,8 @@ function DangerTab({
     return (
       <div className="max-w-2xl space-y-6">
         <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <AlertTriangle size={20} className="text-red-600" />
-          危险操作
-        </h2>
-        <LocalModeCloudNotice message="本版本为本地模式，未接入云端账号服务，因此「注销账号」不可用。" />
+          <AlertTriangle size={20} className="text-red-600" />{t('危险操作')}</h2>
+        <LocalModeCloudNotice message={t('本版本为本地模式，未接入云端账号服务，因此「注销账号」不可用。')} />
       </div>
     )
   }
@@ -1373,10 +1317,8 @@ function DangerTab({
   return (
     <div className="max-w-2xl space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-        <AlertTriangle size={20} className="text-red-600" />
-        危险操作
-      </h2>
-      <p className="text-sm text-gray-500">以下操作不可逆，请谨慎操作。</p>
+        <AlertTriangle size={20} className="text-red-600" />{t('危险操作')}</h2>
+      <p className="text-sm text-gray-500">{t('以下操作不可逆，请谨慎操作。')}</p>
 
       {/* 注销账号 — Danger Zone 模式 */}
       <div className="profile-danger-card rounded-xl overflow-hidden">
@@ -1384,19 +1326,14 @@ function DangerTab({
           <div className="flex items-start gap-3">
             <Trash2 size={20} className="text-red-500 shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-sm font-semibold text-red-800">注销账号</h3>
-              <p className="text-xs text-red-600 mt-1">
-                注销后，您的所有账单数据、分类数据和账号信息将被永久删除且无法恢复。
-                请确保已导出重要数据。
-              </p>
+              <h3 className="text-sm font-semibold text-red-800">{t('注销账号')}</h3>
+              <p className="text-xs text-red-600 mt-1">{t('注销后，您的所有账单数据、分类数据和账号信息将被永久删除且无法恢复。 请确保已导出重要数据。')}</p>
             </div>
           </div>
 
           <div className="mt-4 space-y-3">
             {!verifyTarget ? (
-              <div className="text-sm text-amber-600 p-3 bg-amber-50 rounded-lg">
-                ⚠ 您尚未绑定任何邮箱或手机号，请先在「绑定管理」中添加联系方式才能注销。
-              </div>
+              <div className="text-sm text-amber-600 p-3 bg-amber-50 rounded-lg">{t('⚠ 您尚未绑定任何邮箱或手机号，请先在「绑定管理」中添加联系方式才能注销。')}</div>
             ) : step === 'idle' ? (
               <button
                 onClick={sendCode}
@@ -1404,38 +1341,34 @@ function DangerTab({
                 className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
               >
                 {sending && <Loader2 size={14} className="animate-spin" />}
-                <Send size={14} />
-                发送验证码到 {verifyType === 'phone' ? '手机' : '邮箱'}
+                <Send size={14} />{t('发送验证码到')} {verifyType === 'phone' ? t('手机') : t('邮箱')}
               </button>
             ) : (
               <>
-                <p className="text-xs text-red-700">
-                  验证码将发送到：{verifyTarget}
+                <p className="text-xs text-red-700">{t('验证码将发送到：')}{verifyTarget}
                 </p>
 
                 <div>
-                  <label className="text-xs text-red-700 block mb-1">验证码</label>
+                  <label className="text-xs text-red-700 block mb-1">{t('验证码')}</label>
                   <input
                     value={code}
                     onChange={e => setCode(e.target.value)}
-                    placeholder="输入收到的验证码"
+                    placeholder={t('输入收到的验证码')}
                     maxLength={6}
                     className="profile-input-danger w-full px-3 py-2 rounded-lg text-sm"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs text-red-700 block mb-1">
-                    输入账号ID <code className="font-mono text-red-700 font-bold">{accountId}</code> 确认注销
-                  </label>
+                  <label className="text-xs text-red-700 block mb-1">{t('输入账号ID')} <code className="font-mono text-red-700 font-bold">{accountId}</code> {t('确认注销')}</label>
                   <input
                     value={confirmText}
                     onChange={e => setConfirmText(e.target.value)}
-                    placeholder={accountId || '加载中...'}
+                    placeholder={accountId || t('加载中...')}
                     className="profile-input-danger w-full px-3 py-2 rounded-lg text-sm font-mono"
                   />
                   {confirmText && confirmText !== accountId && (
-                    <p className="text-xs text-red-500 mt-1">账号ID 不匹配</p>
+                    <p className="text-xs text-red-500 mt-1">{t('账号ID 不匹配')}</p>
                   )}
                 </div>
 
@@ -1445,16 +1378,12 @@ function DangerTab({
                     disabled={deleting || confirmText !== accountId || !code || !accountId}
                     className="inline-flex items-center gap-2 px-6 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {deleting && <Loader2 size={14} className="animate-spin" />}
-                    确认注销，删除我的账号
-                  </button>
+                    {deleting && <Loader2 size={14} className="animate-spin" />}{t('确认注销，删除我的账号')}</button>
                   <button
                     onClick={reset}
                     className="inline-flex items-center gap-2 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
                   >
-                    <X size={14} />
-                    取消
-                  </button>
+                    <X size={14} />{t('取消')}</button>
                 </div>
               </>
             )}
@@ -1464,10 +1393,8 @@ function DangerTab({
 
       {/* 数据导出提示 */}
       <div className="border border-gray-200 rounded-xl p-5">
-        <h4 className="text-sm font-medium text-gray-700 mb-2">数据导出</h4>
-        <p className="text-xs text-gray-500">
-          在注销账号前，建议导出您的所有数据。您可以在「设置 → 数据管理」中进行备份。
-        </p>
+        <h4 className="text-sm font-medium text-gray-700 mb-2">{t('数据导出')}</h4>
+        <p className="text-xs text-gray-500">{t('在注销账号前，建议导出您的所有数据。您可以在「设置 → 数据管理」中进行备份。')}</p>
       </div>
     </div>
   )

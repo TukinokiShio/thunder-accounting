@@ -11,11 +11,11 @@ import logoUrl from '../../resources/icon.ico?url'
 
 /** 导航项配置：页面 ID → 显示文本 → Lucide 图标 */
 const navItems = [
-  { id: 'home' as const, label: '总览', icon: Home },
-  { id: 'bills' as const, label: '账单', icon: FileText },
-  { id: 'stats' as const, label: '统计', icon: PieChart },
-  { id: 'categories' as const, label: '分类管理', icon: Tags },
-  { id: 'profile' as const, label: '个人中心', icon: User }
+  { id: 'home' as const, icon: Home },
+  { id: 'bills' as const, icon: FileText },
+  { id: 'stats' as const, icon: PieChart },
+  { id: 'categories' as const, icon: Tags },
+  { id: 'profile' as const, icon: User }
 ]
 
 interface Props {
@@ -29,12 +29,21 @@ export function Sidebar({ onOpenSettings }: Props) {
   const appLogout = useStore((s) => s.appLogout)
   const { t } = useLanguage()
 
+  /** 导航项显示名（中文原文即词典 key，随语言切换） */
+  const navLabels: Record<(typeof navItems)[number]['id'], string> = {
+    home: t('总览'),
+    bills: t('账单'),
+    stats: t('统计'),
+    categories: t('分类管理'),
+    profile: t('个人中心')
+  }
+
   const handleLogout = async () => {
     await appLogout()
   }
 
   return (
-    <aside className="w-56 min-w-0 border-r flex flex-col shrink-0 aurora-sidebar" aria-label="主导航侧栏">
+    <aside className="w-56 min-w-0 border-r flex flex-col shrink-0 aurora-sidebar" aria-label={t('主导航侧栏')}>
       {/* Logo 区域 */}
       <div className="h-16 flex items-center gap-3 px-5 border-b aurora-border">
         <div className="brand-mark" aria-hidden="true">
@@ -44,7 +53,7 @@ export function Sidebar({ onOpenSettings }: Props) {
       </div>
 
       {/* 导航菜单项 */}
-      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1" aria-label="页面导航">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1" aria-label={t('页面导航')}>
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activePage === item.id
@@ -62,7 +71,7 @@ export function Sidebar({ onOpenSettings }: Props) {
               `}
             >
               <Icon size={18} />
-              {t(item.label)}
+              {navLabels[item.id]}
             </button>
           )
         })}
@@ -89,8 +98,7 @@ export function Sidebar({ onOpenSettings }: Props) {
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-2 py-1.5 mt-1 rounded text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
-            <LogOut size={13} />
-            退出登录
+            <LogOut size={13} />{t('退出登录')}
           </button>
         </div>
       )}

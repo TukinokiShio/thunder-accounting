@@ -20,6 +20,20 @@ import './android.css'
 import { installAndroidBridge } from './bridge/android-adapter'
 import { createAndroidStoragePort } from './bridge/android-storage'
 import { setStoragePort } from '../main-process/database/storage'
+import { T } from '../src/i18n/translations'
+import { loadSettings } from '../src/utils/settings'
+
+/**
+ * 启动阶段的轻量翻译：与 `LanguageContext` 同一契约（zh 原样返回 key）。
+ * 首屏渲染前没有 React 上下文，此处直接读持久化的语言偏好。
+ */
+function t(key: string): string {
+  try {
+    return loadSettings().language === 'zh' ? key : T[key] ?? key
+  } catch {
+    return key
+  }
+}
 
 /** 启动失败时兜底渲染（避免 ②/③ 失败导致纯白屏、错误只留在控制台） */
 function renderBootstrapError(error: unknown): void {
@@ -32,7 +46,7 @@ function renderBootstrapError(error: unknown): void {
   const box = document.createElement('div')
   box.style.cssText = 'padding:20px;font-family:monospace;font-size:14px;color:#b3261e'
   const title = document.createElement('b')
-  title.textContent = '启动失败：'
+  title.textContent = t('启动失败：')
   box.appendChild(title)
   box.appendChild(document.createTextNode(detail))
   root.appendChild(box)
