@@ -8,12 +8,12 @@
  * ③ CSS 顺序与安卓链一致：`mobile/android.css` 先于 `src/index.css`
  *    （`mobile/main.tsx` 静态 import android.css，再动态 import 共享入口里的 index.css）。
  */
-import './android-layout-fixture'
+import './fixture'
 import '@android-css'
 import '@/index.css'
 import { createRoot } from 'react-dom/client'
 import App from '@/App'
-import { runGate } from './android-layout-driver'
+import { runGate } from './android-driver'
 
 document.documentElement.classList.add('platform-android')
 document.body.classList.add('ready')

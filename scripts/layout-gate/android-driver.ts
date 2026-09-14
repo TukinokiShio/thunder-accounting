@@ -7,7 +7,7 @@
  * 返回值由 `verify-android-layout.cjs` 序列化后打印；本文件不 console.log。
  */
 import { useStore } from '@/store'
-import { BILLS, nameText, amountText } from './android-layout-fixture'
+import { BILLS, nameText, amountText } from './fixture'
 
 export interface GateCheck {
   id: string
