@@ -166,7 +166,9 @@ function main() {
     srcDir: GATE_SRC_DIR,
     files: ['android-probe.tsx', 'android-driver.ts', 'fixture.ts'],
     probeEntry: './android-probe.tsx',
-    scratchDir: 'layout-gate',
+    // 默认带唯一后缀（pid + 启动时刻）：原先固定 `layout-gate`，与桌面门禁并发跑时
+    // 会因为 `prepareScratch` 的 rm -rf 互相删掉中间产物（实测踩到）。见 harness.uniqueScratch。
+    scratchDir: harness.uniqueScratch('layout-gate'),
     define: { __GATE_EXPECT__: JSON.stringify(EXPECT) }
   })
   const builtHtml = harness.buildProbe(root, scratch, browser)

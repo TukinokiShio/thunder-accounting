@@ -35,6 +35,25 @@ const { execFileSync } = require('node:child_process')
 function createHarness(label) {
   const log = (...a) => console.log(...a)
 
+  /**
+   * scratch 目录名的**唯一后缀**（pid + 进程启动时刻）。
+   *
+   * 为什么需要（实测踩到，不是防御性编程）：两道门禁的 scratch 默认名各自固定
+   * （桌面 = `desktop-parity`，安卓 = `layout-gate`），而 `prepareScratch` 的第一步是
+   * `fs.rmSync(scratch, {recursive:true, force:true})`。两个门禁（或同门禁的两个实例）
+   * 并发跑时，后启动的那个会把先启动的那个的中间产物**整个删掉** ⇒ 报出莫名其妙的
+   * 构建失败/量到空壳，而屏幕上看起来只是一份正常报告。
+   *
+   * 为什么不用全局锁：锁会带来死锁与残留锁文件两类新问题，而且要求人来协调运行窗口。
+   * 让 scratch 天然不重名更简单，也**不需要任何协调**。
+   * 为什么不用随机数：唯一性的来源要**确定**（pid + 启动时刻），报告里会把它打印出来，
+   * 出错时能据此定位是哪一次的产物。`--scratch` 仍可显式覆盖。
+   */
+  const scratchTag = `${process.pid}-${Date.now().toString(36)}`
+  function uniqueScratch(base) {
+    return `${base}-${scratchTag}`
+  }
+
   /** 门禁的统一失败出口：打印 `<标签>: <消息>` 后按语义退出码结束。 */
   function fail(msg, code) {
     console.error(`${label}: ${msg}`)
@@ -305,7 +324,7 @@ export default {
     }
   }
 
-  return { log, fail, findBrowser, missingBrowserHelp, prepareScratch, buildProbe, inlinePage, measure }
+  return { log, fail, findBrowser, missingBrowserHelp, uniqueScratch, prepareScratch, buildProbe, inlinePage, measure }
 }
 
 module.exports = { createHarness }

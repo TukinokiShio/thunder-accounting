@@ -249,13 +249,13 @@ function probeEl(
   if (!el) return { found: false, s: {} }
   const m = metric ? metric() : null
   const raw = (m ? m.text : el.textContent || '').trim()
-  // 元素文本沿用原来的 60 字符上限（既有探针的输出不受影响）；
-  // metric 是**派生的聚合量**，需要放下完整清单，给更宽的上限。
-  // 注意：上限只影响打印，判据一律用 textHash（无损）。
-  const cap = metric ? 300 : 60
+  // **不在这里截断**（原来文本上限 60、metric 上限 300）。
+  // 原因：文本通道的版本号归一化要对**全文**做掩码比对，靠截断串做判据会把
+  // 「超过上限处的差异」误判成「仅版本号不同」⇒ 那正是「判据有损就静默吞差异」。
+  // 呈现层的截断移到门禁的报告里（clipText），原则：**呈现可以有损，判据必须无损**。
   const rec: ProbeRec = {
     found: true,
-    text: raw.length > cap ? `${raw.slice(0, cap - 3)}...` : raw,
+    text: raw,
     textHash: fnv1a(raw),
     s: styleOf(el, keys)
   }

@@ -77,6 +77,120 @@ const MEASURE_OPTS = { extraArgs: ['--force-prefers-reduced-motion'] }
 
 const MAX_REPORT_LINES = 40
 
+/* ── 文本通道：版本号归一化（按内容匹配，不是按探针名白名单）───────────────── */
+
+/**
+ * 版本号归一化：为什么需要 ——
+ * 版本号是构建参数（本项目 AGENTS.md 要求每次发版都动它），**不是**本门禁要保护的不变量。
+ * 不归一化的话，这个门禁**每一次发版都必然报 2 项假阳性**（`app.shell` / `app.sidebar` 的
+ * 侧栏文本里含版本号）⇒ 噪声 ⇒ 人开始不信它。一个每次发版都叫的门禁等于没有门禁。
+ *
+ * 为什么按**内容**而不是按探针名白名单：白名单会随探针增删**悄悄失效**（新探针不在名单里
+ * 就又变成恒红），而内容匹配是自洽的 —— 唯一被放过的形状就是 `v<MAJOR>.<MINOR>.<PATCH>` 本身。
+ * gp-18 与 team-lead 均明确要求这条，本文件按此实现。
+ *
+ * 边界（**显式断言，不靠调用点布局**，见 textDelta 与 normSelfCheck）：
+ *   · 两侧都必须**各自至少命中一次**版本号形状；
+ *   · 掩码后必须**逐字节相同**（即两串只差版本号）；
+ *   · `found` 不等 / 聚合量空过 / 探针缺失 / 节点数与属性对 —— **一律不参与**。
+ */
+const VERSION_TOKEN = /v\d+\.\d+\.\d+/g
+/**
+ * 占位符用 NUL 包裹：HTML 解析阶段就会把 NUL 替换成 U+FFFD，**NUL 不可能出现在
+ * `textContent` 里**，所以这个占位符不会与正文碰撞（若用可打印字符，正文恰好含该串时
+ * 会把「真差异」误判成「仅版本号不同」）。
+ */
+const VERSION_PLACEHOLDER = '\u0000VERSION\u0000'
+
+function maskVersions(s) {
+  const found = []
+  const text = String(s).replace(VERSION_TOKEN, (m) => {
+    found.push(m)
+    return VERSION_PLACEHOLDER
+  })
+  return { text, found }
+}
+
+/** 跨侧文本判据：优先用**未截断**原串的摘要（呈现可以有损，判据必须无损）。 */
+function textKey(rec) {
+  return typeof rec.textHash === 'number' ? `h:${rec.textHash}` : `t:${rec.text || ''}`
+}
+
+/** 首个不同字符处的短窗口 —— 比"打印前 N 个字符"更有用（差异常在尾部）。 */
+function firstDiffWindow(a, c) {
+  let i = 0
+  const n = Math.min(a.length, c.length)
+  while (i < n && a[i] === c[i]) i++
+  const from = Math.max(0, i - 24)
+  const clip = (s) => {
+    const t = s.slice(from, from + 64)
+    return `${from > 0 ? '…' : ''}${t}${from + 64 < s.length ? '…' : ''}`
+  }
+  return { at: i, base: clip(a), cur: clip(c), baseLen: a.length, curLen: c.length }
+}
+
+/**
+ * 文本通道的三值判定：`'same'` | `'version-only'` | `'diff'`。
+ * 归一化**只在这个函数里、只在这个形状下**发生。边界写成显式断言：
+ *   · `found !== true`（含探针缺失 / 命中情况不同 / 两侧都没找到）⇒ 直接 `'diff'`；
+ *   · `observed === 0`（聚合量空过）⇒ 直接 `'diff'`；
+ *   · 掩码后仍不同 ⇒ `'diff'`，且 detail 给出**首个不同字符的位置**与窗口。
+ * 这三条使「归一化会不会吞掉真实差异」变成可测的性质，而不是代码布局的副产品。
+ */
+function textDelta(b, c) {
+  if (textKey(b) === textKey(c)) return { kind: 'same' }
+  if (b.found !== true || c.found !== true) {
+    return { kind: 'diff', boundary: 'found 不等：不得做文本归一化', detail: `基线 found=${b.found} / 当前 found=${c.found}` }
+  }
+  if (b.observed === 0 || c.observed === 0) {
+    return { kind: 'diff', boundary: '聚合量空过：不得做文本归一化', detail: `观测样本数 基线=${b.observed} / 当前=${c.observed}` }
+  }
+  const bt = String(b.text || '')
+  const ct = String(c.text || '')
+  const mb = maskVersions(bt)
+  const mc = maskVersions(ct)
+  if (mb.found.length > 0 && mc.found.length > 0 && mb.text === mc.text) {
+    return { kind: 'version-only', from: mb.found, to: mc.found }
+  }
+  const w = firstDiffWindow(bt, ct)
+  return {
+    kind: 'diff',
+    detail: `首个不同字符 @${w.at}（基线长 ${w.baseLen} / 当前长 ${w.curLen}）：基线 "${w.base}" / 当前 "${w.cur}"`
+  }
+}
+
+/**
+ * 归一化器的**进程内回归锁**：每次跑都执行，任一用例不成立即退出码 2（拒绝出结论）。
+ * 锁的是这条性质：**归一化只放过「仅差版本号」，绝不吞真实差异**。
+ * 用例里第 2 条就是 team-lead 要求的 NORM-both 同形场景（版本号差异 + 真实改动并存）。
+ * 注意：这里调的是**生产用的同一份 textDelta**，不是另抄一份 —— 否则锁的是副本，不是真身。
+ */
+const NORM_CASES = [
+  { name: '仅版本号不同 ⇒ 必须归一化', b: '雷霆记账 v1.17.7', c: '雷霆记账 v1.17.8', want: 'version-only' },
+  { name: '版号+真实改动并存 ⇒ 必须仍判差异（NORM-both 同形）', b: '雷霆记账 v1.17.7', c: '雷霆记账 v1.17.8 新增', want: 'diff' },
+  { name: '多处版本号 ⇒ 归一化', b: 'a v1.0.0 b v2.3.4', c: 'a v1.1.0 b v2.4.0', want: 'version-only' },
+  { name: '无 v 前缀的数字不得被吞', b: '金额 ¥1.17.7', c: '金额 ¥1.17.8', want: 'diff' },
+  { name: '两段版本号不得被吞', b: 'v1.17.7', c: 'v1.17.7.1', want: 'diff' },
+  { name: '命中情况不同 ⇒ 不得归一化', b: 'v1.17.7', c: 'v1.17.8', want: 'diff', bf: true, cf: false },
+  { name: '聚合量空过 ⇒ 不得归一化', b: 'v1.17.7', c: 'v1.17.8', want: 'diff', bObs: 0, cObs: 6 },
+  { name: '占位符形态出现在正文 ⇒ 不得被吞', b: '正文 \u0000VERSION\u0000', c: '正文 v1.17.7', want: 'diff' }
+]
+
+function normSelfCheck() {
+  const failed = []
+  for (const cs of NORM_CASES) {
+    const b = { found: cs.bf === undefined ? true : cs.bf, text: cs.b, observed: cs.bObs }
+    const c = { found: cs.cf === undefined ? true : cs.cf, text: cs.c, observed: cs.cObs }
+    const got = textDelta(b, c).kind
+    if (got !== cs.want) failed.push(`${cs.name}：期望 ${cs.want}，实际 ${got}`)
+  }
+  log('')
+  log('── 归一化自检（每次跑都执行；只放过「仅差版本号」，不得吞真实差异）──────')
+  log(failed.length === 0 ? `ok   ${NORM_CASES.length}/${NORM_CASES.length} 用例通过` : `FAIL ${failed.length} 个用例不成立`)
+  for (const f of failed) log(`  ! ${f}`)
+  return { total: NORM_CASES.length, failed }
+}
+
 function fail(msg, code) {
   console.error(`${LABEL}: ${msg}`)
   process.exit(code)
@@ -84,6 +198,16 @@ function fail(msg, code) {
 
 function log(...a) {
   console.log(...a)
+}
+
+/**
+ * 打印用的截断。**只在这里截断** —— 判据与归一化一律用全文（呈现可以有损，判据必须无损）。
+ * 曾经把截断放在驱动的探针里（60/300 字符上限），结果是「超过上限的差异两侧被同样砍掉 ⇒
+ * 判为相等」，清单尾部的变化被静默吞掉。
+ */
+function clipText(s, n = 120) {
+  const t = String(s)
+  return t.length > n ? `${t.slice(0, n)}…(共 ${t.length} 字符，全文见 --json 产物)` : t
 }
 
 /* ── 参数 ───────────────────────────────────────────────────────────────── */
@@ -119,8 +243,10 @@ function parseArgs(argv) {
     // 于是「基线侧按桌面渲染、当前侧按安卓渲染」这种**单侧污染**会静默发生（实测踩到）。
     // 冻结一份副本再用 --gate-src 指过去，两侧读的就是同一份不会变的仪器。
     gateSrc: GATE_SRC_DIR,
-    // scratch 目录名：默认与安卓门禁及其它运行**分开**，避免两次并发运行互相 rm -rf 对方中间产物。
-    scratch: 'desktop-parity',
+    // scratch 目录名：**默认带唯一后缀**（pid + 启动时刻），避免与安卓门禁或另一个并发实例
+    // 互相 rm -rf 中间产物（两道门禁原先各自固定 `layout-gate` / `desktop-parity`，实测会撞）。
+    // `--scratch` 仍可显式覆盖（单次复跑时想固定目录名就用它）。
+    scratch: harness.uniqueScratch('desktop-parity'),
     json: null
   }
   for (let i = 2; i < argv.length; i++) {
@@ -338,8 +464,11 @@ function compare(base, cur) {
    * 「报告里 PASS 而汇总里有该探针的差异」从「已经修好」变成「不可能再回归」。
    */
   let probeDiffCount = 0
-  /** 文本判据：优先用**未截断**原串的摘要（呈现可以有损，判据必须无损）。 */
-  const textKey = (rec) => (typeof rec.textHash === 'number' ? `h:${rec.textHash}` : `t:${rec.text || ''}`)
+  /**
+   * 归一化记录：**不计入 diffs**（所以不影响退出码），但必须在报告里**出声** ——
+   * 静默地把两项差异变绿，和「门禁看不见」是同一种病，只是方向相反。
+   */
+  const normalized = []
   for (const name of probeNames) {
     const b = base.dump.probes[name]
     const c = cur.dump.probes[name]
@@ -379,9 +508,19 @@ function compare(base, cur) {
       continue
     }
     const reasons = []
-    if (textKey(b) !== textKey(c)) {
+    const notes = []
+    const delta = textDelta(b, c)
+    if (delta.kind === 'version-only') {
+      const detail = `文本仅版本号不同，已归一化：${delta.from.join(' ')} → ${delta.to.join(' ')}`
+      notes.push(detail)
+      normalized.push({ where: name, baseline: delta.from.join(' '), current: delta.to.join(' '), count: delta.from.length })
+    } else if (delta.kind === 'diff') {
       reasons.push('命中的元素文本不同（可能量到了不同元素）')
-      diffs.push({ where: name, kind: '命中的元素文本不同（可能量到了不同元素）', detail: `基线 "${b.text}" / 当前 "${c.text}"` })
+      diffs.push({
+        where: name,
+        kind: delta.boundary ? `命中的元素文本不同（${delta.boundary}）` : '命中的元素文本不同（可能量到了不同元素）',
+        detail: delta.detail
+      })
       probeDiffCount++
     }
     const keys = []
@@ -394,7 +533,7 @@ function compare(base, cur) {
         probeDiffCount++
       }
     }
-    probes.push({ name, found: [true, true], keys, text: [b.text, c.text], vacuous: false, reasons })
+    probes.push({ name, found: [true, true], keys, text: [b.text, c.text], vacuous: false, reasons, notes })
   }
   const reasonsTotal = probes.reduce((n, p) => n + ((p.reasons && p.reasons.length) || 0), 0)
   const probeInvariant = { probeDiffCount, reasonsTotal, ok: probeDiffCount === reasonsTotal }
@@ -421,7 +560,7 @@ function compare(base, cur) {
     if (bv !== cv) diffs.push({ where: `env.${f}`, kind: '环境量不同', detail: `基线 ${JSON.stringify(bv)} / 当前 ${JSON.stringify(cv)}` })
   }
 
-  return { pages, probes, counts, diffs, probeInvariant }
+  return { pages, probes, counts, diffs, probeInvariant, normalized }
 }
 
 /* ── 报告 ───────────────────────────────────────────────────────────────── */
@@ -457,7 +596,14 @@ function printReport(base, cur, cmp) {
     const reasons = p.reasons && p.reasons.length ? p.reasons : p.vacuous ? ['探针失效：两侧都未找到该元素（比对空过）'] : []
     log(`${reasons.length === 0 ? 'PASS' : 'FAIL'}  ${p.name}`)
     for (const r of reasons) log(`        ! ${r}`)
-    if (p.text && p.text[0] !== undefined) log(`        命中文本: "${p.text[0]}"${p.text[0] === p.text[1] ? '' : `  [当前: "${p.text[1]}"]`}`)
+    // 归一化行用 `~`：既不是 PASS 也不是 FAIL，而是「我看过、并且按规则放过了」——
+    // 必须可见，否则默认开就是静默放宽。
+    for (const n of p.notes || []) log(`        ~ ${n}`)
+    if (p.text && p.text[0] !== undefined) {
+      const t = clipText(p.text[0])
+      const t2 = p.text[0] === p.text[1] ? null : clipText(p.text[1])
+      log(`        命中文本: "${t}"${t2 === null ? '' : `  [当前: "${t2}"]`}`)
+    }
     for (const k of p.keys) {
       log(`        ${k.equal ? '=' : '≠'} ${k.key}: ${k.baseline}${k.equal ? '' : `  →  ${k.current}`}`)
     }
@@ -473,11 +619,23 @@ function printReport(base, cur, cmp) {
   }
 
   log('')
-  log('── 差异汇总 ──────────────────────────────────────────────────────────')
-  if (cmp.diffs.length === 0) {
-    log('无差异：两侧逐项精确相等。')
+  log('── 归一化（按内容匹配 v<MAJOR.MINOR.PATCH>；**不计入差异**、不影响退出码）──')
+  if (cmp.normalized.length === 0) {
+    log('共归一化 0 项。')
   } else {
-    log(`共 ${cmp.diffs.length} 项差异（最多列 ${MAX_REPORT_LINES} 项）：`)
+    log(`共归一化 ${cmp.normalized.length} 项 —— 这 ${cmp.normalized.length} 项不参与判定，逐项如下：`)
+    for (const n of cmp.normalized) log(`  [仅版本号不同] ${n.where}: ${n.baseline} → ${n.current}（${n.count} 处）`)
+  }
+
+  log('')
+  log('── 差异汇总 ──────────────────────────────────────────────────────────')
+  // 归一化的计数**必须出现在汇总行本身**，不能只活在上面那一节里：
+  // 汇总行是绝大多数人唯一会读的一行，写「无差异」而实际放过了 2 项，就是静默放宽。
+  const normSuffix = cmp.normalized.length > 0 ? `（另有 ${cmp.normalized.length} 项仅差版本号，已归一化，见上一节）` : ''
+  if (cmp.diffs.length === 0) {
+    log(`无差异：两侧逐项精确相等。${normSuffix}`)
+  } else {
+    log(`共 ${cmp.diffs.length} 项差异（最多列 ${MAX_REPORT_LINES} 项）${normSuffix}：`)
     for (const d of cmp.diffs.slice(0, MAX_REPORT_LINES)) {
       log(`  [${d.kind}] ${d.where}`)
       log(`      ${d.detail}`)
@@ -497,6 +655,18 @@ function main() {
   log(`  viewport: ${VIEWPORT_W}×${VIEWPORT_H}（桌面路径；探针页**不含** platform-android）`)
   log(`  gate-src: ${args.gateSrc}`)
   log(`  scratch : out/${args.scratch}`)
+
+  // 归一化自检放在**采集之前**：归一化器本身坏了就没必要花几分钟去采两份 DOM。
+  // 这是「默认开」的代价必须由门禁自己付 —— 它每次跑都要证明自己没吞掉真实差异。
+  const normCheck = normSelfCheck()
+  if (normCheck.failed.length > 0) {
+    fail(
+      `SKIP —— 归一化自检未通过（${normCheck.failed.length}/${normCheck.total} 个用例不成立）：\n` +
+        normCheck.failed.map((f) => `  ! ${f}`).join('\n') +
+        `\n  归一化一旦会吞真实差异，本门禁的 PASS 就不可信 ⇒ 拒绝出结论（退出码 2）。`,
+      2
+    )
+  }
 
   const instrumentBefore = instrumentFingerprint(args.gateSrc)
   log(`  仪器指纹: ${instrumentBefore}（探针/驱动/夹具/harness 的内容摘要）`)
@@ -544,9 +714,17 @@ function main() {
         {
           viewport: { w: VIEWPORT_W, h: VIEWPORT_H },
           instrument: { src: args.gateSrc, fingerprint: instrumentAfter, scratch: args.scratch },
+          normalization: { rule: 'v<MAJOR>.<MINOR>.<PATCH> 按内容匹配，仅文本通道', cases: normCheck.total, failed: normCheck.failed },
           baseline: { root: base.root, androidCssInPage: base.androidCssInPage, dump: base.dump },
           current: { root: cur.root, androidCssInPage: cur.androidCssInPage, dump: cur.dump },
-          compare: { pages: cmp.pages, probes: cmp.probes, counts: cmp.counts, diffs: cmp.diffs, probeInvariant: cmp.probeInvariant }
+          compare: {
+            pages: cmp.pages,
+            probes: cmp.probes,
+            counts: cmp.counts,
+            diffs: cmp.diffs,
+            probeInvariant: cmp.probeInvariant,
+            normalized: cmp.normalized
+          }
         },
         null,
         2
@@ -574,13 +752,15 @@ function main() {
       2
     )
   }
+  // 结论行也要带上归一化计数：CI/脚本里通常只抓这一行，它必须自足。
+  const verdictNorm = cmp.normalized.length > 0 ? `；另有 ${cmp.normalized.length} 项仅差版本号已归一化` : ''
   if (cmp.diffs.length > 0) {
     log('')
-    log(`${LABEL}: FAIL —— 两侧存在 ${cmp.diffs.length} 项差异（门禁不放宽阈值，差异交 team-lead 裁决）`)
+    log(`${LABEL}: FAIL —— 两侧存在 ${cmp.diffs.length} 项差异（门禁不放宽阈值，差异交 team-lead 裁决）${verdictNorm}`)
     process.exit(1)
   }
   log('')
-  log(`${LABEL}: PASS —— 桌面路径下基线 == 主树（${PAGES.length} 页逐节点 × computed style 全部相等）`)
+  log(`${LABEL}: PASS —— 桌面路径下基线 == 主树（${PAGES.length} 页逐节点 × computed style 全部相等）${verdictNorm}`)
   process.exit(0)
 }
 
