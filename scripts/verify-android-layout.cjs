@@ -294,9 +294,11 @@ function measure(browser, pagePath, tmpDir) {
     '--no-default-browser-check',
     '--hide-scrollbars',
     '--force-device-scale-factor=1',
-    // 安卓 WebView 用叠加式滚动条（宽 0）。桌面版 Chromium 的经典滚动条会被
-    // `scrollbar-gutter: stable` 预留出 6px，令内容宽从 348px 掉到 342px —— 与真机不符。
-    '--enable-features=OverlayScrollbar',
+    // 已知偏差（对判定方向安全，故不抹平）：安卓 WebView 用叠加式滚动条（宽 0），
+    // 可用内容宽是 348px；桌面版 Chromium 的经典滚动条被 `scrollbar-gutter: stable`
+    // 预留 6px，实测内容宽 342px。342 < 348，量到的比真机更窄 ⇒ 所有「宽 / 条数」类
+    // 断言更保守，不会出现「真机不过、门禁却过」。曾试 `--enable-features=OverlayScrollbar`
+    // 抹平，实测无效（内容宽仍 342px），已移除，以免让人误以为 CI 里量到的是 348。
     `--window-size=${VIEWPORT_W},${VIEWPORT_H}`,
     `--user-data-dir=${path.join(tmpDir, 'profile')}`,
     // 探针里有多段 React 渲染 + 等待；虚拟时间预算让 --dump-dom 等到结果写进 <pre>
