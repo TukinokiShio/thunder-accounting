@@ -334,20 +334,6 @@ html.platform-android .android-edit-toggle[aria-pressed='true'] {
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
-
-  /* 我的（Profile）左侧标签导航在窄屏改为可换行的横向条 */
-  html.platform-android .profile-nav nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  html.platform-android .profile-nav nav > button {
-    flex: 0 1 auto;
-    width: auto;
-    padding-left: 12px;
-    padding-right: 12px;
-  }
 }
 
 /* ══════════ 移动端重排：分类管理返回路径 + 编辑模式可发现性 ══════════ */
@@ -400,32 +386,35 @@ html.platform-android .category-edit-hint {
   line-height: 1.4;
 }
 
-/* ══════════ 移动端重排：个人中心导航压缩为单行 chip ══════════ */
+/* ══════════ 个人中心（「我的」页）：本文件**故意不含** .profile-nav 的任何规则 ══════════
 
-@media (max-width: 639px) {
-  /* 旧版把 5 个 Tab 铺成 2~3 行（每行 40px+）→ 左栏独占首屏 186px（26%），
-     而安卓本地模式下其中 3 个还是空壳。现在只剩 4 个真实项，并压成**单行**：
-     高度降到约 80px（含页标题）。`nowrap` + `overflow-x: auto` 是兜底 ——
-     英文等更长文案时横向滚动，而不是把第 4 项「设置」（安卓唯一设置入口）
-     折行到屏幕外侧。 */
-  html.platform-android .profile-nav nav {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
+   这里原本有两条 `html.platform-android .profile-nav nav` 规则，把 5 个 Tab 压成横向 chip。
+   最后一版是「单行 + 允许横向滚动」，理由是「英文文案更长时横向滚动，总比把第 4 项折到
+   屏幕外侧好」。**这个理由在真机上被证伪**：
+     - 安卓 WebView 不显示横向滚动条，也没有任何暗示 → 第 4 项「设置」（当时安卓唯一能换语言的
+       入口）被裁在屏幕外，用户点不到，反馈「还是不能切换中英文」；
+     - 更根本的是：横向滚动兜底解决的是「容器装不下」，而我们的目标恰恰是「不要做出一个
+       装不下的容器」—— 同一个问题在错误的层面上被修了两次。
+   现方案（`src/pages/Profile.tsx` 的 localMode 分支）：安卓「我的」页不再渲染 `.profile-nav`
+   与 `<nav>`，整页是一块纵向滚动单面板（数据概览 / 数据管理 / 分类管理 / 偏好 / 关于），
+   语言切换器**直接内联在页面里**（不需要先点开设置弹窗）。
+   ⇒ 横向可滚动容器不存在，「东西被裁在容器外」也就不可能发生。
 
-  /* `:not([hidden])` 是用来抬到 0,3,2 的：Tailwind 的 `space-y-1` 展开为
-     `.space-y-1 > :not([hidden]) ~ :not([hidden])`（0,3,0），且本文件在产物中
-     排在 `src/index.css` **之前**（同特指度时 Tailwind 胜），所以必须靠特指度反超。
-     否则单行 flex 里每个后续 chip 会带 4px `margin-top`，与首个 chip 错位。 */
-  html.platform-android .profile-nav nav > button:not([hidden]) {
-    flex: 0 0 auto;
-    width: auto;
-    min-height: 40px;
-    margin-top: 0;
-    padding: 8px 12px;
-    white-space: nowrap;
-  }
+   **这不是遗漏**：任何针对 `.profile-nav` 的新规则都必须先重述「安卓窄屏为什么需要一个
+   可能横向溢出的导航容器」—— 而在单面板结构下这个问题不存在。
+   ⚠ 反向教训（已固化为断言）：横向裁剪的**判据**是对的 ——
+   `scripts/layout-gate/android-driver.ts` 的 `reachVerdict()` 现在就在量
+   「元素自身在视口内」+「最近的可横向裁剪祖先的 scrollWidth 不超过 clientWidth」，
+   错的是当时只把它写成注释、没写成断言（「文字警告不是约束，断言才是」）。 */
+
+/* 「我的」页（本机账本单面板）里的**所有**可点控件的触控目标 ≥44px。
+   这一条不是排版偏好：面板里有三处控件的 Tailwind 内边距算出的是 32~40px
+   （语言切换器 `py-1.5` ≈ 32px、数据管理按钮 `py-2.5` ≈ 40px、时区 `<select>` ≈ 34px），
+   在 412px 宽的触屏上按不中，而本项目其余控件（`.btn-primary`、`.theme-toggle-btn`、
+   `.category-back-btn`）一律是 44px —— 这里是让新面板回到同一条标准，不是提高它。
+   只作用于本面板（`.local-profile-panel` 只由 `LocalProfilePanel` 渲染，桌面无此节点）；
+   不写 `!important`，靠 0,2,1 特指度胜过 Tailwind 工具类（0,1,0）。 */
+html.platform-android .local-profile-panel button,
+html.platform-android .local-profile-panel select {
+  min-height: 44px;
 }

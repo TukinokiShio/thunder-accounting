@@ -22,14 +22,12 @@ export const TIMEZONE_OPTIONS: { label: string; value: string }[] = [
 
 const STORAGE_KEY = 'thunder_settings'
 
-function systemLanguage(): 'zh' | 'en' {
-  const value = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'zh'
-  return value.startsWith('zh') ? 'zh' : 'en'
-}
-
 const DEFAULT_SETTINGS: AppSettings = {
   timezone: 'Asia/Shanghai',
-  language: systemLanguage()
+  // 首次启动默认中文：本应用主要面向中文用户，不跟随系统语言（跟随会让英文系统的
+  // 用户首次打开就看到英文界面，且设置入口本身也在中文语境里，形成认知负担）。
+  // 已显式切换过语言的用户由 localStorage 中的设置覆盖，不受影响。
+  language: 'zh'
 }
 
 export function loadSettings(): AppSettings {

@@ -17,10 +17,14 @@ import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { friendlyError } from '@/utils/errorMessages'
 import { isAndroid } from '@/platform'
+import { BackupRestore } from '@/components/SettingsDialog/BackupRestore'
+import { About } from '@/components/SettingsDialog/About'
+import { Preferences } from '@/components/SettingsDialog/Preferences'
+import { useDataManagement } from '@/components/SettingsDialog/useDataManagement'
 import {
   User, Lock, Link, BarChart3, AlertTriangle, AlertCircle,
   Copy, Check, Eye, EyeOff, Loader2, Trash2,
-  Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X
+  Mail, Phone, Shield, Key, LogOut, ChevronDown, ChevronRight, Send, X, FolderTree
 } from 'lucide-react'
 
 type Tab = 'info' | 'security' | 'binding' | 'stats' | 'danger'
@@ -84,7 +88,7 @@ function LocalModeCloudNotice({ message }: { message: string }) {
 }
 
 export default function ProfilePage() {
-  const { user, addToast, appLogout, setActivePage, openSettings } = useStore()
+  const { user, addToast, appLogout } = useStore()
   const { t, lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<Tab>('info')
 
@@ -180,6 +184,30 @@ export default function ProfilePage() {
     addToast('info', t('已退出登录'))
   }
 
+  /**
+   * 安卓本地模式（纯本地单机）在**所有 hook 之后**整页早返回。
+   *
+   * 为什么是「整页换掉」而不是「在桌面版式上少渲染几项」：
+   *  - 本机模式没有账号 → 「个人中心」这个类别本身就是错的（没有中心，也没有账号）；
+   *  - 剩余的 Tab 项在 412px 里依然放不下：旧版把 4 项压成单行 chip + 横向滚动，
+   *    真机实测第 4 项被裁在屏幕外、用户点不到（这就是 `mobile/android.css` 里
+   *    那段「故意不含 .profile-nav 任何规则」注释的由来）；
+   *  - 即使塞得下，每个 Tab 面板只有 100~200px 内容，而可用内容带约 795px
+   *    → 无论切到哪个 Tab，页面都有约 70% 是空白（真机反馈）。
+   * 所以改按**信息密度**组织成一块纵向单面板，见 `LocalProfilePanel`。
+   *
+   * ⚠ 桌面（`isAndroid()` 为假）走的是下面那段**逐位未改**的 5 Tab 版式；
+   *   本早返回之后的所有 `const` / JSX 都只服务桌面分支。
+   */
+  if (localMode) {
+    return <LocalProfilePanel stats={stats} statsStatus={statsStatus} onRetryStats={loadStats} />
+  }
+
+  /**
+   * 桌面导航：5 个 Tab 全部渲染（安卓本地模式在函数开头就早返回了，
+   * 根本走不到这里 —— 所以这里不再需要「按平台裁剪 Tab」的分支，
+   * 那些分支连同 `.profile-nav` 的窄屏规则一起被删掉了）。
+   */
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'info', label: t('账号信息'), icon: <User size={16} /> },
     { id: 'security', label: t('安全设置'), icon: <Lock size={16} /> },
@@ -188,23 +216,13 @@ export default function ProfilePage() {
     { id: 'danger', label: t('危险操作'), icon: <AlertTriangle size={16} /> },
   ]
 
-  /**
-   * 安卓本地模式（`isAndroid()`）：无云端账号体系 → 「安全设置 / 绑定管理 / 危险操作」
-   * 三个 Tab **整体不渲染**（而不是渲染成一句"不可用"的空壳）。
-   * 判据是「这一项在本版本里能不能真的做事」，不是「能不能渲染」。
-   * 桌面仍渲染全部 5 项，逐位不变。
-   */
-  const visibleTabs = localMode
-    ? tabs.filter(tab => tab.id === 'info' || tab.id === 'stats')
-    : tabs
-
   return (
     <div className="profile-layout page-view w-full min-w-0 flex min-h-full flex-col gap-4 md:flex-row">
-      {/* ── 左侧标签导航 ── */}
+      {/* ── 左侧标签导航（仅桌面） ── */}
       <aside className="profile-nav w-full min-w-0 shrink-0 md:w-48">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">{t('个人中心')}</h2>
         <nav className="space-y-1">
-          {visibleTabs.map(tab => (
+          {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -214,36 +232,10 @@ export default function ProfilePage() {
                   : 'profile-tab-idle'
               }`}
             >
-              {/* 安卓窄屏把导航压成单行 chip（选择器见 `mobile/android.css`）：
-                  只有 4 项且去图标/去箭头时总宽 < 348px，才能一屏放下、不必横向滚动
-                  —— 否则第 4 项「设置」（安卓唯一的设置入口）可能被裁在屏幕外。 */}
-              {!localMode && tab.icon}
+              {tab.icon}
               {tab.label}
             </button>
           ))}
-          {/* 安卓侧栏被隐藏（`mobile/android.css`），故这两项只在安卓渲染，桌面零变化：
-              - 分类管理：底部导航只有 4 个 Tab，它归入「我的」。
-              - 设置：**安卓唯一**能打开设置（含语言切换）的入口（P0 修复）。 */}
-          {localMode && (
-            <>
-              <button
-                type="button"
-                onClick={() => setActivePage('categories')}
-                className="profile-action w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-                aria-label={t('分类管理')}
-              >
-                {t('分类管理')}
-              </button>
-              <button
-                type="button"
-                onClick={openSettings}
-                className="profile-action w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
-                aria-label={t('设置')}
-              >
-                {t('设置')}
-              </button>
-            </>
-          )}
         </nav>
       </aside>
 
@@ -317,6 +309,127 @@ export default function ProfilePage() {
             onDeleted={() => setTimeout(() => appLogout(), 500)}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════
+// 子组件：「我的」页 —— 安卓本机账本（localMode）
+// ═════════════════════════════════════════════════════════════════
+
+/**
+ * 安卓本地模式（纯本地单机）的「我的」页：一整块纵向滚动的单面板。
+ *
+ * ── 为什么不是「Tab 导航 + 内容区」 ──
+ * 本机模式没有账号，所以「个人中心」这个概念本身就是类别错误：既没有账号可管，也没有「中心」。
+ * 用户在这一页真正要做的事只有三件 —— **看清数据规模 / 管数据 / 改设置**。
+ * 旧版按「账号中心」的分区去做，结果两头都错：
+ *   · 5 个 Tab 里 3 个（安全设置/绑定管理/危险操作）在安卓端无任何可做的事；
+ *   · 剩下的 4 项在 412px 里放不下，被横向滚动容器裁掉第 4 项（真机事故）；
+ *   · 而且每个 Tab 面板自身只有 100~200px 内容，可用内容带约 795px → 无论切到哪个
+ *     Tab，页面都有约 70% 是空白（真机反馈）。
+ * 所以这一页不再分区导航，而按**信息密度**从上到下排：
+ *   ① 本机身份 ② 数据概览 ③ 数据管理 ④ 分类管理 ⑤ 偏好设置 ⑥ 关于
+ * 其中 ③④⑤⑥ 都是「设置」类内容 —— 也就是说：**这一页本身就是安卓端的设置页**，
+ * 不再需要先点开设置弹窗（语言切换因此**直接可见可点**）。
+ *
+ * ── 与桌面/共享实现的关系 ──
+ *   · 数据概览复用桌面同一个 `StatsTab` / `ProfileStatus`；
+ *   · 数据管理复用同一个 `BackupRestore` + 同一个 `useDataManagement`（不写第二套）；
+ *   · 偏好设置复用同一个 `Preferences`（`idPrefix` 换掉，避免与弹窗的 id 冲突）；
+ *   · 关于复用同一个 `About`，只把「本机模式下为假」的两行换掉（见 `About` 的 `localMode`）。
+ * 桌面 5 Tab 分支在 `ProfilePage` 里早返回之前，逐位未动。
+ */
+function LocalProfilePanel({
+  stats,
+  statsStatus,
+  onRetryStats
+}: {
+  stats: UserStats | null
+  statsStatus: LoadState
+  onRetryStats: () => void | Promise<void>
+}) {
+  const { t } = useLanguage()
+  const setActivePage = useStore((s) => s.setActivePage)
+  const data = useDataManagement()
+
+  return (
+    /* `data-testid` 是给布局门禁（`scripts/verify-profile-mobile.cjs`）量「内容高度」用的：
+       这一页的判据是几何量（内容 ≥ 可用内容带的 60%），jsdom 量不了。 */
+    <div className="page-view local-profile-panel w-full min-w-0" data-testid="local-profile">
+      <div className="space-y-6">
+        {/* ① 本机身份：不渲染头像/昵称/账号 ID —— 本机模式没有账号，写「未知用户」是编造。 */}
+        <div className="profile-surface rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-800">{t('本地模式')}</p>
+          <p className="text-xs text-gray-500 mt-1">{t('数据保存在本机，无需登录即可使用。')}</p>
+        </div>
+
+        {/* ② 偏好设置。
+            ⚠ 位置是**刻意选的**，不是随手排的：真机事故的原文是「页面还是没有做到中英文切换」
+            —— 用户是**找不到**语言入口，不是不会用。所以语言切换器必须落在**首屏**内
+            （不滚动、不点弹窗就看得见）。它排在数据概览**之前**就是这个原因：
+            数据概览占约 360px，排在它后面时切换器会被推到首屏之外。
+            几何判据（切换器落在可视内容带内）由 `scripts/verify-profile-mobile.cjs` 断言。 */}
+        <section className="border-t border-gray-100 pt-4">
+          <Preferences idPrefix="local-profile" />
+        </section>
+
+        {/* ③ 数据概览（复用桌面同一个组件与同一个空/错/载态面板） */}
+        {statsStatus === 'loading' && (
+          <ProfileStatus kind="loading" message={t('正在加载数据概览…')} />
+        )}
+        {statsStatus === 'error' && (
+          <ProfileStatus
+            kind="error"
+            message={t('数据概览加载失败')}
+            detail={t('请检查本地账本状态后重试。')}
+            onRetry={onRetryStats}
+            retryLabel={t('点击重试')}
+          />
+        )}
+        {statsStatus === 'ready' && stats && hasUserStats(stats) && <StatsTab stats={stats} />}
+        {statsStatus === 'ready' && (!stats || !hasUserStats(stats)) && (
+          <ProfileStatus
+            kind="empty"
+            message={t('暂无数据概览')}
+            detail={t('记录账单后，这里会显示你的累计收支。')}
+          />
+        )}
+
+        {/* ④ 数据管理 */}
+        <BackupRestore
+          exporting={data.exporting}
+          importing={data.importing}
+          clearing={data.clearing}
+          clearStep={data.clearStep}
+          onExport={data.handleExport}
+          onImport={data.handleImport}
+          onClear={data.handleClear}
+          onCancelClear={data.cancelClear}
+          t={t}
+        />
+
+        {/* ⑤ 分类管理：底部导航只有 4 个 Tab，它是第 5 个页面，入口归在「我的」 */}
+        <section className="border-t border-gray-100 pt-4">
+          <button
+            type="button"
+            onClick={() => setActivePage('categories')}
+            className="profile-action w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-left text-gray-700 transition-colors"
+            aria-label={t('分类管理')}
+          >
+            <FolderTree size={16} className="profile-accent-icon shrink-0" aria-hidden="true" />
+            <span className="flex-1 min-w-0">
+              <span className="block font-medium">{t('分类管理')}</span>
+              {/* 副标题用分类管理页**真实存在**的操作，而不是泛泛的「管理你的分类」 */}
+              <span className="block text-xs text-gray-400">{t('点右上角「编辑」可拖动排序或删除分类')}</span>
+            </span>
+            <ChevronRight size={16} className="text-gray-400 shrink-0" aria-hidden="true" />
+          </button>
+        </section>
+
+        {/* ⑥ 关于 */}
+        <About t={t} localMode />
       </div>
     </div>
   )

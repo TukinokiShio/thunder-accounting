@@ -120,6 +120,16 @@ describe('SettingsDialog', () => {
     expect(screen.getByText(versionRegex)).toBeInTheDocument();
   });
 
+  // 7b. 桌面的「关于」必须是**默认分支**（`About` 为安卓本机模式新增的 localMode 分支不得泄漏到桌面）
+  it('桌面：关于区域保留 Ctrl+N 快捷键行与「本地 SQLite + 云端同步」', () => {
+    render(<SettingsDialog isOpen={true} onClose={() => {}} />);
+
+    expect(screen.getByText('快捷键')).toBeInTheDocument();
+    expect(screen.getByText('本地 SQLite + 云端同步')).toBeInTheDocument();
+    // 本机模式专属的两处替换在桌面**不存在**
+    expect(screen.queryByText('本地 SQLite 数据库，无需网络')).not.toBeInTheDocument();
+  });
+
   // 8. 清除数据按钮可见
   it('显示清除所有数据按钮', () => {
     render(<SettingsDialog isOpen={true} onClose={() => {}} />);
