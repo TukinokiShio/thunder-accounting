@@ -151,13 +151,20 @@ export function Home() {
           窄屏（<640px，即安卓 WebView 的 412px）一行两卡：基类直接 2 列，避免落到单列把 6 张卡
           堆成约 630px。640~1023px 仍为 2 列（基类生效），≥1024px 由 lg:grid-cols-3 接管。
 
-          桌面（≥640px）零变化的两条纪律：
+          桌面（≥640px）零变化的三条纪律：
           1. `sm:` 复位 —— 窄屏压缩过的尺寸在 ≥640px 显式还原为原值（p、mb、w/h、text 字号）。
           2. `max-sm:` 限定 —— 只给窄屏用的类一律加 `max-sm:` 前缀，≥640px **不存在**该类。
              历史教训：`sm:leading-normal` 看似「复位」，实则不是 —— 编译产物里
              `.sm\:text-lg`（line-height:1.75rem=28px）在 `.sm\:leading-normal`（line-height:1.5）**之前**，
              同特指度下后者胜，于是 text-lg 的 28px 被改成了 27px、text-xs 的 16px 被改成 18px。
-             凡是「给窄屏加、且原代码没有的类」，都必须用 `max-sm:` 而不是 `sm:` 对冲。 */}
+             凡是「给窄屏加、且原代码没有的类」，都必须用 `max-sm:` 而不是 `sm:` 对冲。
+          3. **别拆散外部选择器依赖的字面 token** —— 下面图标盒的 `w-8 h-8` 两个类名是**功能性的**：
+             `src/index.css:510` 有一条 `.aurora-shell .home-stats-grid .w-8.h-8 { … !important }` 靠这两个
+             字面类名同时命中，把 6 张卡的图标统一压成强调色。曾经改成 `w-7 h-7 sm:w-8 sm:h-8`，
+             渲染尺寸仍是 32×32，但 token 变成 `sm:w-8`/`sm:h-8` ⇒ 选择器落空、`!important` 失效
+             ⇒ 各卡 `card.color`（一直是死代码）首次生效，**桌面与窄屏的图标配色同时变**。
+             教训：纪律 1「≥640px 生效的 class 集合等于原集合」是**必要**条件、不是充分条件 ——
+             还必须查「**别处靠字面量匹配的选择器是否仍命中**」。 */}
       <div className="home-stats-grid grid grid-cols-2 lg:grid-cols-3 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon
@@ -177,7 +184,8 @@ export function Home() {
               }}
             >
               <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
-                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center max-sm:shrink-0 ${card.color}`}>
+                {/* `w-8 h-8` 必须保持字面量，见上方纪律 3（index.css:510 靠这两个 token 命中） */}
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center max-sm:shrink-0 ${card.color}`}>
                   <Icon size={16} />
                 </div>
                 <span className="text-xs text-gray-500 dark:text-gray-400 max-sm:min-w-0 max-sm:truncate">{card.label}</span>

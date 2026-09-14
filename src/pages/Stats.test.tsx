@@ -210,6 +210,13 @@ describe('Stats', () => {
     expect(screen.queryByTestId('stats-details-toggle')).toBeNull();
     expect(screen.queryByTestId('stats-details-panel')).toBeNull();
     expect(screen.queryByText('点击分类查看二级明细')).toBeNull();
+
+    // 桌面 Legend 的「确实渲染了」在这里**断言不了**：jsdom 里 ResponsiveContainer 量到的宽高为 0，
+    // recharts 不会挂载 Legend（只有 ResponsiveContainer 的壳 svg）。所以别在这里写
+    // `querySelector('ul.flex.flex-wrap') !== null` —— 实测它是失败的，写了只能删。
+    // 「桌面保留 Legend / 窄屏无 Legend」的行为级证据由真排版引擎的门禁给：
+    // `npm run verify:desktop-parity`（1280×900，逐节点 computed style 精确比对，基线 worktree）。
+    // 这里只锁源码级契约：见上方 test 12 的「所有 <Legend/> 必须带 !android 门控」。
   });
 
   // ─── 11. 图表动画时长统一为 300ms（源码级契约） ───
@@ -228,13 +235,21 @@ describe('Stats', () => {
     expect(animatedCount).toBe(pieCount + lineCount);
   });
 
-  // ─── 12. Legend 已删除（小表是 Legend 的超集，分类名+占比不重复渲染） ───
-  it('should not render any recharts Legend anymore', () => {
-    // 只对「代码」断言：注释里提到 Legend 是被允许的（说明去重理由），因此不能用全文 includes。
+  // ─── 12. Legend 只在桌面渲染；窄屏（安卓）不再重复表达 Legend ───
+  // 授权范围是「四个安卓板块」，桌面必须逐字符不变 —— 所以桌面保留（即使它在一级明细小表里冗余），
+  // 而窄屏删掉它是纯去重（小表是 Legend 的超集，多出笔数与金额）。
+  it('should render the recharts Legend on the desktop path only', () => {
     const rechartsImport = statsSource.match(/import \{[\s\S]*?\} from 'recharts'/)?.[0] ?? '';
-    expect(rechartsImport).not.toContain('Legend');
-    expect(statsSource).not.toContain('renderLegend');
-    expect(statsSource).not.toMatch(/<Legend[\s/>]/);
+    expect(rechartsImport).toContain('Legend');
+    expect(statsSource).toContain('const renderLegend');
+
+    // 两张环形图各一处，且每一处都必须带 `!android` 门控
+    const guarded = statsSource.match(/\{!android && <Legend content=\{renderLegend\} \/>\}/g) ?? [];
+    expect(guarded.length).toBe(2);
+    // 任何一处 `<Legend … />` 都必须是上面那种「带门控」的写法：一旦有人加回无门控的 Legend，
+    // bare 会比 guarded 多，桌面就被静默改动了。
+    const bare = statsSource.match(/<Legend[^>]*\/>/g) ?? [];
+    expect(bare.length).toBe(guarded.length);
   });
 });
 

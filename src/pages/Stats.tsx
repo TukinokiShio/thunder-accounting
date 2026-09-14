@@ -2,6 +2,8 @@
  * 统计概览页面。
  * 信息层级收敛为 5 层：结论（4 张汇总卡）→ 分解（一级环形图 + 明细小表）→ 下钻（二级，按需展开）
  * → 趋势（折线图）→ 明细（全量表，默认折叠）。
+ * 上述收敛**只对安卓窄屏生效**（`isAndroid()` 门控）；桌面走 `!android` 分支，与改动前逐字符一致
+ * —— 包括桌面保留两张环形图的 Legend（即使它在一级明细小表里是冗余的）。
  * 支持本月 / 上月 / 近3个月三个时间粒度切换，以及 CSV 导出。
  *
  * 参考：https://github.com/qsor/budget-manager（图表+表格组合模式）
@@ -11,7 +13,7 @@ import { useEffect, useState, useCallback, type KeyboardEvent } from 'react'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  LineChart, Line, XAxis, YAxis, CartesianGrid
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts'
 import { Download, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store'
@@ -38,11 +40,33 @@ function pct(value: number, total: number): string {
 }
 
 /**
- * 注意：本页**不再使用 recharts 的 Legend 组件**（为避免歧义，此处不写出尖括号形式）。
- * 原先两张环形图各挂一个自定义 Legend（分类名 + 占比），而同一张卡内紧邻的一级/二级明细
- * 小表渲染的是「分类名 + 笔数 + 金额 + 占比」—— 小表是 Legend 的**超集**（多出笔数与金额），
- * 所以去重方向是删 Legend、留小表；分类名与占比由小表承担，不再重复表达。
+ * 自定义 Legend 渲染函数：显示颜色圆点 + 分类名 + 百分比。（仅在**桌面**渲染，见下方两张环形图）
+ * Legend 代替 inline label，彻底避免标签重叠问题。
+ *
+ * 为什么要按平台分叉、而不是干脆删掉：
+ * 同一张卡内紧邻的一级/二级明细小表渲染「分类名 + 笔数 + 金额 + 占比」，小表是 Legend 的**超集**
+ * （多出笔数与金额），所以**在安卓窄屏**上删掉 Legend 是纯去重，不丢信息。
+ * 但本轮授权范围是「四个**安卓**板块」，「桌面零变化」是对用户反复承诺的不变量 ——
+ * **桌面即使有冗余也必须保留**：删掉桌面冗余是**另一个独立决策**，应当显式提出、由用户选择，
+ * 而不是夹在安卓改动里静默发生。
  */
+type LegendEntry = { value?: string; color?: string; payload?: { value?: number } }
+const renderLegend = ({ payload }: { payload?: LegendEntry[] }) => {
+  if (!payload) return null
+  return (
+    <ul className="flex flex-wrap gap-x-3 gap-y-1 justify-center text-xs mt-2">
+      {payload.map((entry) => (
+        <li key={entry.value} className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+          <span>{entry.value}</span>
+          <span className="text-gray-400 dark:text-gray-500">
+            {pct(entry.payload?.value ?? 0, payload.reduce((s: number, p: LegendEntry) => s + (p.payload?.value ?? 0), 0))}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 /** 自定义 tooltip 内容：分类名 + 金额 + 笔数 + 占比 */
 const renderTooltip = (
@@ -289,6 +313,9 @@ export function Stats() {
                     ))}
                   </Pie>
                   <Tooltip content={renderTooltip(totalAmount, t, stats?.byCategory2)} />
+                  {/* 桌面保留 Legend（与改动前一致）；安卓窄屏删掉它 —— 分类名与占比已由下方
+                      一级明细小表承担，小表还多出笔数与金额，所以窄屏删 Legend 是纯去重。 */}
+                  {!android && <Legend content={renderLegend} />}
                 </PieChart>
               </ResponsiveContainer>
               {/* 一级分类明细小表：Legend 的超集（多出笔数/金额），分类名与占比在此渲染。
@@ -388,6 +415,7 @@ export function Stats() {
                         ))}
                       </Pie>
                       <Tooltip content={renderTooltip(totalAmount, t)} />
+                      {!android && <Legend content={renderLegend} />}
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (

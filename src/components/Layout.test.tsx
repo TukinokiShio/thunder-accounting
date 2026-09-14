@@ -149,7 +149,6 @@ describe('Layout', () => {
     // 桌面零变化（一）：窄屏压缩过的「已有类」用 `sm:` 显式还原为原值。
     expect(homeSource).toContain('p-3 sm:p-4')
     expect(homeSource).toContain('mb-1.5 sm:mb-2')
-    expect(homeSource).toContain('w-7 h-7 sm:w-8 sm:h-8')
     expect(homeSource).toContain('text-base sm:text-lg font-bold max-sm:leading-tight text-gray-900 dark:text-gray-100')
 
     // 桌面零变化（二）：原代码没有、纯为窄屏加的类必须用 `max-sm:` 限定，≥640px **不存在**该类。
@@ -161,6 +160,16 @@ describe('Layout', () => {
     expect(homeSource).toContain('mt-0.5 max-sm:leading-tight')
     expect(statsSource).toContain('flex items-center gap-2 max-sm:min-w-0')
     expect(statsSource).toContain('dark:text-gray-300 max-sm:truncate')
+
+    // 桌面零变化（三）：**别拆散外部选择器依赖的字面 token**。
+    // `src/index.css:510` 有一条 `.aurora-shell .home-stats-grid .w-8.h-8 { … !important }`，
+    // 靠 `w-8` + `h-8` 两个字面类名同时命中，把 6 张卡的图标统一压成强调色。
+    // 9a8cd57 曾把它改成 `w-7 h-7 sm:w-8 sm:h-8`：渲染尺寸仍是 32×32，但 token 变成 `sm:w-8`，
+    // 选择器落空 ⇒ `!important` 失效 ⇒ 各卡 `card.color`（一直是死代码）首次生效，
+    // **桌面与窄屏的图标配色同时改变**（A9 在 1280×900 量到 32 节点 / 37 属性对差异）。
+    // 所以这里锁两件事：字面 token 必须原样在，且**不得**再拆成 `sm:`/`max-sm:` 形式。
+    expect(homeSource).toContain('w-8 h-8 rounded-lg flex items-center justify-center max-sm:shrink-0')
+    expect(stripComments(homeSource)).not.toMatch(/sm:w-8|sm:h-8|max-sm:w-7|max-sm:h-7/)
 
     // 结构性保证：Home.tsx 里 `leading-` 只允许以 `max-sm:` 前缀出现。
     // 这样「以为复位了其实没复位」的错以后再进不来（注释已剥离，见 stripComments）。
