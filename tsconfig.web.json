@@ -19,7 +19,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts", "package.json", "main-process/sql.js.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts", "package.json"],
   "exclude": [
     "src/database-addcategory.test.ts",
     "src/database-deletecategory.test.ts",
