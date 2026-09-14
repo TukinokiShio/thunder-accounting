@@ -47,7 +47,7 @@ const { execFileSync } = require('node:child_process')
 const SCRIPT_DIR = __dirname
 const GATE_SRC_DIR = path.join(SCRIPT_DIR, 'android-layout-gate')
 
-/* ── 契约常量（都是重排前实测出来的数；改这里等于改门禁，必须同步报告） ── */
+/* ── 契约常量（都是重排前后实测出来的数；改这里等于改门禁，必须同步报告） ── */
 const VIEWPORT_W = 412
 const VIEWPORT_H = 915
 const EXPECT = {
@@ -55,7 +55,9 @@ const EXPECT = {
   billNameColWidth: 200,
   statsScrollHeight: 1400,
   chartAnimationDuration: 300,
-  chartCount: 3,
+  /** 已渲染图表数的**下限**：重排前 3 个、重排后 2 个（去重复时合掉了一个环形图），
+   *  所以这里只保证「图表确实渲染了」，不钉死个数 —— 钉死 3 会把正确的重排判成失败。 */
+  chartCount: 2,
   homeCardUnionHeight: 340
 }
 
@@ -352,13 +354,21 @@ function staticChecks(root) {
   }
   const src = fs.readFileSync(statsPath, 'utf8')
   const all = src.match(/animationDuration\s*=/g) || []
-  const three = src.match(/animationDuration\s*=\s*\{\s*300\s*\}/g) || []
+  // `animationDuration={300}` 与 `animationDuration={CHART_ANIM_DURATION}`（常量=300）都算；
+  // 后者是本项目既有的写法（Stats.test.tsx:217-224 也按这个形态设了 vitest 断言）。
+  const usages = [...src.matchAll(/animationDuration\s*=\s*\{\s*([A-Za-z_$][\w$]*|\d+)\s*\}/g)].map((m) => m[1])
+  const resolved = usages.map((v) => {
+    if (/^\d+$/.test(v)) return Number(v)
+    const decl = new RegExp(`(?:const|let|var)\\s+${v}\\s*=\\s*(\\d+)`).exec(src)
+    return decl ? Number(decl[1]) : NaN
+  })
+  const wrong = resolved.filter((v) => v !== EXPECT.chartAnimationDuration)
   out.push({
     id: 'A4s',
-    title: 'Stats.tsx 源码：animationDuration={300}（静态佐证）',
-    pass: three.length >= EXPECT.chartCount && all.length === three.length,
-    actual: `animationDuration 共 ${all.length} 处，其中 ={300} 的 ${three.length} 处`,
-    threshold: `={300} 处数 ≥ ${EXPECT.chartCount} 且无其它取值（禁止跑 recharts 默认 1500ms）`
+    title: 'Stats.tsx 源码：每个 animationDuration 都解析为 300（静态佐证）',
+    pass: usages.length >= EXPECT.chartCount && wrong.length === 0 && usages.length === all.length,
+    actual: `animationDuration 共 ${all.length} 处，解析出取值 ${JSON.stringify(resolved)}（引用变量：${JSON.stringify(usages.filter((v) => !/^\d+$/.test(v)))}）`,
+    threshold: `处数 ≥ ${EXPECT.chartCount}、每处都解析为 ${EXPECT.chartAnimationDuration}、且没有解析不到的写法`
   })
   return out
 }

@@ -135,9 +135,11 @@ function contentBand(anchor: Element) {
   for (const el of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
     const cs = getComputedStyle(el)
     if (cs.position !== 'sticky' && cs.position !== 'fixed') continue
-    if (cs.display === 'none' || cs.visibility === 'hidden') continue
+    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) continue
     const r = el.getBoundingClientRect()
     if (r.width < 1 || r.height < 1) continue
+    // 只有「贴在顶部的一条」才该被当作顶栏让位；满屏 fixed（模态遮罩）不算
+    if (r.height > window.innerHeight * 0.5) continue
     if (r.top <= top && r.bottom > top) top = Math.max(top, r.bottom)
   }
   for (const ov of bottomOverlays()) bottom = Math.min(bottom, ov.getBoundingClientRect().top)
@@ -196,20 +198,38 @@ interface RowProbe {
   id: number
   nameEl: HTMLElement
   amountEl: HTMLElement
+  block: HTMLElement
   row: HTMLElement
-  rect: DOMRect
 }
 
+/**
+ * 把「分类名」「金额」两个文本单元格还原成**整行**。
+ *
+ * 两步，且都不看 class：
+ *  ① block = 两者的最小公共祖先（重排前就是整行，重排后只到「文字块」）；
+ *  ② row = 从 block 往上走，第一个「父级已含全部行」的祖先 —— 那一层才是「一行」，
+ *     因为它的兄弟正是其它行。这样重排前后都能拿到**整行**（含图标、操作区）。
+ */
 function findBillRows(): RowProbe[] {
-  const out: RowProbe[] = []
+  const partial: Array<{ id: number; nameEl: HTMLElement; amountEl: HTMLElement; block: HTMLElement }> = []
   for (const bill of BILLS) {
     const amountEl = deepByText(amountText(bill))
     const nameEl = deepByText(nameText(bill))
     if (!amountEl || !nameEl) continue
-    const row = lca(nameEl, amountEl)
-    out.push({ id: bill.id, nameEl, amountEl, row, rect: row.getBoundingClientRect() })
+    partial.push({ id: bill.id, nameEl, amountEl, block: lca(nameEl, amountEl) })
   }
-  return out
+  const blocks = partial.map((p) => p.block)
+  const rows = partial.map((p) => {
+    let el: HTMLElement = p.block
+    while (el.parentElement) {
+      const parent = el.parentElement
+      const inside = blocks.filter((b) => parent.contains(b)).length
+      if (inside >= blocks.length - 1) break
+      el = parent
+    }
+    return { id: p.id, nameEl: p.nameEl, amountEl: p.amountEl, block: p.block, row: el }
+  })
+  return rows
 }
 
 /* ───────────────────────── recharts 实例 props 读取 ───────────────────────── */
@@ -370,26 +390,29 @@ async function checkA3(): Promise<GateCheck> {
   }
 }
 
-/** A4 统计页 3 个图表 animationDuration 均为 300（运行时读 recharts 实例 props） */
+/** A4 统计页每个已渲染图表的 animationDuration 均为 300（运行时读 recharts 实例 props） */
 async function checkA4Runtime(): Promise<{ check: GateCheck; diag: unknown }> {
   await nav('stats')
   await waitFor(() => document.querySelectorAll('.recharts-wrapper').length >= 1)
   await sleep(300)
   const scan = scanChartFibers()
   const wrappers = document.querySelectorAll('.recharts-wrapper').length
-  const with300 = scan.candidates.filter((c) => c.animationDuration === thresholds().chartAnimationDuration).length
+  const want = thresholds().chartAnimationDuration
+  const withWant = scan.candidates.filter((c) => c.animationDuration === want).length
+  // 「非 undefined 且非 300」= 显式跑了别的时长（重排前是 recharts 默认 1500ms）
+  const bad = scan.candidates.filter((c) => c.animationDuration !== undefined && c.animationDuration !== want)
   const values = scan.candidates.map((c) => String(c.animationDuration))
-  const pass = scan.rootFound && scan.candidates.length >= thresholds().chartCount && with300 >= thresholds().chartCount
+  const pass = scan.rootFound && wrappers >= thresholds().chartCount && withWant >= wrappers && bad.length === 0
   return {
     check: {
       id: 'A4',
-      title: `统计页 ${thresholds().chartCount} 个图表 animationDuration = ${thresholds().chartAnimationDuration}`,
+      title: `统计页每个已渲染图表的 animationDuration = ${want}`,
       pass,
-      actual: `recharts 容器 ${wrappers} 个；实例 props 中 animationDuration=300 的 ${with300}/${scan.candidates.length} 个`,
-      threshold: `≥ ${thresholds().chartCount} 个图表 animationDuration === ${thresholds().chartAnimationDuration}`,
+      actual: `已渲染图表 ${wrappers} 个（下限 ${thresholds().chartCount}）；实例 props 中 animationDuration=${want} 的 ${withWant}/${scan.candidates.length}；非 ${want} 的取值 ${JSON.stringify(bad.map((b) => b.animationDuration))}`,
+      threshold: `每个已渲染图表 animationDuration === ${want}，且不存在其它取值（禁止 recharts 默认 1500ms）`,
       detail: `fiber 扫描：rootFound=${scan.rootFound} visited=${scan.visited} 值集=${JSON.stringify(values.slice(0, 12))}`
     },
-    diag: { wrappers, values, visited: scan.visited, rootFound: scan.rootFound, with300 }
+    diag: { wrappers, values, visited: scan.visited, rootFound: scan.rootFound, withWant }
   }
 }
 
@@ -523,6 +546,9 @@ async function checkA7(): Promise<GateCheck> {
         const zh = Array.from(document.querySelectorAll<HTMLElement>('button')).filter((b) => isVisible(b) && accName(b) === '中文')
         if (toggled && zh.length > 0) { zh[0].click(); await sleep(150) }
       }
+      // 收尾：关掉设置弹窗（它是 fixed 满屏遮罩，留着会污染后续量测的内容带）
+      const closeBtn = visibleClickables().find((b) => accName(b) === '关闭')
+      if (closeBtn) { closeBtn.click(); await sleep(150) }
       attempts.push(`「${name}」→ 出现语言切换器（${JSON.stringify(sw.buttons)}），切换可交互=${toggled}`)
       return {
         id: 'A7',
@@ -643,6 +669,18 @@ export async function runGate(): Promise<GateReport> {
     bodyHeight: Number(document.body.getBoundingClientRect().height.toFixed(1)),
     tabbarVisible: bottomOverlays().length
   }
+  // 环境证据要在**任何断言之前**取：A7 会把设置弹窗打开，之后量到的内容带会被模态遮罩污染
+  try {
+    Object.assign(env, await envEvidence())
+  } catch (e) {
+    env.envEvidenceError = e instanceof Error ? e.message : String(e)
+  }
+  // A6/A7 的判定依赖「合成点击驱动 React」，先证明这条链路成立
+  try {
+    env.clickMechanism = await clickMechanismSelfCheck()
+  } catch (e) {
+    env.clickMechanism = { ok: false, detail: e instanceof Error ? e.message : String(e) }
+  }
   const steps: Array<[string, () => Promise<GateCheck>]> = [
     ['A1', checkA1],
     ['A2', checkA2],
@@ -668,16 +706,6 @@ export async function runGate(): Promise<GateReport> {
     a4 = { id: 'A4', title: '统计页 3 个图表 animationDuration = 300', pass: false, actual: `量测抛错：${e instanceof Error ? e.message : String(e)}`, threshold: '-' }
   }
   checks.push(a4)
-  try {
-    env.clickMechanism = await clickMechanismSelfCheck()
-  } catch (e) {
-    env.clickMechanism = { ok: false, detail: e instanceof Error ? e.message : String(e) }
-  }
-  try {
-    Object.assign(env, await envEvidence())
-  } catch (e) {
-    env.envEvidenceError = e instanceof Error ? e.message : String(e)
-  }
   useStore.getState().setActivePage('home')
   return { viewport: { w: window.innerWidth, h: window.innerHeight }, env, checks }
 }
