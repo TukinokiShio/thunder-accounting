@@ -395,3 +395,93 @@ reg query 'HKCU\...\Explorer\User Shell Folders' /v Desktop   # 桌面真实路�
 | `inno-packager` | 打包全链路：Clean Build → electron-builder → ISCC → 静默安装 → 验证 |
 | `expense-entry` | 结构化支出 JSON 批量写入本地库（默认 = admin 共享库） |
 | `strict-coding-workflow` | 项目级编码工作流（继承用户级 + 阶段后自动打包） |
+
+---
+
+
+## 八、工作区清理（实验产物）
+
+**入口**：`node scripts/cleanup-worktree.cjs`（默认只报告，零删除）· 加 `--apply` 删 SAFE 级 · 加 `--apply --include-risky` 连 CONFIRM 级一起删 · `--json <path>` 落盘。
+
+**清理依据 · 六维判据（2026-09-16，替代"凭感觉判断"）**：
+
+| 维度 | 判据问题 | 判定 | 方向 |
+|---|---|---|---|
+| **D1 复用价值** | 一次性实验产物，还是会被再次使用的资产？ | 人判 | 一次性 → 偏删 |
+| **D2 依赖引用** | 有谁引用它？（脚本 / 清单 / 文档 / 分发链路） | **机判** | 有引用 → **必留** |
+| **D3 可重建性** | 能否从源码/配置重建？成本多大？ | **机判** | 可重建且低成本 → 偏删 |
+| **D4 证据唯一性** | 是唯一记录吗？删了能否复现该次实验？ | 人判 | 唯一证据 → **必留** |
+| **D5 时效性** | 是否已被更新版本取代？ | **机判** | 已取代且无引用 → 偏删 |
+| **D6 出口归属** | 移出后谁负责销毁？有规则吗？ | **机判（制度判据）** | 无出口 → **禁止只移出** |
+
+组合规则：`可自动清理 ⟸ D1∧D3∧D2无引用` · `必须保留 ⟸ D4 ∨ D2有引用` · `需授权清理 ⟸ D5∧D2无引用` · `禁止只移出 ⟸ D6无出口` · **`无法判定 ⟹ 不得自动删，转人工`**
+
+**执行分级（三级，机器侧动作）**：
+
+- `SAFE` = 可由构建/门禁重新生成，且不被任何已发布产物引用 → `out/` · `app-out/` · `dist-android/` · `release163/` · `release/win-unpacked` · `__missing_android_project__/` · `out/tsconfig*.tsbuildinfo`
+- `CONFIRM` = 有回滚或审计价值 → `release/` 超保留数（3）的旧安装包及其 blockmap · `release/*.log` · `exe/` 里的旧安装包 · `release-android/` 超过 3 个的 apk · 根目录 `progress.state.*-archive-*`
+- `KEEP` = **永不自动删**，只列出 → `artifacts/`（审计证据）· `exe/`（AGENTS.md 固定验收目录）· `release/*.yml`（被分发链路引用）· 根目录 `PRD.md` / `task_plan.md` / `findings.md` / `progress.*`
+
+**根因（2026-09-16 两轮审计后定稿）：生态级机制缺口，不是本项目问题**
+
+> **一句话：生态内所有清理机制都只定义了「挪到哪」，没有一处定义「何时销毁」与「谁负责检查」。**
+
+- ⭐ **决定性证据**：`E:/Code/shio-al-ecosystem-archive/` 顶层**5 代归档并存、无一代被移除**（`20260913-workspace-cleanup` / `sae-p0-cleanup-20260909` / `sae-p0-pre-v39-cleanup-20260909-r1` / `sae-remnants-20260910` / `sae-self-20260915-matrix-v450`）→ **连机制作者自己的仓都在堆**，这推翻了「本项目特有 / 执行方疏忽」两个替代解释。
+- ⭐ **横向检索**：`worktree remove` / `worktree prune` 在**整个 `~/.workbuddy/skills/` 0 命中**；`retention` / `保留期` / `TTL` 命中均域外 ⇒ **没有任何 skill 定义过"产物必须拆除"**。
+- **主因＝SACW**（`shio-al-coding-workflow` v5.7.0）5 条缺陷：①隔离工作区只建不拆 ②收尾清单①判据可空转（`cleaned: []` 即 PASS）③门禁触发面被 `workspace.ref` 收窄 ④零跨会话残留自检 ⑤**无中断态现场回收定义**。完整证据（文件 + 行号）见 `docs/sacw-cleanup-defect-report.md`。
+- ⚠️ **口径**：「主因」指**机制责任的上游性**（SACW 是整条流程的上游，且是唯一有收尾钩子的一环），**不是体积占比** —— 实测 8.75 GB 中约 **7.5 GB 不属 SACW 域**（SAE 6.1 G + 项目自建隔离区 1.4 G）。
+- **次因＝本项目自身**：
+
+| 缺失层 | 实测事实 | 后果 |
+|---|---|---|
+| 机制层 | `.codebuddy/` 下**只有 `rules/`，无 `settings.json` / `hooks/`** | 没有"不清理就过不去"的闸门 |
+| 入口层 | `package.json` 的 scripts 里**没有任何 clean 入口**（只有 6 个 `verify:*`） | 没有一键可执行的动作 |
+| 信号层 | `.gitignore` 忽略 `out/ artifacts/ release/ exe/ release163/ *.log` → `git status` **实测 0 条** | 没做也看不出来，唯一天然提醒信号被切断 |
+| 生成层 | 4 个门禁脚本**都写了** `fs.rmSync(tmpDir)`，但注释是「清理失败可忽略」 | `out/` 里实测堆积 **9 个 `desktop-parity-*` + 8 个 `dp-*` + 十余个 `layout-gate-*`** 泄漏目录 |
+
+- **历史教训**：`artifacts/cleanup-manifest-v1.16.0.json`（2026-08-29）证明**做过一次完整清理规划**，但那是**一次性人工清单**，未迭代成机制 → 18 天后 `out/` 涨到 435MB。**"做过一次" ≠ "以后都会做"。**
+- **反模式**：把纪律只写进 AGENTS.md / 日志，就认为已经约束住了（用户级记忆 §约束强制）。
+- **注意**：`.gitignore` 忽略产物本身是**对的**（产物不该入库），代价是失去信号 → **必须配补偿机制**，否则清理需求永不可见。
+- **报告落盘通道**：stdout 在本环境可能整体失效（§19），需要留证据时用 `--json artifacts/cleanup-report-<date>.json`，再读文件核对。
+
+### 项目外同源产物（`E:\Code\CodeProduct\` 下，但由本项目产生）
+
+清理器第二段专扫这里 —— **项目内扫描结构上看不见它们**。
+
+| 目录 | 体积 | 性质 | 处置 |
+|---|---|---|---|
+| `ta-a7-ctl` · `ta-a7-new` · `ta-gate-baseline` · `ta-gate-ctl` | 180 MB | 冻结 worktree（detached，工作区干净） | 可摘除 |
+| `ta-gate-ctl-g21` | 37 MB | 冻结 worktree，**含 2 处未提交注入改动** | 先导出 diff 再摘 |
+| `thunder-accounting-archive` | 5.93 GB | SAE 自改进 09-15 23:52 授权归档区（36 目录 / 57784 文件） | **保留期待裁定** |
+| `thunder-accounting-cleanup-quarantine-v1.16.1` | 1.30 GB | 08-29 隔离区，搁置 18 天未确认 | 待确认后删 |
+
+- **worktree 必须用 `git worktree remove` 摘除，禁止 `rm`** —— 否则 `.git/worktrees/` 留悬空元数据。（清理器判 `isWorktree` 时自动走 git 路径）
+- **脏 worktree 永不自动删** —— 即使开了 `--include-risky` 也会跳过，必须人工先导出 diff。
+- **判据是白名单式，不是模糊匹配**：worktree 只认 `git worktree list` 的**登记项**（权威来源）；archive / quarantine 只认 `thunder-accounting-` 前缀；**其余兄弟目录一律列为 OUT OF SCOPE，不统计、不删除**（`CodeProduct/` 下有 10 个用户的其他项目）。
+- **`git worktree list` 是权威判据**：它同时暴露**悬空登记**（git 有记录、目录已不在）→ 用 `git worktree prune` 清。
+
+### ⭐ 更深的根因：「移出」动作只定义了入口，没定义出口（2026-09-16 定）
+
+- **冻结 worktree**：建它有纪律（量测须在 detach 树上做，见 §28），**拆它的纪律没有** → 09-14 建的 5 个挂到今天，且在项目外，项目内清理器看不见。
+- **归档**：09-15 的 SAE 归档**有授权、有 report、`failed=0`**，动作本身完全合规 —— 但**归档目的地没有保留期限规则** → 6 GB 从项目搬到项目外，堆积只是换了个地方继续。
+- **隔离区**：设计意图是「缓冲待确认」，但**没有到期机制** → 08-29 建的隔离区搁置 18 天。
+- **生态侧同样如此（2026-09-16 审计新增）**：SAE 的 `retention` / `TTL` / `保留期` 检索**全目录 0 命中**；`<project>-archive` 同级根**只规定「建/复用」、无容量与保留期约束** ⇒ **归档根处于规则真空**（删除边界被锁死在"项目根内"，而归档根在项目根外，不受任何规则约束）。
+- **推论（写进纪律）**：任何「把东西挪走」的机制，必须**同时**定义 ①挪到哪 ②什么时候销毁 ③谁负责检查。缺了 ②③，它只是把问题转移到**可见性更低**的地方 —— 项目外没有 `git status`、没有门禁、没有清理器，**比留在项目内更难被发现**。
+- **适用边界**：清单里的 `exe/`（486 MB）与 `artifacts/`（审计证据）是 AGENTS.md 指定保留项，**不在清理范围**；判据见本脚本的 `KEEP` 级。
+
+### 执行记录（2026-09-16 首次执行，A+B+C 分层）
+
+| 档 | 内容 | 结果 |
+|---|---|---|
+| A | `out/`(434.9M) · `app-out/` · `dist-android/` · `__missing_android_project__/` · 5 个 worktree(224M) | ✅ 已删 |
+| A | `release163/`(384M) | ⚠️ **未完成** —— 其余已删，剩 `win-unpacked/resources/app.asar` **98 MB** 被占用 |
+| B | 隔离区 1.30 GB + `release/*.log` ×4 + `progress.state.v1176-archive-20260913` | ✅ 已删 |
+| C | 归档区可重建层 **22 项 / 5.87 GB**（`build-*`×7 · `custom-install-*`×4 · `installed-*`×3 · `inspect-*`×2 · `verify-app-asar-*` · `inno-v*`×2 · `inno-syntax-check-*`×3） | ✅ 已删，0 失败 |
+| C | 证据层 18 项 / 60 MB + 根级索引 | ✅ 保留；归档区 **5.93 G → 62 M** |
+
+**实际释放 ≈ 7.8 GB**（计划 8.5 GB；差额＝`release163` 残留 98 MB 与估算偏差）。
+
+- ⚠️ **`release163/win-unpacked/resources/app.asar`（102 MB）被锁** —— `EBUSY: Device or resource busy`，3 次重试（含 5s 等待）均失败。已排除：无进程路径指向该目录、无 Electron 实例。**嫌疑＝火绒（`HipsDaemon`/`HipsTray`）实时防护**持有该 102 MB 归档文件句柄。**处置：把 `release163` 加入火绒信任区后重删，或重启后重试；不建议关闭实时防护。**
+- ⚠️ **危险结构（本次避坑，务必记住）**：5 个 `ta-*` worktree 内各有一个 `node_modules` **符号链接指向主项目 `node_modules`**。`git worktree remove` 后这些链接仍在 —— **任何跟随符号链接的清理（如 `rm -rf <dir>/node_modules/*`）都会摧毁主项目依赖**。正确做法：`unlink <dir>/node_modules` 只解除链接，再 `rmdir <dir>`。本次已按此执行，主项目 `node_modules`（613 项 / 852 M）完好。
+- **索引留档**：归档区 4 个根级文件已复制到 `artifacts/sae-self-20260915-index/`。⚠️ `artifacts/` 被 `.gitignore` 忽略 ⇒ 该备份**在盘不在库**，若要入库需 `git add -f`。
+- **新增安全门闩**：`--include-risky` **不再**整体删除 `*-archive`（会连带丢掉难以复现的历史视觉基线）；归档一律走 `--archive-prune`（正向前缀白名单，默认保留）。
