@@ -61,6 +61,20 @@
 - 本仓一次清理**释放 8.5 GB**，其中 **5.87 GB** 是归档区里可重建的构建副本。
 - SACW 全库 `worktree remove` / `worktree prune` **0 命中**；`retention` / `TTL` / `保留期` 命中**均域外**。
 
+### 并行任务（**不阻塞**主线）：产出「详细磁盘清理报告」
+
+用户裁定：这份报告**需要，但不作为本轮阻塞** —— 本报告 §三 的 5 条缺陷**全部判在机制层**（代码 / 文档事实），**不依赖历史体积**。而磁盘现场已在 2026-09-16 清理中消失，故该报告的价值只有两条：
+
+1. **关闭不可复算的 unknowns** —— 清单见 `docs/cleanup-execution-report-20260916.md` **§八**（U1 归档真实占用 / U2 归档逐目录明细 / U3 门禁临时目录累积时间线 / U4 隔离区与清单对账 / U5 `release163` 构成；U6 不同，仍可补测）；
+2. **作为第二阶段 SAE 清理环节的输入基线**。
+
+**执行要求**：
+
+- 与本轮 SACW 升级**并行**，**不得阻塞** SACW 主线交付（先交 SACW 修复，再做这份报告）。
+- **输入**：`docs/cleanup-execution-report-20260916.md`（§二 执行前基线 + §八 不可复算项 + §九 留档位置）· `docs/cleanup-policy-plan.md` · `artifacts/cleanup-report-20260916.json` · `artifacts/sae-self-20260915-index/` · `artifacts/sae-responsibility-audit-20260916.md`
+- **硬要求**：如实标注哪些项**已不可独立验证** —— 不得把当时观测值当作可复算证据；不得凭 `du` 逻辑值推断物理占用。
+- **输出**：建议落 `docs/disk-cleanup-report-<date>.md`，并在其中单列一节「SAE 清理阶段输入基线」。
+
 ### 📋 可粘贴 prompt（复制到新对话开头即可）
 
 ```text
@@ -88,6 +102,15 @@
 - 判据必须客观可判定，不得引入"询问已发起即通过"这类软判据
 
 验收：见报告 §0「验收判据」A1–A6，逐条演示。
+
+并行任务（不阻塞 SACW 主线，做完主线再做）：
+另出一份"详细磁盘清理报告"，用于 ①关闭不可复算的 unknowns ②作为第二阶段 SAE
+清理环节的输入基线。输入清单见：
+- E:\Code\CodeProduct\thunder-accounting\docs\cleanup-execution-report-20260916.md
+  的 §二（执行前基线）、§八（不可复算项清单）、§九（留档位置）
+- E:\Code\CodeProduct\thunder-accounting\artifacts\sae-self-20260915-index\
+硬要求：已不可独立验证的项必须如实标注，不得把当时观测值当可复算证据。
+输出建议：docs/disk-cleanup-report-<date>.md，含一节「SAE 清理阶段输入基线」。
 ```
 
 ---

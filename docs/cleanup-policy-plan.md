@@ -1,6 +1,7 @@
 # 实验产物治理方案（cleanup policy）
 
 > **状态：归因已修正 · 清理已执行（A+B+C 分层，释放 ≈7.8 GB）· SACW 升级挂起（本轮无权限）** — 本文件写于 2026-09-16，同日修订
+> **执行详情见 `docs/cleanup-execution-report-20260916.md`**（执行前基线 / 逐项记录 / 释放对账 / 验证 / 踩坑 / **§八 不可复算项**）
 > 任何节点完成后**必须当日回填**下方「节点状态」表；本文件是进度的**唯一入口**。
 > 配套：缺陷报告 `docs/sacw-cleanup-defect-report.md` · 生态审计 `artifacts/sae-responsibility-audit-20260916.md` · 清理器 `scripts/cleanup-worktree.cjs` · 实测 `artifacts/cleanup-report-20260916.json` · 纪律 `.codebuddy/rules/00-project.md` §八
 
