@@ -509,6 +509,23 @@ reg query 'HKCU\...\Explorer\User Shell Folders' /v Desktop   # 桌面真实路�
 - **推论（写进纪律）**：任何「把东西挪走」的机制，必须**同时**定义 ①挪到哪 ②什么时候销毁 ③谁负责检查。缺了 ②③，它只是把问题转移到**可见性更低**的地方 —— 项目外没有 `git status`、没有门禁、没有清理器，**比留在项目内更难被发现**。
 - **适用边界**：清单里的 `exe/`（486 MB）与 `artifacts/`（审计证据）是 AGENTS.md 指定保留项，**不在清理范围**；判据见本脚本的 `KEEP` 级。
 
+### ⚠️ 清理的连带后果：删掉了一个门禁的基线依赖（2026-09-18 发现）
+
+- **`npm run verify:desktop-parity` 自 2026-09-16 起结构性失败（`exit 2`），与代码无关**：
+  它在 `scripts/verify-desktop-parity.cjs:240` **硬编码**基线路径 `../ta-gate-baseline`
+  （即 `E:\Code\CodeProduct\ta-gate-baseline`，**在项目外**），而该 worktree 正是 09-16 清理 **A 档**删掉的
+  5 个 `ta-*` 之一（见下方执行记录）。实测：`E:\Code\CodeProduct\` 下已无任何 `ta-*` 目录、
+  `git worktree list` 只剩主树 ⇒ 该门禁**不可能通过** ⇒ 等于失去保护（其自身「归一化自检」仍 8/8 通过，
+  所以不跑到基线检查就看不出来）。
+- **修复**：`git worktree add --detach <基线 SHA> E:/Code/CodeProduct/ta-gate-baseline`
+  ⚠️ **基线 SHA 需用户裁定**（上一发布 commit `f86aa3a`（1.17.9）／某个 tag／其他）——
+  **基线选错 = 门禁给出假红或假绿**，故不由 Agent 自行决定。
+- **为什么当时没发现**：该门禁**不在** `AGENTS.md` 的发布链路里（发布跑的是 `verify:modal-scope` /
+  `verify:android-layout`），清理后无人跑到它 ⇒ **一个"永远红"的门禁可以静默存在很久**。
+- **纪律（补 D2 判据的检索面）**：清理**项目外**产物时，不能只查"是否被仓库内文件引用"，
+  还要查**脚本里的硬编码路径字面量**。D2「依赖引用」的检索面必须包含 `scripts/**` 的路径字面量，
+  否则 `../ta-gate-baseline` 这类**项目外依赖**会成为盲区（在项目内 grep 结构上看不见"它指向外部"）。
+
 ### 执行记录（2026-09-16 首次执行，A+B+C 分层）
 
 | 档 | 内容 | 结果 |
