@@ -1,6 +1,6 @@
 /**
  * 统计卡片明细弹窗。
- * 点击首页 6 张统计卡片（今日支出 / 本月支出 / 日均支出 / 累计记录 / 本月收入 / 本月结余）后弹出，
+ * 点击首页 6 张统计卡片（今日支出 / 本月支出 / 日均支出 / 累计支出 / 本月收入 / 本月结余）后弹出，
  * 展示图形化组成拆解（环形图 / 柱状图 / 进度条 / 公式条）+ 逐笔明细。
  *
  * 只读：仅通过 getBills / getStats 读取数据，不写库、不新增 IPC 通道。
@@ -24,7 +24,7 @@ export type StatCardKey =
   | 'todayExpense'    // 今日支出
   | 'monthExpense'    // 本月支出
   | 'dailyAvg'        // 日均支出
-  | 'monthRecords'    // 累计记录
+  | 'totalExpense'    // 累计支出
   | 'monthIncome'     // 本月收入
   | 'monthBalance'    // 本月结余
 
@@ -112,6 +112,8 @@ const renderTooltip = (total: number) => ({ active, payload }: any) => {
 interface DialogData {
   todayBills: Bill[]
   monthBills: Bill[]
+  /** 全量账单（getBills 不传参）：累计支出卡片需要跨月口径 */
+  allBills: Bill[]
   expenseStats: StatsResult
   incomeStats: StatsResult
 }
@@ -161,14 +163,16 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
 
     void (async () => {
       try {
-        const [monthBills, todayBills, expenseStats, incomeStats] = await Promise.all([
+        const [monthBills, todayBills, allBills, expenseStats, incomeStats] = await Promise.all([
           window.electronAPI.getBills({ startDate: monthStart, endDate: monthEnd }),
           window.electronAPI.getBills({ startDate: todayStr, endDate: todayStr }),
+          // 不传参数 = 全量账单，供「累计支出」跨月统计
+          window.electronAPI.getBills(),
           window.electronAPI.getStats(monthStart, monthEnd, 'expense'),
           window.electronAPI.getStats(monthStart, monthEnd, 'income')
         ])
         if (cancelled) return
-        setData({ monthBills, todayBills, expenseStats, incomeStats })
+        setData({ monthBills, todayBills, allBills, expenseStats, incomeStats })
       } catch (e) {
         if (cancelled) return
         console.error('Failed to load stat card detail:', e)
@@ -221,7 +225,7 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
     todayExpense: t('今日支出'),
     monthExpense: t('本月支出'),
     dailyAvg: t('日均支出'),
-    monthRecords: t('累计记录'),
+    totalExpense: t('累计支出'),
     monthIncome: t('本月收入'),
     monthBalance: t('本月结余')
   }
@@ -409,28 +413,31 @@ export function StatCardDetailDialog({ open, cardKey, onClose }: Props) {
           )
         }
       }
-      case 'monthRecords': {
-        const expenseTotal = sumAbs(monthExpense)
-        const incomeTotal = sumAbs(monthIncome)
-        const pieData = [
-          { name: t('支出'), value: expenseTotal },
-          { name: t('收入'), value: incomeTotal }
-        ].filter((d) => d.value > 0)
+      case 'totalExpense': {
+        // 记账以来全部支出（跨月口径），与首页「累计支出」卡片同源
+        const allExpense = data.allBills.filter((b) => b.type === 'expense')
+        const total = sumAbs(allExpense)
+        const days = new Set(allExpense.map((b) => b.date)).size
+        const dates = allExpense.map((b) => b.date)
+        const firstDate = dates.length > 0 ? dates.reduce((a, b) => (a < b ? a : b)) : todayStr
+        // 上界取「今天」与最后一笔的较晚者：本应用允许未来日期预登记（记一笔有二次确认），
+        // 写死 todayStr 会在这类数据下显示成倒序区间（如 2026-11-02 ~ 2026-09-18）。
+        const lastDate = allExpense.reduce((max, b) => (b.date > max ? b.date : max), todayStr)
         return {
-          subtitle: `${monthStart} ~ ${monthEnd} · ${monthAll.length} ${t('笔')}`,
-          // 大字与首页卡片主指标一致（记录笔数）；金额通过下方拆解块与逐笔明细追溯
-          bigNumber: `${monthAll.length} ${t('笔')}`,
-          empty: monthAll.length === 0,
+          subtitle: `${firstDate} ~ ${lastDate} · ${allExpense.length} ${t('笔')}`,
+          // 大字与首页卡片主指标逐字符一致（累计支出金额）
+          bigNumber: `¥${total.toFixed(2)}`,
+          empty: allExpense.length === 0,
           chart: (
             <>
               <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm text-[var(--text)]">
-                {t('支出合计')} ¥{expenseTotal.toFixed(2)} · {t('收入合计')} ¥{incomeTotal.toFixed(2)} · {t('合计')} ¥{(expenseTotal + incomeTotal).toFixed(2)}
+                {t('累计支出')} ¥{total.toFixed(2)} · {t('记账 {n} 天').replace('{n}', String(days))}
               </div>
-              <p className="text-xs text-[var(--text2)] mt-3 mb-1">{t('本月收支构成')}</p>
-              {renderPie(pieData, expenseTotal + incomeTotal)}
+              <p className="text-xs text-[var(--text2)] mt-3 mb-1">{t('分类占比')}</p>
+              {renderPie(groupByCategory(allExpense), total)}
             </>
           ),
-          detail: renderBillList(monthAll)
+          detail: renderBillList(allExpense)
         }
       }
       case 'monthIncome': {

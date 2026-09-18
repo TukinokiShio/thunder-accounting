@@ -227,30 +227,40 @@ describe('StatCardDetailDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  // 9. monthRecords：大字与卡片主指标一致（笔数），金额由拆解块可追溯
-  it('should show record count as top summary and a traceable amount breakdown for monthRecords', async () => {
-    const bills = [
-      bill({ amount: 100, type: 'expense' }),
-      bill({ amount: 250, type: 'income' }),
+  // 9. totalExpense：大字 = 记账以来全部支出（跨月），金额由拆解块可追溯
+  it('should show all-time expense total and a traceable breakdown for totalExpense', async () => {
+    const allBills = [
+      bill({ date: '2026-09-12', amount: 100, type: 'expense' }),
+      bill({ date: '2026-09-12', amount: 50.25, type: 'expense' }),
+      bill({ date: '2025-01-03', amount: 249.75, type: 'expense' }), // 跨年支出
+      bill({ date: '2026-09-01', amount: 999, type: 'income' }), // 收入不计入累计支出
     ];
-    mockAPI({ bills });
-    renderDialog({ cardKey: 'monthRecords' });
+    // 本月 fixture 刻意只含 3 笔（合计 150.25）：若实现误用本月账单，大字断言必红
+    mockAPI({ allBills, monthBills: [allBills[0], allBills[1], allBills[3]], todayBills: [] });
+    renderDialog({ cardKey: 'totalExpense' });
 
     await waitFor(() => {
       expect(screen.getByTestId('stat-dialog-total')).toBeInTheDocument();
     });
 
-    // 1) 大字 == 「N 笔」，与首页卡片主指标一致
-    expect(screen.getByTestId('stat-dialog-total').textContent).toBe(`${bills.length} 笔`);
+    expect(screen.getByText('累计支出')).toBeInTheDocument();
 
-    // 2) 金额拆解块与明细逐笔同源，小计可追溯
+    // 1) 大字 = 100 + 50.25 + 249.75 = 400.00（全期），而非本月的 150.25
+    expect(screen.getByTestId('stat-dialog-total').textContent).toBe('¥400.00');
+    expect(screen.getByTestId('stat-dialog-total').textContent).not.toBe('¥150.25');
+
+    // 2) 拆解块数字可追溯：金额与明细逐笔同源；天数按不同日期计（同一天两笔算 1 天）
     const dialogText = screen.getByRole('dialog').textContent ?? '';
-    expect(dialogText).toContain('支出合计 ¥100.00');
-    expect(dialogText).toContain('收入合计 ¥250.00');
-    expect(dialogText).toContain('合计 ¥350.00');
+    expect(dialogText).toContain('¥400.00');
+    expect(dialogText).toContain('记账 2 天');
+    expect(dialogText).toContain('分类占比');
 
+    // 3) 环形图 + 全期逐笔明细（仅支出）
+    expect(screen.getByTestId('stat-dialog-chart')).toBeInTheDocument();
     expect(screen.getByText('-¥100.00')).toBeInTheDocument();
-    expect(screen.getByText('+¥250.00')).toBeInTheDocument();
+    expect(screen.getByText('-¥50.25')).toBeInTheDocument();
+    expect(screen.getByText('-¥249.75')).toBeInTheDocument();
+    expect(screen.queryByText('+¥999.00')).toBeNull();
   });
 
   // 10. monthIncome → 环形图容器 + 逐笔收入明细（+¥）+ 明细之和 == 顶部大字

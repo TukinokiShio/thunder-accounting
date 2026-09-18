@@ -100,7 +100,7 @@ describe('Home', () => {
     expect(screen.getByText('今日支出')).toBeInTheDocument();
     expect(screen.getByText('本月支出')).toBeInTheDocument();
     expect(screen.getByText('日均支出')).toBeInTheDocument();
-    expect(screen.getByText('累计记录')).toBeInTheDocument();
+    expect(screen.getByText('累计支出')).toBeInTheDocument();
     expect(screen.getByText('本月收入')).toBeInTheDocument();
     expect(screen.getByText('本月结余')).toBeInTheDocument();
   });
@@ -263,39 +263,47 @@ describe('Home', () => {
     });
   });
 
-  // ─── 12. 「累计记录」口径 = 本月全部账单数（含收入），卡片值与弹窗大字一致 ───
-  it('should show all-bill count (income + expense) for 累计记录 card and dialog', async () => {
-    const monthFixture = [
-      mkBill({ date: currentMonthDate(3), type: 'expense', amount: 100 }),
-      mkBill({ date: currentMonthDate(4), type: 'expense', amount: 50 }),
-      mkBill({ date: currentMonthDate(5), type: 'income', amount: 800 }),
-      mkBill({ date: currentMonthDate(6), type: 'income', amount: 200 }),
-      mkBill({ date: currentMonthDate(7), type: 'income', amount: 20 }),
-    ]; // 合计 5 笔（2 支出 + 3 收入）
+  // ─── 12. 「累计支出」= 记账以来全部支出（跨月口径），卡片值与弹窗大字逐字符一致 ───
+  it('should show all-time expense total for 累计支出 card and dialog (must not be month-only)', async () => {
+    const monthPrefix = currentMonthDate(1).slice(0, 7);
+    // 三个月的数据：本月 2 笔 + 去年 1 笔支出（+ 1 笔不计入的收入）
+    const allBills = [
+      mkBill({ date: currentMonthDate(3), type: 'expense', amount: 100.25 }),
+      mkBill({ date: currentMonthDate(4), type: 'expense', amount: 50.75 }),
+      // 跨月支出：本月查询永远取不到它 —— 若实现错写成「只算本月」，下面的金额断言必红
+      mkBill({ date: '2025-03-09', type: 'expense', amount: 999.5 }),
+      mkBill({ date: currentMonthDate(5), type: 'income', amount: 8000 }),
+    ];
+    // 本月 fixture 刻意与全量不同，用于证伪「误用本月账单」
+    const monthFixture = allBills.filter((b) => b.date.startsWith(monthPrefix));
 
     mockElectronAPI({
-      allBills: monthFixture,
+      allBills,
       monthBills: monthFixture,
       todayBills: [],
-      // stats.count 仅计支出（2），用于证明「累计记录」显示的是全部（5）而非支出（2）
-      statsOverride: { totalAmount: 150, count: 2, byCategory1: [], byCategory2: [], byDate: [] },
+      // stats 仅计本月支出（2 笔 / 151.00），若实现误用 stats 或本月账单，断言同样失败
+      statsOverride: { totalAmount: 151, count: 2, byCategory1: [], byCategory2: [], byDate: [] },
     });
 
     render(<Home />);
 
-    const card = screen.getByRole('button', { name: '查看明细 累计记录' });
+    const card = screen.getByRole('button', { name: '查看明细 累计支出' });
+    // 全期支出合计 = 100.25 + 50.75 + 999.50 = 1150.50
     await waitFor(() => {
-      expect(within(card).getByText('5')).toBeInTheDocument();
+      expect(within(card).getByText('¥1150.50')).toBeInTheDocument();
     });
-    // 非支出笔数 2
+    // 本月支出合计 / 本月笔数均不得作为主值出现
+    expect(within(card).queryByText('¥151.00')).toBeNull();
     expect(within(card).queryByText('2')).toBeNull();
+    // 副行 = 记账天数：不同日期数（本月 2 天 + 去年 1 天 = 3 天），收入不贡献天数
+    expect(within(card).getByText('记账 3 天')).toBeInTheDocument();
 
     fireEvent.click(card);
 
     await waitFor(() => {
       expect(screen.getByTestId('stat-dialog-total')).toBeInTheDocument();
     });
-    // 弹窗大字与卡片值同源一致 = 「5 笔」
-    expect(screen.getByTestId('stat-dialog-total').textContent).toBe('5 笔');
+    // 卡片 ↔ 弹窗同源：主值逐字符一致
+    expect(screen.getByTestId('stat-dialog-total').textContent).toBe('¥1150.50');
   });
 });

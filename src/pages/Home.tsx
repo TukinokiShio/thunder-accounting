@@ -1,12 +1,12 @@
 /**
  * 首页 / 仪表盘页面。
- * 展示本月统计卡片（今日支出、本月支出、日均、累计、收入、结余）、最近账单列表、支出分类 Top 5。
+ * 展示统计卡片（今日支出、本月支出、日均、累计支出、本月收入、本月结余）、最近账单列表、支出分类 Top 5。
  * 数据自查：并行拉取账单全量与本月/上月统计，不依赖 store.bills（避免被账单页筛选污染）；
  * 统计与账单均响应 refreshTrigger（CRUD 操作后刷新）。
  */
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from '@/store'
-import { Wallet, TrendingUp, CalendarDays, List } from 'lucide-react'
+import { Wallet, TrendingUp, CalendarDays, History } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { useLanguage } from '@/i18n/LanguageContext'
 import type { Bill, StatsResult } from '@/types'
@@ -62,10 +62,16 @@ export function Home() {
     if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1
     return b.id - a.id
   })
-  const monthBills = sortedBills.filter((b) => b.date >= monthStart && b.date <= monthEnd)
   // 今日支出：筛选今天日期 + 支出类型的账单
   const todayBills = sortedBills.filter((b) => b.date === todayStr && b.type === 'expense')
   const todayTotal = todayBills.reduce((sum, b) => sum + b.amount, 0)
+
+  // 全期支出账单（记账以来，不限于本月）—— 与弹窗 totalExpense 同一数据源
+  const allExpenseBills = allBills.filter((b) => b.type === 'expense')
+  // 累计支出 = 全期支出账单金额绝对值之和（与弹窗 sumAbs() 逐字一致）
+  const totalExpense = allExpenseBills.reduce((sum, b) => sum + Math.abs(b.amount), 0)
+  // 记账天数 = 全期支出账单覆盖的不同日期数
+  const recordDays = new Set(allExpenseBills.map((b) => b.date)).size
 
   const monthTotal = stats?.totalAmount ?? 0
   const monthCount = stats?.count ?? 0
@@ -113,12 +119,12 @@ export function Home() {
       color: 'text-orange-500 bg-orange-50 dark:bg-orange-900/20'
     },
     {
-      key: 'monthRecords',
-      label: t('累计记录'),
-      // 本月全部账单数（含收入），与弹窗 monthRecords 大字同源一致
-      value: `${monthBills.length}`,
-      detail: t('本月账单数'),
-      icon: List,
+      key: 'totalExpense',
+      label: t('累计支出'),
+      // 记账以来全部支出金额，与弹窗 totalExpense 大字同源一致
+      value: `¥${totalExpense.toFixed(2)}`,
+      detail: t('记账 {n} 天').replace('{n}', String(recordDays)),
+      icon: History,
       color: 'text-purple-500 bg-purple-50 dark:bg-purple-900/20'
     },
     {

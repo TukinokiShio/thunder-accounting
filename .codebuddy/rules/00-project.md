@@ -338,6 +338,46 @@ exe/              AGENTS.md 规定的固定安装验收目录
      否则你测的是「注入有没有生效」，不是「判据能不能失败」。
    - 与 §22 同族但互补：§22 说**不要用可能不被生成的 Tailwind 类名做注入**（注入形式问题）；
      本条说**注入生效这件事本身必须被验证**（注入效果问题）。
+38. **首页 6 张卡的「标签名」是安卓布局门禁的硬编码输入（2026-09-18 实证）**：
+   `scripts/layout-gate/android-driver.ts` 的 `checkA5()` 里有一份**硬编码的 6 元素数组** `LABELS`
+   （今日支出 / 本月支出 / 日均支出 / 累计支出 / 本月收入 / 本月结余），既供 `waitFor` 等渲染，
+   也供「从标签往上走找到卡片」来量 6 卡合计占高。
+   - **改任何一张统计卡的标签文案，必须同步这个数组**，否则 A5 报「仅识别到 5 张统计卡」**FAIL** ——
+     症状看起来像"卡片没渲染"，实际是门禁按字面量找不到标签（**假红**）。
+   - 判据：改完跑 `npm run verify:android-layout`，A5 的「实际」行须显示 **6 张**
+     （2026-09-18 实测：6 卡合计 335.0px、单卡 163px 宽 ×6）。
+   - 已核对 `scripts/` 下**只有这一处**硬编码这 6 个标签（desktop-driver 由 DOM 派生），无第二副本。
+   - **与 §25 同族**：§25 是"改类名 → 靠字面量匹配的 **CSS 选择器**失配"，
+     本条是"改文案 → 靠字面量匹配的**门禁**失配"。
+     ⇒ **改任何字面量前先 grep 全仓，且范围必须包含 `scripts/`，不能只 grep `src/`。**
+39. **Inno 静默安装 `exit 5` 的两种成因 + `app.asar` 被独占的实测绕行（2026-09-18 实证）**：
+   **`INSTALL_EXIT=5` 本身没有诊断力** —— 它是「Setup 回滚 / 被取消」的统一出口，
+   **必须加 `/LOG="<绝对路径>"`** 才能区分成因（不加日志时下面两种原因长得一模一样）。本轮连踩两种。
+   - **成因 A：应用在运行，RestartManager 关不掉它。**
+     日志特征：`RestartManager found an application using one of our files: 雷霆记账…` +
+     `Some applications could not be shut down.` + `Defaulting to Abort for suppressed message box`。
+     根因：`/SUPPRESSMSGBOXES` 会把「无法自动关闭应用」对话框的默认按钮取成 **Abort**。
+     处置：装之前先关应用（`MSYS_NO_PATHCONV=1 taskkill /F /PID <pid...>`），**确认残留数为 0 再装**。
+     ⚠️ **查进程有编码坑**：`tasklist` 输出是 **GBK**，直接 `grep '雷霆记账'` 命中 0 是**假阴性**
+     → 必须 `tasklist /FO CSV | iconv -f GBK -t UTF-8` 再 grep
+     （2026-09-18 实测：未转码 0 命中，转码后 **4 个进程**，与日志里 4 条 RestartManager 命中一一对应）。
+   - **成因 B：`exe/resources/app.asar`（102MB）被某进程以「允许写、禁止删」的方式打开**（即 §7 记的坑）。
+     日志特征：`An error occurred while trying to replace the existing file: … DeleteFile failed; code 32.`
+     **决定性判据**：`fs.openSync(p,'r+')` **成功** 但 `fs.renameSync(p, …)` **EBUSY**
+     ⇒ 持有者没给 `FILE_SHARE_DELETE`，而 `r+` 成功说明**有写共享** ⇒「能写不能删」。
+     旁证：火绒三进程在场（`HipsDaemon` / `HipsTray` / `HipsMain`，与本文件 09-16 的嫌疑一致）；
+     **持锁是持续的、不是 AV 瞬时扫描**（约 100 秒内 3 次重试，2s 与 40s 后仍 EBUSY）→ **重试无用**。
+     **绕行（已验证）**：用 **`O_WRONLY|O_CREAT|O_TRUNC` 原地覆盖**，只需写权限、不需要 DELETE 权限：
+     ① 先逐文件比 `release/win-unpacked` 与 `exe/`（比大小即可定位差异；实测 `missing=0 / sizeDiff=1`，
+     只差 `app.asar` 176 字节 ⇒ 说明 Inno 其实已成功装了其余 101 个文件）；
+     ② 分块 `openSync(d,'w')` + `writeSync` 覆盖 —— **不要用 `fs.copyFileSync`**（Windows 走 `CopyFileEx`，
+     语义不如显式 O_TRUNC 可预期）；
+     ③ 手动同步注册表 `HKCU\…\Uninstall\{ThunderBooks-78A1-4F3C-B2D9-E5F6C7A8B9D0}_is1` 的
+     `DisplayVersion` / `DisplayName`（**用 Node 的 `execFileSync` 传参**，别走 bash 参数，避免中文编码问题）；
+     ④ **验证四连**：逐文件比对应 `sizeDiff=0` + asar 内 `package.json` 版本 + **正负对照内容检查**
+     （新串 `累计支出` / `记账 {n} 天` 必须 true，**旧串 `累计记录` / `本月账单数` 必须 false** ——
+     只断言"新版在"会被"半拷贝/旧包"骗过，必须同时断言"旧版不在"）+ 注册表 `DisplayVersion`。
+     **根治**：把 `exe/`（或整个项目目录）加入火绒信任区，之后 Inno 正常安装即可；**不建议关闭实时防护**。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，

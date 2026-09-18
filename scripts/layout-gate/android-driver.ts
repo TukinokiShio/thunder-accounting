@@ -770,7 +770,7 @@ async function checkA4Runtime(): Promise<{ check: GateCheck; diag: unknown }> {
 /** A5 首页 6 张统计卡占高 ≤ 340px */
 async function checkA5(): Promise<GateCheck> {
   await nav('home')
-  const LABELS = ['今日支出', '本月支出', '日均支出', '累计记录', '本月收入', '本月结余']
+  const LABELS = ['今日支出', '本月支出', '日均支出', '累计支出', '本月收入', '本月结余']
   await waitFor(() => LABELS.every((l) => deepByText(l) !== null))
 
   /** 从标签往上走到「只含这一个标签」的最大祖先 —— 即卡片本身 */
