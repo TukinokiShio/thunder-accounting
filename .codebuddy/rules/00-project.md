@@ -377,7 +377,16 @@ exe/              AGENTS.md 规定的固定安装验收目录
      ④ **验证四连**：逐文件比对应 `sizeDiff=0` + asar 内 `package.json` 版本 + **正负对照内容检查**
      （新串 `累计支出` / `记账 {n} 天` 必须 true，**旧串 `累计记录` / `本月账单数` 必须 false** ——
      只断言"新版在"会被"半拷贝/旧包"骗过，必须同时断言"旧版不在"）+ 注册表 `DisplayVersion`。
-     **根治**：把 `exe/`（或整个项目目录）加入火绒信任区，之后 Inno 正常安装即可；**不建议关闭实时防护**。
+     **同一持锁者也会挡住清理（2026-09-18 实测）**：`rm -rf release/win-unpacked` 删掉 384MB 后**只剩**
+     `resources/app.asar`（`Device or resource busy`）⇒ 该持有者针对的是 `resources/app.asar` 这个**文件**，
+     且**跨两个独立副本**持续存在 ⇒ 与"应用是否在运行"**无关**（应用的 4 个进程已杀、残留数 0，锁仍在，持续 > 50 分钟）。
+     ⚠️ **未证明是火绒**：火绒三进程在场（仅旁证），本机无句柄枚举工具（Sysinternals `handle.exe`）可确证；
+     Inno 的 RestartManager 在第 2/3 次尝试里**没有列出任何持有者** ⇒ **按假设处理，不按事实处理**。
+     **判别实验（零成本，先做这个）**：重启后立刻重跑一次官方安装
+     （`release/雷霆记账_Inno_v<版本>.exe /VERYSILENT /SUPPRESSMSGBOXES /NOCANCEL /CLOSEAPPLICATIONS /LOG=…`）：
+     成功 ⇒ 属运行期状态，不必改任何安全配置；**仍失败 ⇒ 基本可确认是常驻实时防护，那时才考虑把 `exe/` 加入信任区**。
+     **不建议关闭实时防护**；改安全软件配置属用户权限范围，**Agent 不代改**。
+     另：安装本身已有可用绕行（见上）⇒ **加白名单不是交付阻塞项**，别为它牺牲别的约束。
 21. **并发 git 提交事故的完整记录（2026-09-14，供后人判断同类风险）**：
    多 agent 共用一个工作树时，`git add <path>` **只增不减** —— 它不会把别人已暂存的条目移出暂存区。
    实际后果：词典 worker 只 `git add src/i18n/translations.ts`、**也如实执行了 `git diff --cached --name-only` 自证（结果正确、只有它那 1 个文件）**，
@@ -517,9 +526,19 @@ reg query 'HKCU\...\Explorer\User Shell Folders' /v Desktop   # 桌面真实路�
   5 个 `ta-*` 之一（见下方执行记录）。实测：`E:\Code\CodeProduct\` 下已无任何 `ta-*` 目录、
   `git worktree list` 只剩主树 ⇒ 该门禁**不可能通过** ⇒ 等于失去保护（其自身「归一化自检」仍 8/8 通过，
   所以不跑到基线检查就看不出来）。
-- **修复**：`git worktree add --detach <基线 SHA> E:/Code/CodeProduct/ta-gate-baseline`
-  ⚠️ **基线 SHA 需用户裁定**（上一发布 commit `f86aa3a`（1.17.9）／某个 tag／其他）——
-  **基线选错 = 门禁给出假红或假绿**，故不由 Agent 自行决定。
+- **已修复（2026-09-18）**：基线已重建，并**跟随最新已验收发布**。重建要点两条缺一不可：
+  - `git worktree add --detach E:/Code/CodeProduct/ta-gate-baseline <已验收发布的 commit>`
+  - **必须在基线根建 `node_modules` 目录联接**（worktree 不含依赖，否则门禁直接报「基线侧目录缺少必要文件」）：
+    `node -e "fs.symlinkSync('<主项目>/node_modules','<基线>/node_modules','junction')"`
+    —— Node 的 `'junction'` 类型**不需要管理员权限**；`cmd mklink` 在本机被禁，别走那条路。
+- ⭐ **基线维护纪律（本门禁唯一会"永远红"的原因）**：**每次「有意的 UI 改动」被用户验收后，必须把基线重挂到该发布**，
+  否则门禁永久红、保护归零 —— 这与"基线被删"是同一个失效的两种形态。
+  重挂最省事的做法（不必 remove/add）：`git -C <基线路径> checkout --detach <新 SHA>`。
+  ⚠️ 真要摘除基线 worktree 时**先 `unlink <基线>/node_modules`**（它是符号链接，跟随删除会摧毁主项目依赖）。
+- **跑它的正确姿势（2026-09-18 实测）**：拿**改动前**的发布当基线跑一次 → 差异必须能**逐条对上你的改动**，
+  且**不得出现 computed style 差异**（文本 / 节点数差异属预期，样式差异才是回归）。
+  实测本次 6 项差异 = 3 项图标 `List→History` 的 svg path 差 + 2 项卡片文本 + 1 项版本号；
+  `结构计数 45 项全等`、逐项样式全 PASS ⇒ 判**无未预期漂移**；确认后重挂到 `b57e08a` ⇒ **PASS，无差异**。
 - **为什么当时没发现**：该门禁**不在** `AGENTS.md` 的发布链路里（发布跑的是 `verify:modal-scope` /
   `verify:android-layout`），清理后无人跑到它 ⇒ **一个"永远红"的门禁可以静默存在很久**。
 - **纪律（补 D2 判据的检索面）**：清理**项目外**产物时，不能只查"是否被仓库内文件引用"，
