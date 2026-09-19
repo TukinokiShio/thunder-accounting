@@ -10,12 +10,12 @@
  * 数据源纪律（rules §五 9）：本页自查数据 —— 历史账单用 getBills() 直取全量，
  * 不复用被「账单」页筛选污染的 store.bills。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Repeat, Plus, Pencil, Trash2, Pause, Play, ChevronDown, ChevronUp, Wallet } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
-import { computeDueWindow, advanceDate, upcomingOccurrences, anchorDayOf, adjustToTradingDay } from '@/utils/recurringCycle'
+import { computeDueWindow, advanceDate, upcomingOccurrences, anchorDayOf, adjustToTradingDay, planAutoPost } from '@/utils/recurringCycle'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { RecurringFormDialog } from '@/components/Recurring/RecurringFormDialog'
 import type { Bill, Recurring } from '@/types'
@@ -27,6 +27,7 @@ export function RecurringPage() {
   const deleteRecurringAction = useStore((s) => s.deleteRecurringAction)
   const openAddDialogForRecurring = useStore((s) => s.openAddDialogForRecurring)
   const addToast = useStore((s) => s.addToast)
+  const refreshBills = useStore((s) => s.refreshBills)
   const { t } = useLanguage()
 
   const [historyBills, setHistoryBills] = useState<Bill[]>([])
@@ -44,6 +45,52 @@ export function RecurringPage() {
       .then(setHistoryBills)
       .catch((e) => console.error('加载账单历史失败:', e))
   }, [refreshRecurrings])
+
+  /**
+   * 到期自动入账（v2.0.5）：对开启「到期自动入账」的规则，在进入本页时按到期窗口逐期落账。
+   * 幂等保障：落账后把 next_date 推进到 nextDateAfter ⇒ 再次运行 dueDates 为空，不会重复记账；
+   * 另有 autoPostingRef 防重入（rules 变化触发的重跑不会并发写同一批）。
+   */
+  const autoPostingRef = useRef(false)
+  useEffect(() => {
+    if (autoPostingRef.current || recurrings.length === 0) return
+    const plan = planAutoPost(recurrings, today, anchorDayOf)
+    if (plan.length === 0) return
+    autoPostingRef.current = true
+    void (async () => {
+      try {
+        for (const item of plan) {
+          for (const dueDate of item.dueDates) {
+            await window.electronAPI.addBill({
+              amount: item.amount,
+              category1: item.category1,
+              category2: item.category2 || item.category1,
+              date: dueDate,
+              note: item.note,
+              type: 'expense',
+              recurring_id: item.ruleId,
+              payment_platform: item.payment_platform || undefined,
+              fund_account: item.fund_account || undefined
+            })
+          }
+          await window.electronAPI.updateRecurring(item.ruleId, { next_date: item.nextDateAfter })
+          addToast(
+            'success',
+            t('已自动入账 {n} 笔：{name}')
+              .replace('{n}', String(item.dueDates.length))
+              .replace('{name}', item.name)
+          )
+        }
+        await refreshRecurrings()
+        await refreshBills()
+        window.electronAPI.getBills().then(setHistoryBills).catch(() => undefined)
+      } catch (e) {
+        console.error('自动入账失败:', e)
+      } finally {
+        autoPostingRef.current = false
+      }
+    })()
+  }, [recurrings, today, addToast, t, refreshRecurrings, refreshBills])
 
   /** 到期规则（含漏期窗口） */
   const dueRules = useMemo(() => {
@@ -159,11 +206,12 @@ export function RecurringPage() {
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
               {rule.name}
               {rule.symbol ? <span className="ml-1.5 text-xs font-normal text-gray-400 font-mono">{rule.symbol}</span> : null}
+              {rule.auto_post === 1 && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-[var(--accent-dim)] text-[var(--accent)]">{t('自动入账')}</span>}
               {rule.paused === 1 && <span className="ml-2 text-xs text-gray-400">{t('已暂停')}</span>}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {cycleText} · {t('下次')} {nextActual}
-              {rule.trade_day_only === 1 ? ` ${t('(非交易日顺延)')}` : ''}
+              {rule.trade_day_only === 1 ? ` ${t('(交易日顺延)')}` : ''}
               {rule.payment_platform ? ` · ${t('支付平台')}${t('：')}${rule.payment_platform}` : ''}
               {rule.fund_account ? ` · ${t('资金账户')}${t('：')}${rule.fund_account}` : ''}
             </p>

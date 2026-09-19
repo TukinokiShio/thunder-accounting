@@ -42,6 +42,8 @@ export interface Recurring {
   trade_day_only: number
   /** v2.0.4：标的代码（定投选填，如 040046；订阅不适用） */
   symbol?: string | null
+  /** v2.0.5：到期自动入账（不再逐笔确认）。0=否 1=是 */
+  auto_post: number
   created_at: string
 }
 
@@ -50,6 +52,8 @@ export interface RecurringForm {
   name: string
   /** v2.0.4：标的代码（定投选填） */
   symbol: string
+  /** v2.0.5：到期自动入账（不再逐笔确认） */
+  auto_post: boolean
   amount: string
   type: 'subscription' | 'dca'
   cycle_unit: 'day' | 'week' | 'month' | 'year'

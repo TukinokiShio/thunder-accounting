@@ -28,7 +28,8 @@ export function emptyRecurringForm(type: 'subscription' | 'dca' = 'subscription'
     payment_platform: '',
     fund_account: '',
     note: '',
-    trade_day_only: type === 'dca'
+    trade_day_only: type === 'dca',
+    auto_post: false
   }
 }
 
@@ -47,7 +48,8 @@ export function ruleToForm(rule: Recurring): RecurringForm {
     payment_platform: rule.payment_platform || '',
     fund_account: rule.fund_account || '',
     note: rule.note || '',
-    trade_day_only: rule.trade_day_only === 1
+    trade_day_only: rule.trade_day_only === 1,
+    auto_post: rule.auto_post === 1
   }
 }
 
@@ -72,6 +74,7 @@ export function formToRecurringParams(form: RecurringForm): Omit<Recurring, 'id'
     name: form.name.trim(),
     // 代码只对定投有意义（订阅无标的代码概念）
     symbol: form.type === 'dca' ? (form.symbol.trim() || null) : null,
+    auto_post: form.auto_post ? 1 : 0,
     amount,
     type: form.type,
     cycle_unit: form.cycle_unit,

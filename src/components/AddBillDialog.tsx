@@ -159,7 +159,9 @@ export function AddBillDialog() {
     focusId: string,
     fallbackSelector?: string
   ) => {
-    setError(firstMessage)
+    // v2.0.5：校验类错误**只**给「字段级红字 + toast」——用户明确要求去掉底部汇总条
+    //（字段下方已有红字，底部再来一条是重复噪音）。futureWarning（未来日期二次确认）
+    // 属于非字段级警告，另行 setError 渲染在按钮上方，必须可见。
     addToast('error', firstMessage)
     setTimeout(() => {
       const el = document.getElementById(focusId) ?? (fallbackSelector ? document.querySelector<HTMLElement>(fallbackSelector) : null)
@@ -276,6 +278,7 @@ export function AddBillDialog() {
     if (!isPresetMode && form.date > today && !futureWarning) {
       setFutureWarning(true)
       setError(t('⚠️ 日期晚于今天 — 确定这是一笔未来支出预登记吗？再次点击"保存"确认。'))
+      addToast('info', t('⚠️ 日期晚于今天 — 确定这是一笔未来支出预登记吗？再次点击"保存"确认。'))
       return
     }
 

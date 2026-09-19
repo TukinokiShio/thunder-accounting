@@ -16,6 +16,7 @@ import { createRoot } from 'react-dom/client'
 import { LanguageProvider } from '@/i18n/LanguageContext'
 import { RecurringFormDialog } from '@/components/Recurring/RecurringFormDialog'
 import { AddBillDialog } from '@/components/AddBillDialog'
+import { ToastContainer } from '@/components/Toast'
 import { useStore } from '@/store'
 import { runGate } from './recurring-driver'
 
@@ -48,6 +49,8 @@ function Harness() {
     <div className="aurora-shell" data-theme="light" style={{ minHeight: '100vh' }}>
       <RecurringFormDialog isOpen={recurringOpen} editing={null} onClose={() => setRecurringOpen(false)} />
       <AddBillDialog />
+      {/* 校验失败的 toast 必须真的渲染出来才可断言（v2.0.5） */}
+      <ToastContainer />
     </div>
   )
 }

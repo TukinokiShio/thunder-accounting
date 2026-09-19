@@ -231,7 +231,24 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
         </div>
       </div>
 
-      {/* 定投专属：仅在交易日执行（法定节假日与周末自动顺延，调休补班日正常执行） */}
+      {/* 到期自动入账：开启后到期期次在打开应用时自动落账，不再逐笔确认（v2.0.5） */}
+      <div className="flex items-start gap-2">
+        <input
+          id={`${idPrefix}-auto-post`}
+          type="checkbox"
+          checked={form.auto_post}
+          onChange={(e) => onChange({ auto_post: e.target.checked })}
+          className="h-4 w-4 mt-0.5 shrink-0 accent-[var(--accent)]"
+        />
+        <div className="min-w-0">
+          <label htmlFor={`${idPrefix}-auto-post`} className="text-sm text-gray-700 dark:text-gray-300 select-none">
+            {t('到期自动入账（不再逐笔确认）')}
+          </label>
+          <p className="text-xs text-gray-400 mt-0.5">{t('开启后：到期时自动按上述金额记账，账单仍可编辑或删除')}</p>
+        </div>
+      </div>
+
+      {/* 定投专属：仅在交易日执行（法定节假日与周末自动顺延） */}
       {form.type === 'dca' && (
         <div className="flex items-center gap-2">
           <input

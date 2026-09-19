@@ -19,6 +19,8 @@
  *   R8 负对照：禁掉宽度规则必须复现塌缩（否则 R1 是不可能失败的假断言）
  *   R9 漏填时校验反馈**可见**（汇总提示在视口内 + 字段级红字 + aria-invalid）
  *   R10 定投「代码」字段可自由输入
+ *   R11s 源码：未来日期二次确认警告路径保留（行为级构造成本高，改用源码断言兜回归；如实记录）
+ *   R12 表单含「到期自动入账」开关（每项目可操作）
  *
  * 用法：
  *   node scripts/verify-recurring-dialog.cjs
@@ -97,6 +99,32 @@ function staticChecks(root) {
     threshold: '存在 `.aurora-shell .recurring-form-dialog { … width: min(…) }`'
   })
   const hasCheckboxExclusion = /\.aurora-shell\s+input:not\(\[type='checkbox'\]\)/.test(css)
+  const formSrc = (() => {
+    const p = path.join(root, 'src', 'components', 'Recurring', 'RecurringFormFields.tsx')
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''
+  })()
+  const billSrc = (() => {
+    const p = path.join(root, 'src', 'components', 'AddBillDialog.tsx')
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''
+  })()
+  // R11s：v2.0.5 去掉了「校验类」底部汇总条，但**未来日期二次确认**属非字段级警告，必须保留可见路径。
+  // 行为级构造需要真实驱动 react-select + 自定义日期选择器（成本高且脆弱），暂以源码断言兜住回归。
+  const keepsFutureWarning = /setFutureWarning\(true\)/.test(billSrc) && /futureWarning/.test(billSrc) && /add-bill-dialog-error/.test(billSrc)
+  out.push({
+    id: 'R11s',
+    title: '源码：未来日期二次确认警告路径保留（非字段级警告不得被一并删掉）',
+    pass: keepsFutureWarning,
+    actual: keepsFutureWarning ? '命中 setFutureWarning(true) + futureWarning 渲染' : '未命中（警告路径疑似被删）',
+    threshold: 'AddBillDialog.tsx 同时含 setFutureWarning(true) 与底部警告渲染'
+  })
+  const hasAutoPost = /auto_post/.test(formSrc) && /到期自动入账/.test(formSrc)
+  out.push({
+    id: 'R12',
+    title: '表单源码：存在「到期自动入账」开关（v2.0.5 每项目可操作）',
+    pass: hasAutoPost,
+    actual: hasAutoPost ? '命中 auto_post + 到期自动入账' : '未命中',
+    threshold: 'RecurringFormFields.tsx 同时含 auto_post 绑定与「到期自动入账」文案'
+  })
   out.push({
     id: 'R2s',
     title: 'index.css 源码：全局 input 规则排除了 checkbox/radio',
@@ -117,7 +145,7 @@ function printReport(report, sourceChecks) {
   log('')
   log('── 断言 ─────────────────────────────────────────────────────────')
   const all = [...report.checks, ...sourceChecks]
-  const order = ['R1', 'R1s', 'R2', 'R2s', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10']
+  const order = ['R1', 'R1s', 'R2', 'R2s', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11s', 'R12']
   all.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
   for (const c of all) {
     log(`${c.pass ? 'PASS' : 'FAIL'}  ${pad(c.id, 4)} ${c.title}`)

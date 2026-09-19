@@ -128,11 +128,60 @@ export function computeDueWindow(
   let next = cursor
   for (let i = 0; i < MAX_ADVANCE_STEPS; i++) {
     next = advanceDate(cursor, rule.cycle_unit as CycleUnit, rule.cycle_interval, anchor)
-    dueDates.push(adjustFor(rule, cursor))
+    // ⚠ 交易日顺延后必须**去重**：日周期/周周期跨周末时，多期日历日期可能顺延到同一个交易日
+    //（实测：09-19 六、09-20 日、09-21 一 全部落到 09-21）—— 不去重会同一交易日重复记账多笔。
+    const actual = adjustFor(rule, cursor)
+    if (dueDates[dueDates.length - 1] !== actual) dueDates.push(actual)
     if (next > today) break
     cursor = next
   }
   return { dueDates, nextDateAfter: next }
+}
+
+/**
+ * 自动入账计划（v2.0.5）：筛出「已开启自动入账、未暂停、已到期」的规则，并给出每笔要落的账。
+ * 纯函数、无副作用 —— 页面只负责把计划写进库；幂等性由「落账后推进 next_date」保证
+ * （推进后再次调用 dueDates 为空，不会重复记账）。
+ */
+export interface AutoPostItem {
+  ruleId: number
+  name: string
+  symbol: string | null
+  amount: number
+  category1: string
+  category2: string
+  note: string
+  payment_platform: string | null
+  fund_account: string | null
+  dueDates: string[]
+  nextDateAfter: string
+}
+
+export function planAutoPost(
+  rules: Array<RecurringLike & { id: number; name: string; amount: number; category1: string; category2?: string | null; note?: string | null; payment_platform?: string | null; fund_account?: string | null; symbol?: string | null; auto_post?: number }>,
+  today: string,
+  anchorDayOf: (date: string) => number
+): AutoPostItem[] {
+  const out: AutoPostItem[] = []
+  for (const rule of rules) {
+    if (rule.paused || rule.auto_post !== 1) continue
+    const win = computeDueWindow(rule, today, anchorDayOf(rule.next_date))
+    if (win.dueDates.length === 0) continue
+    out.push({
+      ruleId: rule.id,
+      name: rule.name,
+      symbol: rule.symbol ?? null,
+      amount: rule.amount,
+      category1: rule.category1,
+      category2: rule.category2 || rule.category1,
+      note: rule.note || '',
+      payment_platform: rule.payment_platform ?? null,
+      fund_account: rule.fund_account ?? null,
+      dueDates: win.dueDates,
+      nextDateAfter: win.nextDateAfter
+    })
+  }
+  return out
 }
 
 /** 未来 N 天内将要发生的期次日期（不含今天之前；返回**交易日顺延后**的实际发生日），用于汇总卡「未来 30 天待发生」 */
@@ -150,7 +199,10 @@ export function upcomingOccurrences(
   let cursor = rule.next_date
   for (let i = 0; i < MAX_ADVANCE_STEPS; i++) {
     if (cursor > limitStr) break
-    if (cursor >= today) out.push(adjustFor(rule, cursor))
+    if (cursor >= today) {
+      const actual = adjustFor(rule, cursor)
+      if (out[out.length - 1] !== actual) out.push(actual)
+    }
     cursor = advanceDate(cursor, rule.cycle_unit as CycleUnit, rule.cycle_interval, anchor)
   }
   return out

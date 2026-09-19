@@ -63,8 +63,9 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
   const reportValidationFailure = (errors: RecurringFieldKey[]) => {
     const map = recurringErrorMap(errors, t)
     const first = firstRecurringErrorMessage(errors, t)
+    // v2.0.5：校验类错误只给「字段级红字 + toast」，不再渲染底部汇总条（用户要求）
     setFieldErrors(map)
-    setError(first)
+    setError('')
     addToast('error', first)
     const firstKey = errors[0]
     const idMap: Record<RecurringFieldKey, string> = {
