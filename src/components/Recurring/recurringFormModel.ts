@@ -17,6 +17,7 @@ export type RecurringFormPatch = Partial<RecurringForm>
 export function emptyRecurringForm(type: 'subscription' | 'dca' = 'subscription'): RecurringForm {
   return {
     name: '',
+    symbol: '',
     amount: '',
     type,
     cycle_unit: 'month',
@@ -35,6 +36,7 @@ export function emptyRecurringForm(type: 'subscription' | 'dca' = 'subscription'
 export function ruleToForm(rule: Recurring): RecurringForm {
   return {
     name: rule.name,
+    symbol: rule.symbol || '',
     amount: String(rule.amount),
     type: rule.type,
     cycle_unit: rule.cycle_unit,
@@ -68,6 +70,8 @@ export function formToRecurringParams(form: RecurringForm): Omit<Recurring, 'id'
   const amount = Math.round(parseFloat(form.amount) * 100) / 100
   return {
     name: form.name.trim(),
+    // 代码只对定投有意义（订阅无标的代码概念）
+    symbol: form.type === 'dca' ? (form.symbol.trim() || null) : null,
     amount,
     type: form.type,
     cycle_unit: form.cycle_unit,

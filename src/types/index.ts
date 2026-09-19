@@ -40,12 +40,16 @@ export interface Recurring {
   paused: number
   /** v2.0.1：仅在交易日执行（定投专属；周末自动顺延到下一交易日）。0=否 1=是 */
   trade_day_only: number
+  /** v2.0.4：标的代码（定投选填，如 040046；订阅不适用） */
+  symbol?: string | null
   created_at: string
 }
 
 /** 周期支出规则表单（新增/编辑共用，金额与间隔用 string 方便输入框双向绑定） */
 export interface RecurringForm {
   name: string
+  /** v2.0.4：标的代码（定投选填） */
+  symbol: string
   amount: string
   type: 'subscription' | 'dca'
   cycle_unit: 'day' | 'week' | 'month' | 'year'

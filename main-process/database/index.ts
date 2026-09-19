@@ -345,6 +345,7 @@ function ensureRecurringsSchema(): void {
       note TEXT,
       paused INTEGER NOT NULL DEFAULT 0,
       trade_day_only INTEGER NOT NULL DEFAULT 0,
+      symbol TEXT,
       cloud_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -371,6 +372,12 @@ function ensureRecurringsSchema(): void {
   } catch (e) {
     if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 recurrings.trade_day_only 列）：', e)
   }
+  // v2.0.4：标的代码（定投选填）；老库增量补列
+  try {
+    db.run('ALTER TABLE recurrings ADD COLUMN symbol TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 recurrings.symbol 列）：', e)
+  }
   db.run('CREATE INDEX IF NOT EXISTS idx_bills_recurring_id ON bills(recurring_id) WHERE recurring_id IS NOT NULL')
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurrings_cloud_id ON recurrings(cloud_id) WHERE cloud_id IS NOT NULL')
 }
@@ -392,6 +399,8 @@ export interface RecurringRow {
   note: string | null
   paused: number
   trade_day_only: number
+  /** v2.0.4：标的代码（定投选填） */
+  symbol?: string | null
   cloud_id?: string | null
   created_at: string
   updated_at: string
@@ -411,6 +420,7 @@ export interface AddRecurringParams {
   note?: string | null
   paused?: number
   trade_day_only?: number
+  symbol?: string | null
 }
 
 function queryAllRecurring(sql: string, params?: Record<string, string | number | null>): RecurringRow[] {
@@ -433,8 +443,8 @@ export function getRecurrings(): RecurringRow[] {
 /** 新增周期支出规则，返回写入后的完整行。注意时序：先取 rowid 再 saveDb（见 runStmt 注释） */
 export function addRecurring(params: AddRecurringParams): RecurringRow {
   const id = runStmt(`
-    INSERT INTO recurrings (name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, trade_day_only)
-    VALUES (@name, @amount, @type, @cycle_unit, @cycle_interval, @next_date, @category1, @category2, @payment_platform, @fund_account, @note, @paused, @trade_day_only)
+    INSERT INTO recurrings (name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, trade_day_only, symbol)
+    VALUES (@name, @amount, @type, @cycle_unit, @cycle_interval, @next_date, @category1, @category2, @payment_platform, @fund_account, @note, @paused, @trade_day_only, @symbol)
   `, {
     name: params.name,
     amount: params.amount,
@@ -448,7 +458,8 @@ export function addRecurring(params: AddRecurringParams): RecurringRow {
     fund_account: params.fund_account ?? null,
     note: params.note ?? null,
     paused: params.paused ?? 0,
-    trade_day_only: params.trade_day_only ?? 0
+    trade_day_only: params.trade_day_only ?? 0,
+    symbol: params.symbol ?? null
   })
   const rows = queryAllRecurring('SELECT * FROM recurrings WHERE id = @id', { id })
   if (!rows.length) throw new Error(`周期支出规则写入后查询失败 (id=${id})`)
@@ -473,6 +484,7 @@ export function updateRecurring(id: number, params: Partial<AddRecurringParams>)
   if (params.note !== undefined) { fields.push('note = @note'); values.note = params.note }
   if (params.paused !== undefined) { fields.push('paused = @paused'); values.paused = params.paused }
   if (params.trade_day_only !== undefined) { fields.push('trade_day_only = @trade_day_only'); values.trade_day_only = params.trade_day_only }
+  if (params.symbol !== undefined) { fields.push('symbol = @symbol'); values.symbol = params.symbol }
 
   if (fields.length > 0) {
     runStmt(`UPDATE recurrings SET ${fields.join(', ')}, updated_at = datetime('now','localtime') WHERE id = @id`, values)
@@ -987,6 +999,8 @@ export interface CloudRecurringRow {
   note?: string | null
   paused?: number
   trade_day_only?: number
+  /** v2.0.4：标的代码（定投选填） */
+  symbol?: string | null
   created_at: string
   updated_at: string
   _id?: string
@@ -1004,14 +1018,14 @@ export function insertCloudRecurrings(rows: CloudRecurringRow[]): void {
       const localUpdated = String(existing[0].values[0][1] || '')
       if ((r.updated_at || '') > localUpdated) {
         db.run(
-          'UPDATE recurrings SET name=?, amount=?, type=?, cycle_unit=?, cycle_interval=?, next_date=?, category1=?, category2=?, payment_platform=?, fund_account=?, note=?, paused=?, trade_day_only=?, created_at=?, updated_at=? WHERE cloud_id=?',
-          [r.name, r.amount, r.type || 'subscription', r.cycle_unit || 'month', r.cycle_interval ?? 1, r.next_date, r.category1 || '', r.category2 ?? null, r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null, r.paused ?? 0, r.trade_day_only ?? 0, r.created_at || '', r.updated_at || '', r._id]
+          'UPDATE recurrings SET name=?, amount=?, type=?, cycle_unit=?, cycle_interval=?, next_date=?, category1=?, category2=?, payment_platform=?, fund_account=?, note=?, paused=?, trade_day_only=?, symbol=?, created_at=?, updated_at=? WHERE cloud_id=?',
+          [r.name, r.amount, r.type || 'subscription', r.cycle_unit || 'month', r.cycle_interval ?? 1, r.next_date, r.category1 || '', r.category2 ?? null, r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null, r.paused ?? 0, r.trade_day_only ?? 0, r.symbol ?? null, r.created_at || '', r.updated_at || '', r._id]
         )
       }
     } else {
       db.run(
-        'INSERT OR IGNORE INTO recurrings (cloud_id, name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, trade_day_only, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [r._id, r.name, r.amount, r.type || 'subscription', r.cycle_unit || 'month', r.cycle_interval ?? 1, r.next_date, r.category1 || '', r.category2 ?? null, r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null, r.paused ?? 0, r.trade_day_only ?? 0, r.created_at || '', r.updated_at || '']
+        'INSERT OR IGNORE INTO recurrings (cloud_id, name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, trade_day_only, symbol, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [r._id, r.name, r.amount, r.type || 'subscription', r.cycle_unit || 'month', r.cycle_interval ?? 1, r.next_date, r.category1 || '', r.category2 ?? null, r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null, r.paused ?? 0, r.trade_day_only ?? 0, r.symbol ?? null, r.created_at || '', r.updated_at || '']
       )
     }
   }

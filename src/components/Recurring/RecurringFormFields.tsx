@@ -20,10 +20,32 @@ export function firstRecurringErrorMessage(errors: RecurringFieldKey[], t: (k: s
   return t('请填写入账分类')
 }
 
+/** 字段码 → 逐字段文案（表单里就地显示用） */
+export function recurringErrorMap(errors: RecurringFieldKey[], t: (k: string) => string): Partial<Record<RecurringFieldKey, string>> {
+  const out: Partial<Record<RecurringFieldKey, string>> = {}
+  if (errors.includes('name')) out.name = t('请填写名称')
+  if (errors.includes('amount')) out.amount = t('请输入有效的金额')
+  if (errors.includes('next_date')) out.next_date = t('请选择下一期日期')
+  if (errors.includes('category1')) out.category1 = t('请填写入账分类')
+  return out
+}
+
+/** 就地错误提示（红字 + role=alert，屏幕阅读器与视觉同时可见） */
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null
+  return (
+    <p id={id} role="alert" className="text-xs text-red-500 mt-1">
+      {message}
+    </p>
+  )
+}
+
 interface Props {
   form: RecurringForm
   onChange: (patch: Partial<RecurringForm>) => void
   idPrefix: string
+  /** v2.0.4：字段级错误文案（就地显示 + aria-invalid） */
+  errors?: Partial<Record<RecurringFieldKey, string>>
 }
 
 /**
@@ -75,7 +97,7 @@ function OptionInput(props: {
   )
 }
 
-export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
+export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props) {
   const { t } = useLanguage()
 
   const cycleUnitLabel = { day: t('天'), week: t('周'), month: t('月'), year: t('年') }
@@ -94,12 +116,35 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
           maxLength={100}
           autoComplete="off"
           spellCheck={false}
-          placeholder={form.type === 'dca' ? t('如：华安纳斯达克ETF联接A') : t('如：Codex Plus')}
+          aria-invalid={errors?.name ? true : undefined}
+          aria-describedby={errors?.name ? `${idPrefix}-name-error` : undefined}
+          placeholder={form.type === 'dca' ? t('如：华安纳斯达克100ETF联接A') : t('如：Codex Plus')}
           value={form.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          className="input-field"
+          className={`input-field${errors?.name ? ' border-red-400' : ''}`}
         />
+        <FieldError id={`${idPrefix}-name-error`} message={errors?.name} />
       </div>
+
+      {/* 标的代码（定投选填，如 040046）：订阅无此概念，不显示 */}
+      {form.type === 'dca' && (
+        <div>
+          <label htmlFor={`${idPrefix}-symbol`} className="block text-sm font-medium text-gray-700 mb-1">
+            {t('代码')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
+          </label>
+          <input
+            id={`${idPrefix}-symbol`}
+            type="text"
+            maxLength={20}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={t('如：040046')}
+            value={form.symbol}
+            onChange={(e) => onChange({ symbol: e.target.value })}
+            className="input-field font-mono"
+          />
+        </div>
+      )}
 
       {/* 类型：订阅 / 定投 */}
       <div>
@@ -137,11 +182,14 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
             min="0.01"
             max="99999999.99"
             placeholder="0.00"
+            aria-invalid={errors?.amount ? true : undefined}
+            aria-describedby={errors?.amount ? `${idPrefix}-amount-error` : undefined}
             value={form.amount}
             onChange={(e) => onChange({ amount: e.target.value })}
-            className="input-field pl-8 text-lg font-mono font-medium"
+            className={`input-field pl-8 text-lg font-mono font-medium${errors?.amount ? ' border-red-400' : ''}`}
           />
         </div>
+        <FieldError id={`${idPrefix}-amount-error`} message={errors?.amount} />
       </div>
 
       {/* 周期：单位 + 间隔（每 N 天/周/月/年）。
@@ -207,6 +255,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
           value={form.next_date}
           onChange={(date) => onChange({ next_date: date })}
         />
+        <FieldError id={`${idPrefix}-next-date-error`} message={errors?.next_date} />
       </div>
 
       {/* 分类（生成账单归入；默认按类型预填，可改） */}
@@ -219,6 +268,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
           placeholder={t('如：其他杂项 / 金融保险')}
           onChange={(v) => onChange({ category1: v })}
         />
+        <FieldError id={`${idPrefix}-category-error`} message={errors?.category1} />
       </div>
 
       {/* 支付平台（选填）：在哪笔交易发生 */}

@@ -10,8 +10,8 @@ import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { modalPortalScope } from '@/utils/modalScope'
-import { RecurringFormFields, firstRecurringErrorMessage } from './RecurringFormFields'
-import { emptyRecurringForm, ruleToForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch } from './recurringFormModel'
+import { RecurringFormFields, firstRecurringErrorMessage, recurringErrorMap } from './RecurringFormFields'
+import { emptyRecurringForm, ruleToForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch, type RecurringFieldKey } from './recurringFormModel'
 import { defaultCategoryFor } from '@/data/recurringOptions'
 import type { Recurring, RecurringForm } from '@/types'
 
@@ -32,12 +32,14 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
   const [form, setForm] = useState<RecurringForm>(() => emptyRecurringForm())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<RecurringFieldKey, string>>>({})
   const nameInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!isOpen) return
     setForm(editing ? ruleToForm(editing) : emptyRecurringForm())
     setError('')
+    setFieldErrors({})
     nameInputRef.current?.focus()
   }, [isOpen, editing])
 
@@ -57,11 +59,34 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
     onClose()
   }
 
+  /** v2.0.4：校验失败时把「字段级错误 + 汇总 + toast + 聚焦」一起给出，避免"保存不了但没提示" */
+  const reportValidationFailure = (errors: RecurringFieldKey[]) => {
+    const map = recurringErrorMap(errors, t)
+    const first = firstRecurringErrorMessage(errors, t)
+    setFieldErrors(map)
+    setError(first)
+    addToast('error', first)
+    const firstKey = errors[0]
+    const idMap: Record<RecurringFieldKey, string> = {
+      name: 'recurring-form-name',
+      amount: 'recurring-form-amount',
+      next_date: 'recurring-form-next-date',
+      category1: 'recurring-form-category'
+    }
+    // 等一帧让错误态渲染出来，再滚动/聚焦到首个问题字段
+    setTimeout(() => {
+      const el = document.getElementById(idMap[firstKey])
+      el?.scrollIntoView({ block: 'center' })
+      ;(el as HTMLElement | null)?.focus?.()
+    }, 0)
+  }
+
   const handleSubmit = async () => {
     setError('')
+    setFieldErrors({})
     const errors = validateRecurringForm(form)
     if (errors.length > 0) {
-      setError(firstRecurringErrorMessage(errors, t))
+      reportValidationFailure(errors)
       return
     }
 
@@ -130,14 +155,18 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
 
         <form onSubmit={(e) => { e.preventDefault(); if (!submitting) void handleSubmit() }}>
           <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
-            <RecurringFormFields form={form} onChange={patchForm} idPrefix="recurring-form" />
+            <RecurringFormFields form={form} onChange={patchForm} idPrefix="recurring-form" errors={fieldErrors} />
+          </div>
 
-            {error && (
+          {/* 汇总错误固定在按钮上方（**不随内容滚动**）——v2.0.4 前它挂在可滚动内容底部，
+              用户没滚到底就看不到，表现为"保存不了但没有任何提示"。 */}
+          {error && (
+            <div className="px-6 pb-1">
               <p id="recurring-form-dialog-error" role="alert" aria-live="assertive" className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">
                 {error}
               </p>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
             <button type="button" onClick={handleClose} className="btn-secondary text-sm">

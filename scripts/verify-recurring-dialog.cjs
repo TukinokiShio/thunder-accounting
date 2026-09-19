@@ -17,6 +17,8 @@
  *   R6 记一笔（周期模块）内容区无横向溢出
  *   R7 周期规则弹窗内容区无横向溢出
  *   R8 负对照：禁掉宽度规则必须复现塌缩（否则 R1 是不可能失败的假断言）
+ *   R9 漏填时校验反馈**可见**（汇总提示在视口内 + 字段级红字 + aria-invalid）
+ *   R10 定投「代码」字段可自由输入
  *
  * 用法：
  *   node scripts/verify-recurring-dialog.cjs
@@ -115,7 +117,7 @@ function printReport(report, sourceChecks) {
   log('')
   log('── 断言 ─────────────────────────────────────────────────────────')
   const all = [...report.checks, ...sourceChecks]
-  const order = ['R1', 'R1s', 'R2', 'R2s', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8']
+  const order = ['R1', 'R1s', 'R2', 'R2s', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10']
   all.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
   for (const c of all) {
     log(`${c.pass ? 'PASS' : 'FAIL'}  ${pad(c.id, 4)} ${c.title}`)

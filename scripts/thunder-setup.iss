@@ -3,7 +3,7 @@
 ; 静默安装: Setup.exe /VERYSILENT /NOCANCEL
 
 #define AppName "雷霆记账"
-#define AppVersion "2.0.3"
+#define AppVersion "2.0.4"
 #define AppPublisher "TukinokiShio"
 #define AppURL "https://github.com/TukinokiShio/thunder-accounting"
 #define AppExeName "雷霆记账.exe"

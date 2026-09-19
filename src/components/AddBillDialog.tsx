@@ -7,8 +7,8 @@ import { formatLocalDate } from '@/utils/date'
 import { modalPortalScope } from '@/utils/modalScope'
 import { CategorySelect } from './CategorySelect'
 import { AddBillDatePicker } from './AddBillDatePicker'
-import { RecurringFormFields, firstRecurringErrorMessage } from './Recurring/RecurringFormFields'
-import { emptyRecurringForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch } from './Recurring/recurringFormModel'
+import { RecurringFormFields, firstRecurringErrorMessage, recurringErrorMap } from './Recurring/RecurringFormFields'
+import { emptyRecurringForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch, type RecurringFieldKey } from './Recurring/recurringFormModel'
 import { defaultCategoryFor } from '@/data/recurringOptions'
 import type { AddBillForm, RecurringForm } from '@/types'
 
@@ -49,6 +49,10 @@ export function AddBillDialog() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [futureWarning, setFutureWarning] = useState(false)
+  /** v2.0.4：单笔模式的字段级错误（就地红字 + aria-invalid） */
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<'amount' | 'category1' | 'category2' | 'date', string>>>({})
+  /** v2.0.4：周期模块的字段级错误 */
+  const [recFieldErrors, setRecFieldErrors] = useState<Partial<Record<RecurringFieldKey, string>>>({})
   // v2.0：支出侧双模块。「单笔支出」= 既有流程；「周期支出」= 登记周期规则（不即时落账）。
   // 仅在「新增 + 支出 + 非一键入账预填」时可见；编辑/收入/预填态无此切换。
   const [expenseModule, setExpenseModule] = useState<'single' | 'recurring'>('single')
@@ -118,6 +122,8 @@ export function AddBillDialog() {
     setExpenseModule('single')
     setRecForm(emptyRecurringForm())
     setError('')
+    setFieldErrors({})
+    setRecFieldErrors({})
     setFutureWarning(false)
   }, [])
 
@@ -140,14 +146,40 @@ export function AddBillDialog() {
     closeAddDialog()
   }
 
+  /**
+   * v2.0.4 校验失败统一出口：**四件事一起做**，不再只写一行藏在下方的文案 ——
+   * ① 字段级红字（就地可见）② 汇总文案（固定在按钮上方）③ toast（跨滚动位置可见）
+   * ④ 滚动 + 聚焦到首个问题字段。
+   * 背景：2026-09-19 用户反馈「漏填后保存不了、没有任何提醒」——根因是错误文案挂在
+   * 可滚动内容底部，用户没滚到底就看不到。
+   */
+  const reportValidationFailure = (
+    fieldMap: Record<string, string | undefined>,
+    firstMessage: string,
+    focusId: string,
+    fallbackSelector?: string
+  ) => {
+    setError(firstMessage)
+    addToast('error', firstMessage)
+    setTimeout(() => {
+      const el = document.getElementById(focusId) ?? (fallbackSelector ? document.querySelector<HTMLElement>(fallbackSelector) : null)
+      el?.scrollIntoView({ block: 'center' })
+      el?.focus?.()
+    }, 0)
+  }
+
   /** 周期支出模块提交：登记规则（不即时落账），规则在到期后由页面/提醒引导入账 */
   const handleRecurringSubmit = async () => {
     setError('')
     const errors = validateRecurringForm(recForm)
     if (errors.length > 0) {
-      setError(firstRecurringErrorMessage(errors, t))
+      const map = recurringErrorMap(errors, t)
+      setRecFieldErrors(map)
+      const focusId = { name: 'add-bill-rec-name', amount: 'add-bill-rec-amount', next_date: 'add-bill-rec-next-date', category1: 'add-bill-rec-category' }[errors[0]]
+      reportValidationFailure(map, firstRecurringErrorMessage(errors, t), focusId)
       return
     }
+    setRecFieldErrors({})
 
     setSubmitting(true)
     try {
@@ -208,34 +240,36 @@ export function AddBillDialog() {
     setError('')
     setFutureWarning(false)
 
-    // 第一步：表单校验
-    const amount = parseFloat(form.amount)
-    if (isNaN(amount) || amount <= 0) {
-      setError(t('请输入有效的金额'))
-      return
-    }
-    if (amount > 99999999.99) {
-      setError(t('金额不能超过 99,999,999.99'))
-      return
-    }
-    if (!form.category1) {
-      setError(t('请选择一级分类'))
-      return
-    }
-    if (!form.category2 && !isPresetMode) {
-      setError(t('请选择二级分类'))
-      return
-    }
-    if (!form.date) {
-      setError(t('请选择日期'))
-      return
-    }
-
-    // 周期支出模块：登记规则，不走账单校验的二级分类/未来日期分支
+    // ⚠ 顺序纪律（v2.0.4 修正）：**周期模块必须在单笔校验之前分流**。
+    // 此前单笔校验（金额/分类/日期）排在模块分支之前 —— 在周期模块里点保存时，
+    // 校验的是那张空的单笔表单，报出来的错误永远不对路（用户感受：「保存不了，也没提示」）。
     if (showModuleSwitch && expenseModule === 'recurring') {
       await handleRecurringSubmit()
       return
     }
+
+    // 第一步：表单校验（v2.0.4：一次性算出全部字段错误，逐字段就地显示 + 聚焦首个问题字段）
+    const amount = parseFloat(form.amount)
+    const nextFieldErrors: Partial<Record<'amount' | 'category1' | 'category2' | 'date', string>> = {}
+    if (isNaN(amount) || amount <= 0) nextFieldErrors.amount = t('请输入有效的金额')
+    else if (amount > 99999999.99) nextFieldErrors.amount = t('金额不能超过 99,999,999.99')
+    if (!form.category1) nextFieldErrors.category1 = t('请选择一级分类')
+    else if (!form.category2 && !isPresetMode) nextFieldErrors.category2 = t('请选择二级分类')
+    if (!form.date) nextFieldErrors.date = t('请选择日期')
+
+    const firstInvalid = (['amount', 'category1', 'category2', 'date'] as const).find((k) => nextFieldErrors[k])
+    if (firstInvalid) {
+      setFieldErrors(nextFieldErrors)
+      const focusId = firstInvalid === 'amount' ? 'add-bill-amount' : firstInvalid === 'date' ? 'add-bill-date' : 'add-bill-category-label'
+      reportValidationFailure(
+        nextFieldErrors,
+        nextFieldErrors[firstInvalid] as string,
+        focusId,
+        firstInvalid === 'category1' || firstInvalid === 'category2' ? '.add-bill-category-select input' : undefined
+      )
+      return
+    }
+    setFieldErrors({})
 
     // 第二步：未来日期确认（允许提交但需用户二次确认；一键入账预填模式跳过）
     const today = formatLocalDate()
@@ -433,7 +467,7 @@ export function AddBillDialog() {
 
           {showModuleSwitch && expenseModule === 'recurring' ? (
             /* 周期支出模块：登记规则（金额/分类/日期等语义见 RecurringFormFields） */
-            <RecurringFormFields form={recForm} onChange={patchRecForm} idPrefix="add-bill-rec" />
+            <RecurringFormFields form={recForm} onChange={patchRecForm} idPrefix="add-bill-rec" errors={recFieldErrors} />
           ) : (
           <>
             {/* 一键入账预填横幅：到期规则 → 按模板入账 */}
@@ -464,11 +498,16 @@ export function AddBillDialog() {
                   min="0.01"
                   max="99999999.99"
                   placeholder="0.00"
+                  aria-invalid={fieldErrors.amount ? true : undefined}
+                  aria-describedby={fieldErrors.amount ? 'add-bill-amount-error' : undefined}
                   value={form.amount}
                   onChange={(e) => setForm(prev => ({ ...prev, amount: e.target.value }))}
-                  className="input-field pl-8 text-lg font-mono font-medium"
+                  className={`input-field pl-8 text-lg font-mono font-medium${fieldErrors.amount ? ' border-red-400' : ''}`}
                 />
               </div>
+              {fieldErrors.amount && (
+                <p id="add-bill-amount-error" role="alert" className="text-xs text-red-500 mt-1">{fieldErrors.amount}</p>
+              )}
             </div>
 
             {/* 分类选择器 */}
@@ -483,6 +522,11 @@ export function AddBillDialog() {
                   onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
                 />
               </div>
+              {(fieldErrors.category1 || fieldErrors.category2) && (
+                <p id="add-bill-category-error" role="alert" className="text-xs text-red-500 mt-1">
+                  {fieldErrors.category1 || fieldErrors.category2}
+                </p>
+              )}
             </div>
 
             {/* 日期选择（一键入账模式按期次自动分配，不可改；展示各期日期） */}
@@ -509,6 +553,9 @@ export function AddBillDialog() {
                   value={form.date}
                   onChange={(date) => setForm(prev => ({ ...prev, date }))}
                 />
+                {fieldErrors.date && (
+                  <p id="add-bill-date-error" role="alert" className="text-xs text-red-500 mt-1">{fieldErrors.date}</p>
+                )}
               </div>
             )}
 
@@ -530,17 +577,21 @@ export function AddBillDialog() {
           </>
           )}
 
-          {/* 错误提示 / 警告信息 */}
-          {error && (
-            <p id="add-bill-dialog-error" role="alert" aria-live="assertive" className={`text-sm rounded-lg px-3 py-2 ${
-              futureWarning
-                ? 'text-amber-600 bg-amber-50 border border-amber-200'
-                : 'text-red-500 bg-red-50'
-            }`}>
-              {error}
-            </p>
-          )}
           </div>
+
+          {/* 汇总错误/警告固定在按钮上方（**不随内容滚动**）：v2.0.4 前它挂在可滚动内容底部，
+              用户没滚到底就看不到，表现为「保存不了但没有任何提示」。 */}
+          {error && (
+            <div className="px-6 pt-3">
+              <p id="add-bill-dialog-error" role="alert" aria-live="assertive" className={`text-sm rounded-lg px-3 py-2 ${
+                futureWarning
+                  ? 'text-amber-600 bg-amber-50 border border-amber-200'
+                  : 'text-red-500 bg-red-50'
+              }`}>
+                {error}
+              </p>
+            </div>
+          )}
 
           {/* 底部操作栏：取消 + 保存 */}
           <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 add-bill-dialog-footer">

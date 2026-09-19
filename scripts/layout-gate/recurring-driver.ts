@@ -265,6 +265,44 @@ async function checkAddBillDialog(EXPECT: ReturnType<typeof thresholds>): Promis
     threshold: 'scrollWidth ≤ clientWidth + 1'
   })
 
+  // R9 校验反馈可见性（v2.0.4 缺陷：保存不了但没有任何提示）
+  // 判据按「可达性」标准：提示不仅要在 DOM 里，还要**在视口内**（用户没滚到底也得看见）
+  const nameInput = dialog.querySelector<HTMLInputElement>('#add-bill-rec-name')
+  const submitBtn = dialog.querySelector<HTMLButtonElement>('button[type="submit"]')
+  if (nameInput) typeInto(nameInput, '')
+  await sleep(50)
+  submitBtn?.click()
+  await sleep(300)
+  const summary = dialog.querySelector<HTMLElement>('#add-bill-dialog-error')
+  const sr = summary?.getBoundingClientRect() ?? null
+  const summaryInViewport =
+    !!sr && sr.width >= 1 && sr.height >= 1 && sr.top >= 0 && sr.bottom <= window.innerHeight && sr.left >= 0 && sr.right <= window.innerWidth
+  const nameInvalid = nameInput?.getAttribute('aria-invalid') === 'true'
+  const fieldLevel = !!dialog.querySelector('#add-bill-rec-name-error')
+  checks.push({
+    id: 'R9',
+    title: '漏填时校验反馈可见：汇总提示在视口内 + 字段级红字 + aria-invalid',
+    pass: summaryInViewport && nameInvalid && fieldLevel,
+    actual: `汇总区在视口内=${summaryInViewport}（rect=${sr ? `${sr.top.toFixed(0)}~${sr.bottom.toFixed(0)}px` : 'null'}）、aria-invalid=${nameInvalid}、字段级提示=${fieldLevel}`,
+    threshold: '三者同时成立（只看"存在"会漏掉"藏在滚动区底部看不见"）'
+  })
+
+  // R10 定投标的代码字段（v2.0.4）：可自由输入
+  const symbolInput = dialog.querySelector<HTMLInputElement>('#add-bill-rec-symbol')
+  let symbolOk = false
+  if (symbolInput) {
+    typeInto(symbolInput, '040046')
+    await sleep(50)
+    symbolOk = symbolInput.value === '040046'
+  }
+  checks.push({
+    id: 'R10',
+    title: '定投「代码」字段存在且可自由输入',
+    pass: !!symbolInput && symbolOk,
+    actual: symbolInput ? `输入 040046 后 value=${JSON.stringify(symbolInput.value)}` : '未找到 #add-bill-rec-symbol',
+    threshold: '存在该输入框且输入回显一致'
+  })
+
   return checks
 }
 

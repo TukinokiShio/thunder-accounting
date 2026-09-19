@@ -158,7 +158,8 @@ export function RecurringPage() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
               {rule.name}
-              {rule.paused && <span className="ml-2 text-xs text-gray-400">{t('已暂停')}</span>}
+              {rule.symbol ? <span className="ml-1.5 text-xs font-normal text-gray-400 font-mono">{rule.symbol}</span> : null}
+              {rule.paused === 1 && <span className="ml-2 text-xs text-gray-400">{t('已暂停')}</span>}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {cycleText} · {t('下次')} {nextActual}
@@ -284,6 +285,7 @@ export function RecurringPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                   {rule.name}
+                  {rule.symbol ? <span className="ml-1.5 text-xs font-normal text-gray-400 font-mono">{rule.symbol}</span> : null}
                   {win.dueDates.length > 1 && (
                     <span className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400">
                       {t('已漏 {n} 期').replace('{n}', String(win.dueDates.length))}
