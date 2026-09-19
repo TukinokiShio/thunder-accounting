@@ -7,6 +7,8 @@
  * 避免「1 月 31 日 → 2 月 28 日 → 3 月 28 日」的锚漂移。
  */
 
+import { nextTradingDay } from '@/data/tradingCalendar'
+
 export type CycleUnit = 'day' | 'week' | 'month' | 'year'
 
 /** 解析 YYYY-MM-DD 为本地日期分量（不做时区换算，账单日期一律按本地日历语义） */
@@ -73,28 +75,17 @@ export interface RecurringLike {
   cycle_interval: number
   next_date: string
   paused: number
-  /** v2.0.1：仅在交易日执行（周末顺延）。缺省按 0 处理（不调整） */
+  /** v2.0.1：仅在交易日执行（节假日/周末顺延）。缺省按 0 处理（不调整） */
   trade_day_only?: number
 }
 
 /**
- * 非交易日（周末）顺延到下一交易日：周六 → 下周一，周日 → 下周一。
- * ⚠ 只内置周末判断；法定节假日（春节/国庆等）无离线数据源，不做自动调整 ——
- * 已知限制：节假日到期的定投提醒会照常出现，用户可改日期或用「本期跳过」。
+ * 非交易日顺延到下一交易日（节假日 + 周末，含调休补班）。
+ * 数据源见 src/data/tradingCalendar.ts（2007-2026 官方公告；数据外年份退化为仅排除周末）。
  * 应用位置：展示与入账日期；周期推进基准仍用未调整的日历日期（与券商定投「顺延不改期」一致）。
  */
 export function adjustToTradingDay(date: string): string {
-  const { y, m, d } = parseLocalDate(date)
-  const dow = new Date(y, m - 1, d).getDay() // 0=Sun 6=Sat
-  if (dow === 6) {
-    const dt = new Date(y, m - 1, d + 2)
-    return formatYmd(dt.getFullYear(), dt.getMonth() + 1, dt.getDate())
-  }
-  if (dow === 0) {
-    const dt = new Date(y, m - 1, d + 1)
-    return formatYmd(dt.getFullYear(), dt.getMonth() + 1, dt.getDate())
-  }
-  return date
+  return nextTradingDay(date)
 }
 
 /** 按规则的 trade_day_only 标志调整日期（关闭时原样返回） */

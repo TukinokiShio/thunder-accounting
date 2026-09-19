@@ -160,7 +160,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
         </div>
       </div>
 
-      {/* 定投专属：仅在交易日执行（周末自动顺延到下一交易日；法定节假日暂不自动判断） */}
+      {/* 定投专属：仅在交易日执行（法定节假日与周末自动顺延，调休补班日正常执行） */}
       {form.type === 'dca' && (
         <div className="flex items-center gap-2">
           <input
@@ -171,7 +171,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
             className="h-4 w-4 shrink-0 accent-[var(--accent)]"
           />
           <label htmlFor={`${idPrefix}-trade-day`} className="text-sm text-gray-700 dark:text-gray-300 select-none">
-            {t('仅在交易日执行（周末自动顺延）')}
+            {t('仅在交易日执行（节假日与周末自动顺延）')}
           </label>
         </div>
       )}
