@@ -73,6 +73,33 @@ export interface RecurringLike {
   cycle_interval: number
   next_date: string
   paused: number
+  /** v2.0.1：仅在交易日执行（周末顺延）。缺省按 0 处理（不调整） */
+  trade_day_only?: number
+}
+
+/**
+ * 非交易日（周末）顺延到下一交易日：周六 → 下周一，周日 → 下周一。
+ * ⚠ 只内置周末判断；法定节假日（春节/国庆等）无离线数据源，不做自动调整 ——
+ * 已知限制：节假日到期的定投提醒会照常出现，用户可改日期或用「本期跳过」。
+ * 应用位置：展示与入账日期；周期推进基准仍用未调整的日历日期（与券商定投「顺延不改期」一致）。
+ */
+export function adjustToTradingDay(date: string): string {
+  const { y, m, d } = parseLocalDate(date)
+  const dow = new Date(y, m - 1, d).getDay() // 0=Sun 6=Sat
+  if (dow === 6) {
+    const dt = new Date(y, m - 1, d + 2)
+    return formatYmd(dt.getFullYear(), dt.getMonth() + 1, dt.getDate())
+  }
+  if (dow === 0) {
+    const dt = new Date(y, m - 1, d + 1)
+    return formatYmd(dt.getFullYear(), dt.getMonth() + 1, dt.getDate())
+  }
+  return date
+}
+
+/** 按规则的 trade_day_only 标志调整日期（关闭时原样返回） */
+function adjustFor(rule: RecurringLike, date: string): string {
+  return rule.trade_day_only ? adjustToTradingDay(date) : date
 }
 
 /** 是否到期：未暂停且下一期日期 ≤ 今天 */
@@ -84,15 +111,17 @@ export function isDue(rule: RecurringLike, today: string): boolean {
 const MAX_ADVANCE_STEPS = 366
 
 export interface DueWindow {
-  /** 待入账的各期日期（含当前 next_date；已按锚日对齐逐期推进） */
+  /** 待入账的各期日期（含当前 next_date；已按锚日对齐逐期推进 + 交易日顺延后的**实际发生日**） */
   dueDates: string[]
-  /** 全部到期期入账后的下一期 next_date */
+  /** 全部到期期入账后的下一期 next_date（日历日期，未做交易日调整） */
   nextDateAfter: string
 }
 
 /**
  * 计算某规则的「到期窗口」：从当前 next_date 起，逐期推进直到日期 > today。
- * 返回空窗口表示未到期。循环步数有硬上限，超过即截断（防御性，正常配置到不了）。
+ * 返回空窗口表示未到期。dueDates 为交易日顺延后的实际发生日；
+ * nextDateAfter 为日历日期（推进基准保持未调整，与券商定投「顺延不改期」一致）。
+ * 循环步数有硬上限，超过即截断（防御性，正常配置到不了）。
  */
 export function computeDueWindow(
   rule: RecurringLike,
@@ -108,14 +137,14 @@ export function computeDueWindow(
   let next = cursor
   for (let i = 0; i < MAX_ADVANCE_STEPS; i++) {
     next = advanceDate(cursor, rule.cycle_unit as CycleUnit, rule.cycle_interval, anchor)
-    dueDates.push(cursor)
+    dueDates.push(adjustFor(rule, cursor))
     if (next > today) break
     cursor = next
   }
   return { dueDates, nextDateAfter: next }
 }
 
-/** 未来 N 天内将要发生的期次日期（不含今天之前），用于汇总卡「未来 30 天待发生」 */
+/** 未来 N 天内将要发生的期次日期（不含今天之前；返回**交易日顺延后**的实际发生日），用于汇总卡「未来 30 天待发生」 */
 export function upcomingOccurrences(
   rule: RecurringLike,
   today: string,
@@ -130,7 +159,7 @@ export function upcomingOccurrences(
   let cursor = rule.next_date
   for (let i = 0; i < MAX_ADVANCE_STEPS; i++) {
     if (cursor > limitStr) break
-    if (cursor >= today) out.push(cursor)
+    if (cursor >= today) out.push(adjustFor(rule, cursor))
     cursor = advanceDate(cursor, rule.cycle_unit as CycleUnit, rule.cycle_interval, anchor)
   }
   return out

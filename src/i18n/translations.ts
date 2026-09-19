@@ -444,6 +444,8 @@ export const T: Record<string, string> = {
 
   // ── 周期支出（v2.0） ──
   '、': ', ',
+  '仅在交易日执行（周末自动顺延）': 'Trading days only (weekends roll to next trading day)',
+  '(非交易日顺延)': '(rolled to next trading day)',
   '微信': 'WeChat',
   '支付宝': 'Alipay',
   'Apple Pay': 'Apple Pay',

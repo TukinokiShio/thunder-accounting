@@ -15,7 +15,7 @@ import { Repeat, Plus, Pencil, Trash2, Pause, Play, ChevronDown, ChevronUp, Wall
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
-import { computeDueWindow, advanceDate, upcomingOccurrences, anchorDayOf } from '@/utils/recurringCycle'
+import { computeDueWindow, advanceDate, upcomingOccurrences, anchorDayOf, adjustToTradingDay } from '@/utils/recurringCycle'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { RecurringFormDialog } from '@/components/Recurring/RecurringFormDialog'
 import type { Bill, Recurring } from '@/types'
@@ -144,6 +144,8 @@ export function RecurringPage() {
       : rule.cycle_unit === 'month' ? t('月')
       : t('年')
     const cycleText = t('每 {n} {unit}').replace('{n}', String(rule.cycle_interval)).replace('{unit}', unitText)
+    // 「下次」展示实际发生日（仅交易日执行的规则，周末顺延后的日期）
+    const nextActual = rule.trade_day_only ? adjustToTradingDay(rule.next_date) : rule.next_date
     const isExpanded = expandedId === rule.id
     const history = historyBills.filter((b) => b.recurring_id === rule.id)
 
@@ -159,7 +161,8 @@ export function RecurringPage() {
               {rule.paused && <span className="ml-2 text-xs text-gray-400">{t('已暂停')}</span>}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {cycleText} · {t('下次')} {rule.next_date}
+              {cycleText} · {t('下次')} {nextActual}
+              {rule.trade_day_only === 1 ? ` ${t('(非交易日顺延)')}` : ''}
               {rule.payment_platform ? ` · ${t('支付平台')}${t('：')}${rule.payment_platform}` : ''}
               {rule.fund_account ? ` · ${t('资金账户')}${t('：')}${rule.fund_account}` : ''}
             </p>

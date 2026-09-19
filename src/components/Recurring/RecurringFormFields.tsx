@@ -121,29 +121,33 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
         </div>
       </div>
 
-      {/* 周期：单位 + 间隔（每 N 天/周/月/年） */}
+      {/* 周期：单位 + 间隔（每 N 天/周/月/年）。
+          ⚠ 布局：间隔输入框必须包在固定宽度容器里 —— .input-field 全局 width:100%
+          会盖掉输入框自身的 w-20（index.css:207），导致单位按钮被挤出可视区。 */}
       <div>
         <span id={`${idPrefix}-cycle-label`} className="block text-sm font-medium text-gray-700 mb-1">{t('周期')}</span>
         <div role="group" aria-labelledby={`${idPrefix}-cycle-label`} className="flex items-center gap-2">
           <span className="text-sm text-gray-500 shrink-0">{t('每')}</span>
-          <input
-            id={`${idPrefix}-interval`}
-            type="number"
-            min="1"
-            max="999"
-            value={form.cycle_interval}
-            onChange={(e) => onChange({ cycle_interval: e.target.value })}
-            className="input-field w-20 text-center"
-            aria-label={t('周期间隔')}
-          />
-          <div className="flex items-center gap-1 flex-1 min-w-0">
+          <div className="w-20 shrink-0">
+            <input
+              id={`${idPrefix}-interval`}
+              type="number"
+              min="1"
+              max="999"
+              value={form.cycle_interval}
+              onChange={(e) => onChange({ cycle_interval: e.target.value })}
+              className="input-field text-center"
+              aria-label={t('周期间隔')}
+            />
+          </div>
+          <div className="flex-1 min-w-0 grid grid-cols-4 gap-1">
             {(['day', 'week', 'month', 'year'] as const).map((unit) => (
               <button
                 key={unit}
                 type="button"
                 aria-pressed={form.cycle_unit === unit}
                 onClick={() => onChange({ cycle_unit: unit })}
-                className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
+                className={`py-1.5 rounded-md text-sm font-medium transition-colors min-w-0
                   ${form.cycle_unit === unit
                     ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-200 dark:border-gray-600'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -155,6 +159,22 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
           </div>
         </div>
       </div>
+
+      {/* 定投专属：仅在交易日执行（周末自动顺延到下一交易日；法定节假日暂不自动判断） */}
+      {form.type === 'dca' && (
+        <div className="flex items-center gap-2">
+          <input
+            id={`${idPrefix}-trade-day`}
+            type="checkbox"
+            checked={form.trade_day_only}
+            onChange={(e) => onChange({ trade_day_only: e.target.checked })}
+            className="h-4 w-4 shrink-0 accent-[var(--accent)]"
+          />
+          <label htmlFor={`${idPrefix}-trade-day`} className="text-sm text-gray-700 dark:text-gray-300 select-none">
+            {t('仅在交易日执行（周末自动顺延）')}
+          </label>
+        </div>
+      )}
 
       {/* 下一期日期 */}
       <div>

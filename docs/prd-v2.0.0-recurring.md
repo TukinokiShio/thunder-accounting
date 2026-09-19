@@ -118,3 +118,14 @@ CREATE TABLE IF NOT EXISTS recurrings (
 - 打包：Clean Build（bundle 版本 2.0.0 ×1、无残留）→ electron-builder 输出隔离目录 `release-v2build`（旧 `release/win-unpacked/resources/app.asar` 被 §39 持锁者锁住，remove EBUSY）→ ISCC 202s 成功 → `release/雷霆记账_Inno_v2.0.0.exe`。
 - 安装：官方静默安装 **exit 5**（/LOG 判定为成因 B：`exe/resources/app.asar` DeleteFile code 32，§39 同款持锁者）→ 启用 §39 绕行：逐文件同步 `exe/`（99 copy + asar O_TRUNC 覆盖）→ **验证四连全绿**（sizeDiff=0/missing=0；asar 内 package.json=2.0.0；内容正负对照：周期支出/单笔支出/资金账户=true、1.17.10=false、记一笔=true；注册表 DisplayVersion=2.0.0）。
 - ⚠️ 遗留：持锁者对 `resources/app.asar` 文件名**跨三个副本**持续存在（`release163/`、`release/win-unpacked/`、`release-v2build/` 残留 asar，合计约 302MB 无法删除）——与 §39 记录一致，待重启后重删或加入安全软件信任区（Agent 不代改安全配置）。
+
+### v2.0.1 修复（2026-09-19 用户验收反馈）
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| 「每 N 天/周/月/年」排版错乱：间隔输入框撑满整行、单位按钮被挤出 | `index.css:207` 的 `.input-field { width:100% }` 盖掉输入框的 `w-20`（同特异度级联靠后） | 间隔输入框包进 `w-20 shrink-0` 容器；单位按钮改 `grid-cols-4` 均分（§25 同族风险已查：index.css 无其它以这些类名为字面量的选择器） |
+| 定投只发生在交易日，未考虑 | 周期推进纯日历化 | 新增 `trade_day_only` 列（增量补列，定投专属默认开）：周末自动顺延到下一交易日；**推进基准保持日历锚不变**（与券商定投「顺延不改期」一致），展示/入账日期用顺延后的实际发生日；云同步/备份字段同步。⚠ 已知限制：法定节假日无离线数据源不自动判断，提醒照常出现、用户可改日期或跳过 |
+
+- 验证：typecheck 4 切片 0 错；vitest **50 文件 / 522 测试全绿**（新增 `recurringCycle.test.ts`：锚日对齐/周末顺延/顺延不改期，星期断言经 Node 实测核实）；modal-scope / android-layout PASS。
+- 版本 2.0.0 → **2.0.1**（PATCH：无新外部 API）；打包 `release/雷霆记账_Inno_v2.0.1.exe`；官方安装 exit 5（同款成因 B）→ §39 绕行 + 验证四连全绿（sizeDiff 0 / asar 2.0.1 / 新串「仅在交易日执行」true 且 2.0.0 版本串 false / 注册表 2.0.1）。
+- ⚠️ 教训（本次新踩）：package-lock 的版本号**全局字符串替换**会误伤恰好同版本的第三方包（本次 14 个 2.0.0 的包被误改，已按包名逐个精确恢复，diff 自证只剩根包两处）——替换前必须核对命中对象身份，不能只数数量。

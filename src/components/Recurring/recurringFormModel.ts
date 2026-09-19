@@ -12,7 +12,8 @@ import type { Recurring, RecurringForm } from '@/types'
 
 export type RecurringFormPatch = Partial<RecurringForm>
 
-/** 空表单：下一期日期默认今天；默认分类按类型给（订阅→其他杂项 / 定投→金融保险，PRD §五） */
+/** 空表单：下一期日期默认今天；默认分类按类型给（订阅→其他杂项 / 定投→金融保险，PRD §五）；
+ *  定投默认勾选「仅在交易日执行」 */
 export function emptyRecurringForm(type: 'subscription' | 'dca' = 'subscription'): RecurringForm {
   return {
     name: '',
@@ -25,7 +26,8 @@ export function emptyRecurringForm(type: 'subscription' | 'dca' = 'subscription'
     category2: '',
     payment_platform: '',
     fund_account: '',
-    note: ''
+    note: '',
+    trade_day_only: type === 'dca'
   }
 }
 
@@ -42,7 +44,8 @@ export function ruleToForm(rule: Recurring): RecurringForm {
     category2: rule.category2 || '',
     payment_platform: rule.payment_platform || '',
     fund_account: rule.fund_account || '',
-    note: rule.note || ''
+    note: rule.note || '',
+    trade_day_only: rule.trade_day_only === 1
   }
 }
 
@@ -60,7 +63,7 @@ export function validateRecurringForm(form: RecurringForm): RecurringFieldKey[] 
   return errors
 }
 
-/** 表单 → 写库参数（金额取整到分） */
+/** 表单 → 写库参数（金额取整到分；订阅类型不使用交易日标志，落 0） */
 export function formToRecurringParams(form: RecurringForm): Omit<Recurring, 'id' | 'created_at' | 'paused'> & { paused?: number } {
   const amount = Math.round(parseFloat(form.amount) * 100) / 100
   return {
@@ -74,6 +77,7 @@ export function formToRecurringParams(form: RecurringForm): Omit<Recurring, 'id'
     category2: form.category2.trim() || null,
     payment_platform: form.payment_platform.trim() || null,
     fund_account: form.fund_account.trim() || null,
-    note: form.note.trim() || null
+    note: form.note.trim() || null,
+    trade_day_only: form.type === 'dca' && form.trade_day_only ? 1 : 0
   }
 }

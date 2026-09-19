@@ -924,6 +924,7 @@ export async function upsertRemoteRecurring(rec: RecurringRow): Promise<void> {
       next_date: rec.next_date, category1: rec.category1,
       category2: rec.category2, payment_platform: rec.payment_platform,
       fund_account: rec.fund_account, note: rec.note, paused: rec.paused,
+      trade_day_only: rec.trade_day_only,
       created_at: rec.created_at || new Date().toISOString(),
       updated_at: rec.updated_at || new Date().toISOString()
     }
@@ -1002,6 +1003,7 @@ interface CloudRecurring {
   fund_account?: string | null
   note?: string | null
   paused?: number
+  trade_day_only?: number
   created_at: string
   updated_at: string
   userId: string

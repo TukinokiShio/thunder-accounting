@@ -23,6 +23,7 @@
   "exclude": [
     "src/database-addcategory.test.ts",
     "src/database-deletecategory.test.ts",
-    "src/database-switchuser.test.ts"
+    "src/database-switchuser.test.ts",
+    "src/database-v2-upgrade.test.ts"
   ]
 }

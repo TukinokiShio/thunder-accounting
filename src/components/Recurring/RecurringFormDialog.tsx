@@ -44,9 +44,10 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
   const patchForm = (patch: RecurringFormPatch) => {
     setForm((prev) => {
       const next = { ...prev, ...patch }
-      // 切换类型时重置默认分类（订阅→其他杂项 / 定投→金融保险）
+      // 切换类型时重置默认分类（订阅→其他杂项 / 定投→金融保险）与交易日标志（定投默认开）
       if (patch.type && patch.type !== prev.type) {
         next.category1 = defaultCategoryFor(patch.type)
+        next.trade_day_only = patch.type === 'dca'
       }
       return next
     })

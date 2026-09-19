@@ -124,9 +124,11 @@ describe('v2.0 增量迁移：老库无损升级（验收第 1 条）', () => {
     })
     expect(getRecurrings()).toHaveLength(1)
 
-    const updated = updateRecurring(rec.id, { next_date: '2026-11-08', paused: 1 })
+    // v2.0.1：trade_day_only 列在老库升级后可写可读（增量补列）
+    const updated = updateRecurring(rec.id, { next_date: '2026-11-08', paused: 1, trade_day_only: 1 })
     expect(updated.next_date).toBe('2026-11-08')
     expect(updated.paused).toBe(1)
+    expect(updated.trade_day_only).toBe(1)
 
     const bill = addBill({
       amount: 20,

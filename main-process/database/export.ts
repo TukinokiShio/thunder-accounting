@@ -150,14 +150,14 @@ export function importAllJSON(json: string): { bills: number; categories: number
     let recCount = 0
     if (data.recurrings && Array.isArray(data.recurrings)) {
       const recStmt = db.prepare(
-        'INSERT INTO recurrings (id, name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO recurrings (id, name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, trade_day_only, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       for (const r of data.recurrings as Array<Record<string, unknown>>) {
         recStmt.run([
           r.id, r.name, r.amount, r.type ?? 'subscription', r.cycle_unit ?? 'month',
           r.cycle_interval ?? 1, r.next_date ?? '', r.category1 ?? '', r.category2 ?? null,
           r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null,
-          r.paused ?? 0, r.created_at ?? new Date().toISOString()
+          r.paused ?? 0, r.trade_day_only ?? 0, r.created_at ?? new Date().toISOString()
         ])
         recCount++
       }

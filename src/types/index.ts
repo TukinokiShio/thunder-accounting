@@ -38,6 +38,8 @@ export interface Recurring {
   fund_account: string | null
   note: string | null
   paused: number
+  /** v2.0.1：仅在交易日执行（定投专属；周末自动顺延到下一交易日）。0=否 1=是 */
+  trade_day_only: number
   created_at: string
 }
 
@@ -54,6 +56,7 @@ export interface RecurringForm {
   payment_platform: string
   fund_account: string
   note: string
+  trade_day_only: boolean
 }
 
 /** 分类（前端视图模型，children 已解析为数组） */
