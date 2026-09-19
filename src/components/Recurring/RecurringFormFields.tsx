@@ -26,30 +26,51 @@ interface Props {
   idPrefix: string
 }
 
-/** 自由输入 + datalist 快选（不锁死枚举，尊重长尾场景） */
-function DatalistInput(props: {
+/**
+ * 自由输入 + 快选芯片（v2.0.3）。
+ * 取代原来的 `<datalist>`：datalist 在 Chromium 下点击即弹下拉、且会被浏览器自动填充，
+ * 用户感知为「只能选不能填」。现在明确为「文本输入框（随便写）+ 一排快选芯片（点一下填入）」。
+ */
+function OptionInput(props: {
   id: string
   value: string
   options: string[]
   placeholder: string
   onChange: (v: string) => void
 }) {
-  const listId = `${props.id}-options`
   return (
     <>
       <input
         id={props.id}
         type="text"
         maxLength={50}
-        list={listId}
+        autoComplete="off"
+        spellCheck={false}
         placeholder={props.placeholder}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
         className="input-field"
       />
-      <datalist id={listId}>
-        {props.options.map((opt) => <option key={opt} value={opt} />)}
-      </datalist>
+      <div className="flex flex-wrap gap-1.5 mt-1.5">
+        {props.options.map((opt) => {
+          const selected = props.value === opt
+          return (
+            <button
+              key={opt}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => props.onChange(selected ? '' : opt)}
+              className={`px-2 py-0.5 rounded-full text-xs border transition-colors
+                ${selected
+                  ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-dim)]'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:text-gray-200'
+                }`}
+            >
+              {opt}
+            </button>
+          )
+        })}
+      </div>
     </>
   )
 }
@@ -71,6 +92,8 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
           id={`${idPrefix}-name`}
           type="text"
           maxLength={100}
+          autoComplete="off"
+          spellCheck={false}
           placeholder={form.type === 'dca' ? t('如：华安纳斯达克ETF联接A') : t('如：Codex Plus')}
           value={form.name}
           onChange={(e) => onChange({ name: e.target.value })}
@@ -189,7 +212,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
       {/* 分类（生成账单归入；默认按类型预填，可改） */}
       <div>
         <label htmlFor={`${idPrefix}-category`} className="block text-sm font-medium text-gray-700 mb-1">{t('入账分类')}</label>
-        <DatalistInput
+        <OptionInput
           id={`${idPrefix}-category`}
           value={form.category1}
           options={(form.type === 'dca' ? DCA_CATEGORY_OPTIONS : SUBSCRIPTION_CATEGORY_OPTIONS).map((k) => t(k))}
@@ -203,7 +226,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
         <label htmlFor={`${idPrefix}-platform`} className="block text-sm font-medium text-gray-700 mb-1">
           {t('支付平台')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
         </label>
-        <DatalistInput
+        <OptionInput
           id={`${idPrefix}-platform`}
           value={form.payment_platform}
           options={platformOptions}
@@ -217,7 +240,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
         <label htmlFor={`${idPrefix}-account`} className="block text-sm font-medium text-gray-700 mb-1">
           {t('资金账户')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
         </label>
-        <DatalistInput
+        <OptionInput
           id={`${idPrefix}-account`}
           value={form.fund_account}
           options={accountOptions}
@@ -235,6 +258,7 @@ export function RecurringFormFields({ form, onChange, idPrefix }: Props) {
           id={`${idPrefix}-note`}
           type="text"
           maxLength={200}
+          autoComplete="off"
           placeholder={t('添加备注...')}
           value={form.note}
           onChange={(e) => onChange({ note: e.target.value })}

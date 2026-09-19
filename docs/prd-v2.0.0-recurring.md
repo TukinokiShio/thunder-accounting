@@ -128,4 +128,15 @@ CREATE TABLE IF NOT EXISTS recurrings (
 
 - 验证：typecheck 4 切片 0 错；vitest **50 文件 / 522 测试全绿**（新增 `recurringCycle.test.ts`：锚日对齐/周末顺延/顺延不改期，星期断言经 Node 实测核实）；modal-scope / android-layout PASS。
 - 版本 2.0.0 → **2.0.1**（PATCH：无新外部 API）；打包 `release/雷霆记账_Inno_v2.0.1.exe`；官方安装 exit 5（同款成因 B）→ §39 绕行 + 验证四连全绿（sizeDiff 0 / asar 2.0.1 / 新串「仅在交易日执行」true 且 2.0.0 版本串 false / 注册表 2.0.1）。
-- ⚠️ 教训（本次新踩）：package-lock 的版本号**全局字符串替换**会误伤恰好同版本的第三方包（本次 14 个 2.0.0 的包被误改，已按包名逐个精确恢复，diff 自证只剩根包两处）——替换前必须核对命中对象身份，不能只数数量。
+### v2.0.3 修复（2026-09-19 用户验收反馈第二轮）
+
+| 问题 | 根因（全部代码定位） | 修复 |
+|---|---|---|
+| 弹窗宽度太小、字段被挤/塌缩 | 只有 `.add-bill-dialog` 有宽度骨架规则，**`.recurring-form-dialog` 没有** → 弹窗按内容塌缩（实测塌缩 ≈418px） | 在 `index.css` 补 `.aurora-shell .recurring-form-dialog` 完整骨架（width min(30rem) / flex column / max-height / 焦点边界局部覆盖）→ 实测 **480px** |
+| 复选框被撑成巨型方块、标签竖排 | 全局 `.aurora-shell input { width:100%; min-height:42px }` **命中了 checkbox** | 全局规则改为 `input:not([type='checkbox']):not([type='radio'])` → 复选框实测回到 **16×16**、标签宽 266px |
+| 「资金账户」浅蓝底、风格不符 | Chromium **自动填充**（`:‑webkit‑autofill`）强制浅蓝背景，绕过主题 | 补 `.aurora-shell input:-webkit-autofill` 内阴影覆盖回主题色 + 表单输入框 `autoComplete="off"` |
+| 支付平台/资金账户「只能选不能填」 | 原用 `<datalist>`：点击即弹下拉、且触发浏览器自动填充，交互上像只读选择器 | 改为**自由文本输入 + 快选芯片**（点芯片填入，芯片可再点取消，仍可任意手写） |
+
+- **新增永久门禁 `npm run verify:recurring-dialog`（10 条断言，含负对照自检）**：真实组件 + 真实构建 CSS + 无头 Chromium，量测 R1 弹窗宽度 / R2·R3 复选框尺寸与标签宽度 / R4 可自由输入 / R5 芯片一键填入 / R6·R7 无横向溢出 / R8 禁掉宽度规则必须复现塌缩（否则判据是「不可能失败的假断言」）。首跑 3 红**全是门禁自身的判据缺陷**（未先切到「定投」；芯片定位器误收类型/周期按钮 21 个），已修正——这正是门禁要防的「假红/假绿」。
+- 验证：`verify:recurring-dialog` 10/10 PASS（实测：弹窗 480px、复选框 16×16、标签 266px、芯片 5 个、溢出 0、负对照 418px）；typecheck 0 错；vitest 全量绿；modal-scope / android-layout PASS。
+- 版本 2.0.2 → **2.0.3**（PATCH）；打包 §39 绕行安装，验证四连全绿（asar 2.0.3 / 新串「节假日与周末自动顺延」true / 旧版本串 false / 注册表 2.0.3）。

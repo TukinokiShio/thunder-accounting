@@ -203,15 +203,28 @@
   .aurora-shell .btn-secondary, .aurora-shell button.border, .aurora-shell a.border { border-color: var(--border); background: transparent; color: var(--text); }
   .aurora-shell .btn-secondary:hover, .aurora-shell button.border:hover, .aurora-shell a.border:hover { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
-  /* The field parent owns the only focus-within boundary. */
-  .input-field, .aurora-input, .aurora-shell input, .aurora-shell select, .aurora-shell textarea {
+  /* The field parent owns the only focus-within boundary.
+     ⚠ checkbox/radio 必须排除：全局 width:100% + min-height:42px 会把它们渲染成巨型方块
+     （v2.0.3 实锤：定投的「仅在交易日执行」复选框在弹窗里被撑成整行巨块并挤竖排了标签文字）。 */
+  .input-field, .aurora-input, .aurora-shell input:not([type='checkbox']):not([type='radio']), .aurora-shell select, .aurora-shell textarea {
     width: 100%; min-height: 42px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     background: var(--bg-card); color: var(--text);
     transition: border-color .18s ease, background-color .18s ease, color .18s ease;
   }
   .input-field, .aurora-input { padding: .5rem .75rem; font-size: .875rem; }
   .input-field::placeholder, .aurora-input::placeholder, .aurora-shell input::placeholder, .aurora-shell textarea::placeholder { color: var(--text3); }
-  .input-field:focus, .aurora-input:focus, .aurora-shell input:focus, .aurora-shell select:focus, .aurora-shell textarea:focus { border-color: var(--border); box-shadow: none; }
+  .input-field:focus, .aurora-input:focus, .aurora-shell input:not([type='checkbox']):not([type='radio']):focus, .aurora-shell select:focus, .aurora-shell textarea:focus { border-color: var(--border); box-shadow: none; }
+
+  /* Chromium 自动填充会把输入框强制刷成浅蓝底并忽略主题背景 —— 用内阴影覆盖回主题色
+     （v2.0.3 实锤：「资金账户」被自动填充后显示为浅蓝块，与雷霆记账配色冲突）。 */
+  .aurora-shell input:-webkit-autofill,
+  .aurora-shell input:-webkit-autofill:hover,
+  .aurora-shell input:-webkit-autofill:focus,
+  .aurora-portal-root input:-webkit-autofill {
+    -webkit-text-fill-color: var(--text);
+    -webkit-box-shadow: 0 0 0 1000px var(--bg-card) inset;
+    caret-color: var(--text);
+  }
   .aurora-shell :where(label, div):not(.profile-code-field, .profile-field-shell):has(> .input-field, > .aurora-input, > .profile-input):focus-within {
     outline: var(--focus-width) solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm);
   }
@@ -243,6 +256,29 @@
   .aurora-shell .add-bill-category-select > * { width: 100%; min-width: 0; }
   @media (min-width: 640px) {
     .aurora-shell .add-bill-category-select > * { width: auto; }
+  }
+
+  /* 周期支出规则弹窗（新增/编辑）：与记一笔弹窗同一套版式骨架。
+     ⚠ 这张宽度规则**不可省**：v2.0.3 前它缺失，弹窗按内容塌缩成窄条（字段被挤到换行/竖排）。 */
+  .aurora-shell .recurring-form-dialog {
+    width: min(30rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    min-width: 0;
+    margin-inline: 1rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 2rem);
+    overflow: hidden;
+  }
+  @media (min-width: 640px) {
+    .aurora-shell .recurring-form-dialog { width: 30rem; max-width: 30rem; margin-inline: auto; }
+  }
+  /* 焦点边界只保留在 input 自身（与记一笔弹窗同款局部覆盖） */
+  .aurora-shell .recurring-form-dialog :where(label, div):has(> .input-field):focus-within { outline: none; }
+  .aurora-shell .recurring-form-dialog .input-field:focus,
+  .aurora-shell .recurring-form-dialog .input-field:focus-visible {
+    border-color: var(--accent); outline: none; box-shadow: none;
   }
 
   /* 记一笔日期：使用应用内日历，避免 Chromium 原生 date 控件选中年份或套用系统皮肤。 */
