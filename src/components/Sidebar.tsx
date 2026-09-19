@@ -3,9 +3,10 @@
  * 显示应用 Logo、四个导航项（总览/账单/统计/分类管理）、底部设置按钮和版本号。
  * 当前激活的导航项高亮显示。
  */
-import { Home, FileText, PieChart, Settings, Tags, LogOut, User } from 'lucide-react'
+import { Home, FileText, PieChart, Settings, Tags, LogOut, User, Repeat } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
+import { formatLocalDate } from '@/utils/date'
 import pkg from '../../package.json'
 import logoUrl from '../../resources/icon.ico?url'
 
@@ -14,6 +15,7 @@ const navItems = [
   { id: 'home' as const, icon: Home },
   { id: 'bills' as const, icon: FileText },
   { id: 'stats' as const, icon: PieChart },
+  { id: 'recurring' as const, icon: Repeat },
   { id: 'categories' as const, icon: Tags },
   { id: 'profile' as const, icon: User }
 ]
@@ -27,6 +29,7 @@ export function Sidebar({ onOpenSettings }: Props) {
   const setActivePage = useStore((s) => s.setActivePage)
   const user = useStore((s) => s.user)
   const appLogout = useStore((s) => s.appLogout)
+  const recurrings = useStore((s) => s.recurrings)
   const { t } = useLanguage()
 
   /** 导航项显示名（中文原文即词典 key，随语言切换） */
@@ -34,9 +37,15 @@ export function Sidebar({ onOpenSettings }: Props) {
     home: t('总览'),
     bills: t('账单'),
     stats: t('统计'),
+    recurring: t('周期支出'),
     categories: t('分类管理'),
     profile: t('个人中心')
   }
+
+  // 到期规则数 → 「周期支出」导航项的小红点数字徽标（UX 决策：不打断 3 秒记账流，
+  // 用常驻徽标代替开屏弹窗；处理完归零即消失）。多期漏记也只算 1，详情在页面内看。
+  const today = formatLocalDate()
+  const dueCount = recurrings.filter((r) => !r.paused && r.next_date <= today).length
 
   const handleLogout = async () => {
     await appLogout()
@@ -72,6 +81,14 @@ export function Sidebar({ onOpenSettings }: Props) {
             >
               <Icon size={18} />
               {navLabels[item.id]}
+              {item.id === 'recurring' && dueCount > 0 && (
+                <span
+                  className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center shrink-0"
+                  aria-label={t('{n} 个到期待处理').replace('{n}', String(dueCount))}
+                >
+                  {dueCount}
+                </span>
+              )}
             </button>
           )
         })}

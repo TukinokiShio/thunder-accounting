@@ -14,6 +14,46 @@ export interface Bill {
   note: string
   type: 'expense' | 'income'
   created_at: string
+  /** v2.0：由周期支出规则生成的账单关联其规则 id；普通单笔账单为 null */
+  recurring_id?: number | null
+  payment_platform?: string | null
+  fund_account?: string | null
+}
+
+/**
+ * 周期支出规则（v2.0）：订阅 / 机械定投。
+ * 规则 ≠ 账单：规则按周期产生支出事件，入账时落为带 recurring_id 的 Bill。
+ */
+export interface Recurring {
+  id: number
+  name: string
+  amount: number
+  type: 'subscription' | 'dca'
+  cycle_unit: 'day' | 'week' | 'month' | 'year'
+  cycle_interval: number
+  next_date: string
+  category1: string
+  category2: string | null
+  payment_platform: string | null
+  fund_account: string | null
+  note: string | null
+  paused: number
+  created_at: string
+}
+
+/** 周期支出规则表单（新增/编辑共用，金额与间隔用 string 方便输入框双向绑定） */
+export interface RecurringForm {
+  name: string
+  amount: string
+  type: 'subscription' | 'dca'
+  cycle_unit: 'day' | 'week' | 'month' | 'year'
+  cycle_interval: string
+  next_date: string
+  category1: string
+  category2: string
+  payment_platform: string
+  fund_account: string
+  note: string
 }
 
 /** 分类（前端视图模型，children 已解析为数组） */
@@ -68,6 +108,11 @@ export interface AppAPI {
   getBills: (filters?: { startDate?: string; endDate?: string; category1?: string }) => Promise<Bill[]>
   updateBill: (id: number, params: Partial<Omit<Bill, 'id' | 'created_at'>>) => Promise<Bill>
   deleteBill: (id: number) => Promise<void>
+  // Recurring（周期支出规则，v2.0）
+  getRecurrings: () => Promise<Recurring[]>
+  addRecurring: (params: Omit<Recurring, 'id' | 'created_at' | 'paused'> & { paused?: number }) => Promise<Recurring>
+  updateRecurring: (id: number, params: Partial<Omit<Recurring, 'id' | 'created_at'>>) => Promise<Recurring>
+  deleteRecurring: (id: number) => Promise<void>
   getStats: (startDate: string, endDate: string, type?: 'expense' | 'income') => Promise<StatsResult>
   exportCSV: (filters?: { startDate?: string; endDate?: string }) => Promise<string>
   showSaveDialog: (defaultName: string) => Promise<string | null>
@@ -78,7 +123,7 @@ export interface AppAPI {
   deleteCategory: (id: number) => Promise<void>
   reorderCategories: (orderedIds: number[]) => Promise<void>
   exportBackup: () => Promise<string>
-  importBackup: (json: string) => Promise<{ bills: number; categories: number }>
+  importBackup: (json: string) => Promise<{ bills: number; categories: number; recurrings?: number }>
   clearAllData: () => Promise<void>
   showOpenDialog: () => Promise<{ filePath: string; content: string } | null>
   onShortcut: (callback: (action: string) => void) => () => void

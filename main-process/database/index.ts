@@ -38,12 +38,13 @@ function rowTo<T>(row: Record<string, unknown>): T {
 /**
  * 将 @name 形式的命名参数转换为 sql.js 所需的 ? 占位符 + values 数组。
  * 避免 queryAll / runStmt 中的重复正则替换逻辑。
+ * 允许 null 值（v2.0 起部分可空列如 bills.recurring_id 以 null 绑定）。
  */
 function convertNamedParams(
   sql: string,
-  params?: Record<string, string | number>
-): { sql: string; values: (string | number)[] } {
-  const values: (string | number)[] = []
+  params?: Record<string, string | number | null>
+): { sql: string; values: (string | number | null)[] } {
+  const values: (string | number | null)[] = []
   if (!params) return { sql, values }
   const newSql = sql.replace(/@(\w+)/g, (_match, name) => {
     values.push(params[name])
@@ -126,6 +127,9 @@ export async function initDatabase(): Promise<void> {
     }
   }
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_bills_cloud_id ON bills(cloud_id) WHERE cloud_id IS NOT NULL')
+
+  // v2.0 周期支出：recurrings 表 + bills 关联列（增量迁移，两处建库路径共用）
+  ensureRecurringsSchema()
 
   // ─── Categories table ──────────────────────────
   db.run(`
@@ -290,6 +294,9 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_bills_cloud_id ON bills(cloud_id) WHERE cloud_id IS NOT NULL')
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_cloud_id ON categories(cloud_id) WHERE cloud_id IS NOT NULL')
 
+  // v2.0 周期支出：recurrings 表 + bills 关联列（增量迁移，与 initDatabase 共用）
+  ensureRecurringsSchema()
+
   // 5. 初始化预设分类
   initPresetCategories()
 
@@ -311,6 +318,162 @@ export function saveDb(): void {
     console.error('数据库写入磁盘失败：', e)
     throw new Error('数据库保存失败，磁盘空间可能不足')
   }
+}
+
+// ─── v2.0 Recurring（周期支出）schema ─────────────
+
+/**
+ * 确保 recurrings 表与 bills 的周期支出关联列存在。
+ * 仅做增量变更（CREATE IF NOT EXISTS / ADD COLUMN），绝不触碰既有数据 ——
+ * 升级路径的硬约束：v1.x 老库必须无损打开。
+ * initDatabase 与 switchToUserDatabase 两条建库路径共用，避免两份漂移的 DDL。
+ */
+function ensureRecurringsSchema(): void {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS recurrings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      amount REAL NOT NULL,
+      type TEXT NOT NULL DEFAULT 'subscription',
+      cycle_unit TEXT NOT NULL DEFAULT 'month',
+      cycle_interval INTEGER NOT NULL DEFAULT 1,
+      next_date TEXT NOT NULL,
+      category1 TEXT NOT NULL DEFAULT '',
+      category2 TEXT,
+      payment_platform TEXT,
+      fund_account TEXT,
+      note TEXT,
+      paused INTEGER NOT NULL DEFAULT 0,
+      cloud_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+  try {
+    db.run('ALTER TABLE bills ADD COLUMN recurring_id INTEGER')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 bills.recurring_id 列）：', e)
+  }
+  try {
+    db.run('ALTER TABLE bills ADD COLUMN payment_platform TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 bills.payment_platform 列）：', e)
+  }
+  try {
+    db.run('ALTER TABLE bills ADD COLUMN fund_account TEXT')
+  } catch (e) {
+    if (!String(e).includes('duplicate column')) console.error('数据库迁移失败（添加 bills.fund_account 列）：', e)
+  }
+  db.run('CREATE INDEX IF NOT EXISTS idx_bills_recurring_id ON bills(recurring_id) WHERE recurring_id IS NOT NULL')
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurrings_cloud_id ON recurrings(cloud_id) WHERE cloud_id IS NOT NULL')
+}
+
+// ─── Recurring CRUD（周期支出规则） ───────────────
+
+export interface RecurringRow {
+  id: number
+  name: string
+  amount: number
+  type: 'subscription' | 'dca'
+  cycle_unit: 'day' | 'week' | 'month' | 'year'
+  cycle_interval: number
+  next_date: string
+  category1: string
+  category2: string | null
+  payment_platform: string | null
+  fund_account: string | null
+  note: string | null
+  paused: number
+  cloud_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AddRecurringParams {
+  name: string
+  amount: number
+  type?: 'subscription' | 'dca'
+  cycle_unit?: 'day' | 'week' | 'month' | 'year'
+  cycle_interval?: number
+  next_date: string
+  category1: string
+  category2?: string | null
+  payment_platform?: string | null
+  fund_account?: string | null
+  note?: string | null
+  paused?: number
+}
+
+function queryAllRecurring(sql: string, params?: Record<string, string | number | null>): RecurringRow[] {
+  const { sql: stmt, values } = convertNamedParams(sql, params)
+  const results = db.exec(stmt, values)
+  if (!results.length || !results[0].columns.length) return []
+  const cols = results[0].columns
+  return results[0].values.map((row: unknown[]) => {
+    const obj: Record<string, unknown> = {}
+    cols.forEach((col: string, i: number) => { obj[col] = row[i] })
+    return rowTo<RecurringRow>(obj)
+  })
+}
+
+/** 查询全部周期支出规则（含已暂停），按下一期日期升序 */
+export function getRecurrings(): RecurringRow[] {
+  return queryAllRecurring('SELECT * FROM recurrings ORDER BY next_date ASC, id ASC')
+}
+
+/** 新增周期支出规则，返回写入后的完整行。注意时序：先取 rowid 再 saveDb（见 runStmt 注释） */
+export function addRecurring(params: AddRecurringParams): RecurringRow {
+  const id = runStmt(`
+    INSERT INTO recurrings (name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused)
+    VALUES (@name, @amount, @type, @cycle_unit, @cycle_interval, @next_date, @category1, @category2, @payment_platform, @fund_account, @note, @paused)
+  `, {
+    name: params.name,
+    amount: params.amount,
+    type: params.type || 'subscription',
+    cycle_unit: params.cycle_unit || 'month',
+    cycle_interval: params.cycle_interval ?? 1,
+    next_date: params.next_date,
+    category1: params.category1,
+    category2: params.category2 ?? null,
+    payment_platform: params.payment_platform ?? null,
+    fund_account: params.fund_account ?? null,
+    note: params.note ?? null,
+    paused: params.paused ?? 0
+  })
+  const rows = queryAllRecurring('SELECT * FROM recurrings WHERE id = @id', { id })
+  if (!rows.length) throw new Error(`周期支出规则写入后查询失败 (id=${id})`)
+  return rows[0]
+}
+
+/** 按传入字段动态更新周期支出规则，仅更新非 undefined 字段，返回更新后的完整行 */
+export function updateRecurring(id: number, params: Partial<AddRecurringParams>): RecurringRow {
+  const fields: string[] = []
+  const values: Record<string, string | number | null> = { id }
+
+  if (params.name !== undefined) { fields.push('name = @name'); values.name = params.name }
+  if (params.amount !== undefined) { fields.push('amount = @amount'); values.amount = params.amount }
+  if (params.type !== undefined) { fields.push('type = @type'); values.type = params.type }
+  if (params.cycle_unit !== undefined) { fields.push('cycle_unit = @cycle_unit'); values.cycle_unit = params.cycle_unit }
+  if (params.cycle_interval !== undefined) { fields.push('cycle_interval = @cycle_interval'); values.cycle_interval = params.cycle_interval }
+  if (params.next_date !== undefined) { fields.push('next_date = @next_date'); values.next_date = params.next_date }
+  if (params.category1 !== undefined) { fields.push('category1 = @category1'); values.category1 = params.category1 }
+  if (params.category2 !== undefined) { fields.push('category2 = @category2'); values.category2 = params.category2 }
+  if (params.payment_platform !== undefined) { fields.push('payment_platform = @payment_platform'); values.payment_platform = params.payment_platform }
+  if (params.fund_account !== undefined) { fields.push('fund_account = @fund_account'); values.fund_account = params.fund_account }
+  if (params.note !== undefined) { fields.push('note = @note'); values.note = params.note }
+  if (params.paused !== undefined) { fields.push('paused = @paused'); values.paused = params.paused }
+
+  if (fields.length > 0) {
+    runStmt(`UPDATE recurrings SET ${fields.join(', ')}, updated_at = datetime('now','localtime') WHERE id = @id`, values)
+  }
+  const rows = queryAllRecurring('SELECT * FROM recurrings WHERE id = @id', { id })
+  if (!rows.length) throw new Error(`周期支出规则不存在 (id=${id})`)
+  return rows[0]
+}
+
+/** 删除周期支出规则（只删规则；已生成的账单带 recurring_id 悬空引用，不受影响） */
+export function deleteRecurring(id: number): void {
+  runStmt('DELETE FROM recurrings WHERE id = @id', { id })
 }
 
 // ─── Category types ──────────────────────────────
@@ -500,6 +663,10 @@ export interface BillRow {
   created_at: string
   updated_at: string
   cloud_id?: string | null
+  /** v2.0：由周期支出规则生成的账单关联其规则 id；普通单笔账单为 null */
+  recurring_id?: number | null
+  payment_platform?: string | null
+  fund_account?: string | null
 }
 
 export interface AddBillParams {
@@ -509,6 +676,9 @@ export interface AddBillParams {
   date: string
   note?: string
   type?: 'expense' | 'income'
+  recurring_id?: number | null
+  payment_platform?: string | null
+  fund_account?: string | null
 }
 
 /**
@@ -538,7 +708,7 @@ function queryOne(sql: string, params?: Record<string, string | number>): BillRo
  * 注意时序：必须先取 last_insert_rowid() 再 saveDb()——saveDb 内部 db.export()
  * 会关闭并重开 sql.js 连接，重开后的连接 last_insert_rowid() 恒为 0。
  */
-function runStmt(sql: string, params?: Record<string, string | number>): number {
+function runStmt(sql: string, params?: Record<string, string | number | null>): number {
   const { sql: stmt, values } = convertNamedParams(sql, params)
   db.run(stmt, values)
 
@@ -555,15 +725,18 @@ function runStmt(sql: string, params?: Record<string, string | number>): number 
  */
 export function addBill(params: AddBillParams): BillRow {
   const id = runStmt(`
-    INSERT INTO bills (amount, category1, category2, date, note, type)
-    VALUES (@amount, @category1, @category2, @date, @note, @type)
+    INSERT INTO bills (amount, category1, category2, date, note, type, recurring_id, payment_platform, fund_account)
+    VALUES (@amount, @category1, @category2, @date, @note, @type, @recurring_id, @payment_platform, @fund_account)
   `, {
     amount: params.amount,
     category1: params.category1,
     category2: params.category2,
     date: params.date,
     note: params.note || '',
-    type: params.type || 'expense'
+    type: params.type || 'expense',
+    recurring_id: params.recurring_id ?? null,
+    payment_platform: params.payment_platform ?? null,
+    fund_account: params.fund_account ?? null
   })
   // 命名参数 @id 语法（convertNamedParams 只转换 @name，? 配 params 对象会得到空绑定）
   return queryOne('SELECT * FROM bills WHERE id = @id', { id: String(id) })!
@@ -600,7 +773,7 @@ export function getBills(filters?: BillFilters): BillRow[] {
 /** 按传入字段动态构建 UPDATE，仅更新非 undefined 字段，返回更新后的完整行 */
 export function updateBill(id: number, params: Partial<AddBillParams>): BillRow {
   const fields: string[] = []
-  const values: Record<string, string | number> = { id }
+  const values: Record<string, string | number | null> = { id }
 
   if (params.amount !== undefined) { fields.push('amount = @amount'); values.amount = params.amount }
   if (params.category1 !== undefined) { fields.push('category1 = @category1'); values.category1 = params.category1 }
@@ -608,6 +781,9 @@ export function updateBill(id: number, params: Partial<AddBillParams>): BillRow 
   if (params.date !== undefined) { fields.push('date = @date'); values.date = params.date }
   if (params.note !== undefined) { fields.push('note = @note'); values.note = params.note }
   if (params.type !== undefined) { fields.push('type = @type'); values.type = params.type }
+  if (params.recurring_id !== undefined) { fields.push('recurring_id = @recurring_id'); values.recurring_id = params.recurring_id }
+  if (params.payment_platform !== undefined) { fields.push('payment_platform = @payment_platform'); values.payment_platform = params.payment_platform }
+  if (params.fund_account !== undefined) { fields.push('fund_account = @fund_account'); values.fund_account = params.fund_account }
 
   if (fields.length > 0) {
     runStmt(`UPDATE bills SET ${fields.join(', ')}, updated_at = datetime('now','localtime') WHERE id = @id`, values)
@@ -676,10 +852,11 @@ export function getStats(startDate: string, endDate: string, type?: 'expense' | 
   return { totalAmount, count, byCategory1, byCategory2, byDate }
 }
 
-/** 清除全部账单和自定义分类数据（预设分类保留），操作后立即持久化到磁盘 */
+/** 清除全部账单、自定义分类与周期支出规则数据（预设分类保留），操作后立即持久化到磁盘 */
 export function clearAllData(): void {
   db.run('DELETE FROM bills')
   db.run('DELETE FROM categories WHERE is_preset = 0')
+  db.run('DELETE FROM recurrings')
   saveDb()
 }
 
@@ -778,6 +955,60 @@ export function setBillCloudId(localId: number, cloudId: string): void {
 
 export function setCategoryCloudId(localId: number, cloudId: string): void {
   db.run('UPDATE categories SET cloud_id = ? WHERE id = ?', [cloudId, localId])
+  saveDb()
+}
+
+// ─── Recurring Cloud Sync Helpers（v2.0 周期支出） ──
+
+export interface CloudRecurringRow {
+  localId: number
+  userId: string
+  name: string
+  amount: number
+  type: string
+  cycle_unit: string
+  cycle_interval: number
+  next_date: string
+  category1: string
+  category2?: string | null
+  payment_platform?: string | null
+  fund_account?: string | null
+  note?: string | null
+  paused?: number
+  created_at: string
+  updated_at: string
+  _id?: string
+}
+
+/**
+ * 将云端拉取的周期支出规则合并写入本地数据库。
+ * 合并策略与 insertCloudBills 一致：以 cloud_id 建立稳定映射、幂等、按 updated_at 只应用较新记录。
+ */
+export function insertCloudRecurrings(rows: CloudRecurringRow[]): void {
+  for (const r of rows) {
+    if (!r._id) continue
+    const existing = db.exec('SELECT id, updated_at FROM recurrings WHERE cloud_id = ?', [r._id])
+    if (existing.length && existing[0].values.length) {
+      const localUpdated = String(existing[0].values[0][1] || '')
+      if ((r.updated_at || '') > localUpdated) {
+        db.run(
+          'UPDATE recurrings SET name=?, amount=?, type=?, cycle_unit=?, cycle_interval=?, next_date=?, category1=?, category2=?, payment_platform=?, fund_account=?, note=?, paused=?, created_at=?, updated_at=? WHERE cloud_id=?',
+          [r.name, r.amount, r.type || 'subscription', r.cycle_unit || 'month', r.cycle_interval ?? 1, r.next_date, r.category1 || '', r.category2 ?? null, r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null, r.paused ?? 0, r.created_at || '', r.updated_at || '', r._id]
+        )
+      }
+    } else {
+      db.run(
+        'INSERT OR IGNORE INTO recurrings (cloud_id, name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [r._id, r.name, r.amount, r.type || 'subscription', r.cycle_unit || 'month', r.cycle_interval ?? 1, r.next_date, r.category1 || '', r.category2 ?? null, r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null, r.paused ?? 0, r.created_at || '', r.updated_at || '']
+      )
+    }
+  }
+  saveDb()
+}
+
+/** 将云端文档 ID 回写到本地周期支出规则，后续更新/删除使用稳定映射。 */
+export function setRecurringCloudId(localId: number, cloudId: string): void {
+  db.run('UPDATE recurrings SET cloud_id = ? WHERE id = ?', [cloudId, localId])
   saveDb()
 }
 

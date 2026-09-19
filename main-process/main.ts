@@ -2,10 +2,10 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage,
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories } from './database/index'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories, getRecurrings, addRecurring, updateRecurring, deleteRecurring, insertCloudRecurrings } from './database/index'
 import { setStoragePort } from './database/storage'
 import { createDesktopStoragePort } from './database/desktop-storage'
-import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
 import { logoutAndDisableAutoLogin } from './auth-preferences'
 
 let mainWindow: BrowserWindow | null = null
@@ -195,6 +195,11 @@ async function syncCloudData(uid: string): Promise<void> {
         insertCloudCategories(cloudCategories)
         console.log(`[Sync] 已合并 ${cloudCategories.length} 条云端分类到本地`)
       }
+      const cloudRecurrings = await pullRecurringsFromCloud()
+      if (cloudRecurrings.length > 0) {
+        insertCloudRecurrings(cloudRecurrings)
+        console.log(`[Sync] 已合并 ${cloudRecurrings.length} 条云端周期支出规则到本地`)
+      }
     }
   } catch (e) {
     console.error('[Sync] 云端数据拉取失败:', e)
@@ -275,6 +280,24 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle('category:reorder', (_event, orderedIds) => {
     reorderCategories(orderedIds)
+  })
+
+  // ─── Recurring（周期支出规则）CRUD，v2.0 ──────
+
+  ipcMain.handle('recurring:getAll', () => getRecurrings())
+  ipcMain.handle('recurring:add', (_event, params) => {
+    const rec = addRecurring(params)
+    trySync(() => upsertRemoteRecurring(rec))
+    return rec
+  })
+  ipcMain.handle('recurring:update', (_event, id, params) => {
+    const rec = updateRecurring(id, params)
+    trySync(() => upsertRemoteRecurring(rec))
+    return rec
+  })
+  ipcMain.handle('recurring:delete', (_event, id) => {
+    deleteRecurring(id)
+    trySync(() => deleteRemoteRecurring(id))
   })
 
   // Backup / Restore / Clear

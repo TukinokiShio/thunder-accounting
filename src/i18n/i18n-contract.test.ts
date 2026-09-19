@@ -46,6 +46,7 @@ const WHITELIST_FILES: Record<string, string> = {
   'src/utils/errorMessages.ts': '错误关键字表，自带 zh/en 双语文案（KEYWORD_MAP）',
   'src/data/categories.ts': '预设分类名是持久化在 SQLite 里的数据，不是 UI 文案',
   'src/data/incomeCategories.ts': '同上',
+  'src/data/recurringOptions.ts': '周期支出快选选项与默认分类是持久化在 SQLite 里的数据（与预设分类同理），展示层经 t() 翻译',
   'src/utils/settings.ts': 'TIMEZONE_OPTIONS.label 即词典 key，渲染处由 SettingsDialog 的 t(opt.label) 解析',
   'mobile/bridge/android-storage.ts': '内部诊断错误（StoragePort 一致性守卫），经 friendlyError 收敛，不直接上屏',
   'mobile/bridge/android-adapter.ts': '同上；createShortcut 的降级返回在 src/ 内零调用'

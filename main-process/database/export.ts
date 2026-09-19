@@ -55,20 +55,23 @@ function rowsToObjects(result: { columns: string[]; values: unknown[][] }): Reco
   })
 }
 
-/** 将全部账单和分类数据导出为 JSON 字符串，用于备份功能 */
+/** 将全部账单、分类和周期支出规则导出为 JSON 字符串，用于备份功能 */
 export function exportAllJSON(): string {
   const db = getDb()
   const bills = db.exec('SELECT * FROM bills ORDER BY id ASC')
   const categories = db.exec('SELECT * FROM categories ORDER BY id ASC')
+  const recurrings = db.exec('SELECT * FROM recurrings ORDER BY id ASC')
 
   const billsJson = bills.length ? rowsToObjects(bills[0]) : []
   const catsJson = categories.length ? rowsToObjects(categories[0]) : []
+  const recurringsJson = recurrings.length ? rowsToObjects(recurrings[0]) : []
 
   return JSON.stringify({
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
     bills: billsJson,
-    categories: catsJson
+    categories: catsJson,
+    recurrings: recurringsJson
   }, null, 2)
 }
 
@@ -77,9 +80,9 @@ export function exportAllJSON(): string {
  * 先校验数据格式，再用事务包裹批量写入；中途失败自动回滚，保证数据一致性。
  * 预设分类（is_preset=1）在导入时跳过，由 initPresetCategories 统一管理。
  */
-export function importAllJSON(json: string): { bills: number; categories: number } {
+export function importAllJSON(json: string): { bills: number; categories: number; recurrings: number } {
   const db = getDb()
-  let data: { bills?: unknown[]; categories?: unknown[]; version?: number }
+  let data: { bills?: unknown[]; categories?: unknown[]; recurrings?: unknown[]; version?: number }
   try {
     data = JSON.parse(json)
   } catch (e) {
@@ -106,10 +109,11 @@ export function importAllJSON(json: string): { bills: number; categories: number
   // 用事务包裹恢复操作：中途失败自动回滚，保证数据完整性
   db.run('BEGIN TRANSACTION')
   try {
-    // 清空现有数据
+    // 清空现有数据（周期支出规则一并清空，随后从备份恢复）
     db.run('DELETE FROM bills')
     // 仅删除自定义分类，保留预设分类
     db.run('DELETE FROM categories WHERE is_preset = 0')
+    db.run('DELETE FROM recurrings')
 
     // 逐条恢复账单
     let billCount = 0
@@ -142,9 +146,27 @@ export function importAllJSON(json: string): { bills: number; categories: number
       catStmt.free()
     }
 
+    // 恢复周期支出规则（v1.x 备份无此数组时跳过，保持向后兼容）
+    let recCount = 0
+    if (data.recurrings && Array.isArray(data.recurrings)) {
+      const recStmt = db.prepare(
+        'INSERT INTO recurrings (id, name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      for (const r of data.recurrings as Array<Record<string, unknown>>) {
+        recStmt.run([
+          r.id, r.name, r.amount, r.type ?? 'subscription', r.cycle_unit ?? 'month',
+          r.cycle_interval ?? 1, r.next_date ?? '', r.category1 ?? '', r.category2 ?? null,
+          r.payment_platform ?? null, r.fund_account ?? null, r.note ?? null,
+          r.paused ?? 0, r.created_at ?? new Date().toISOString()
+        ])
+        recCount++
+      }
+      recStmt.free()
+    }
+
     db.run('COMMIT')
     saveDb()
-    return { bills: billCount, categories: catCount }
+    return { bills: billCount, categories: catCount, recurrings: recCount }
   } catch (e) {
     db.run('ROLLBACK')
     throw e

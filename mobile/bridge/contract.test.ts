@@ -19,7 +19,7 @@ import { androidAdapter } from './android-adapter'
 const root = resolve(__dirname, '../..')
 const read = (file: string) => readFileSync(resolve(root, file), 'utf8')
 
-const CONTRACT_SIZE = 41
+const CONTRACT_SIZE = 45
 
 /** 从 `{ ... }` 字面量 / interface 体中抽取顶层成员名（2 空格缩进的 `name:`） */
 function extractTopLevelKeys(source: string, blockStart: string): string[] {
@@ -44,7 +44,7 @@ const stripComments = (source: string) =>
   source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
 describe('C1 契约一致性（适配器 / 手写接口 / preload 暴露）', () => {
-  it('适配器恰好实现 41 个方法', () => {
+  it('适配器恰好实现 45 个方法', () => {
     expect(adapterKeys).toHaveLength(CONTRACT_SIZE)
   })
 
@@ -258,7 +258,7 @@ describe('P1-6 签名级契约：参数个数三方一致（可选位在 接口�
   const preloadShapes = objectLiteralParamShapes(buildSource('main-process/preload.ts'), 'electronAPI')
   const adapterShapes = objectLiteralParamShapes(buildSource('mobile/bridge/android-adapter.ts'), 'androidAdapter')
 
-  it('三方都能解析出 41 个方法的形参表', () => {
+  it('三方都能解析出 45 个方法的形参表', () => {
     expect(ifaceShapes.size).toBe(CONTRACT_SIZE)
     expect(preloadShapes.size).toBe(CONTRACT_SIZE)
     expect(adapterShapes.size).toBe(CONTRACT_SIZE)

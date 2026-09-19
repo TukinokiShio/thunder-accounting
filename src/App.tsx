@@ -9,6 +9,7 @@ import { Home } from '@/pages/Home'
 import { Bills } from '@/pages/Bills'
 import { Stats } from '@/pages/Stats'
 import ProfilePage from '@/pages/Profile'
+import { RecurringPage } from '@/pages/Recurring'
 import { AddBillDialog } from '@/components/AddBillDialog'
 import { CategoryManager } from '@/components/CategoryManager'
 import { SettingsDialog } from '@/components/SettingsDialog'
@@ -62,6 +63,7 @@ export default function App() {
     if (user || (localMode && !isCheckingSession)) {
       useStore.getState().refreshBills()
       useStore.getState().refreshCategories()
+      useStore.getState().refreshRecurrings()
     }
   }, [user, isCheckingSession, localMode])
 
@@ -82,6 +84,7 @@ export default function App() {
           {activePage === 'home' && <Home />}
           {activePage === 'bills' && <Bills />}
           {activePage === 'stats' && <Stats />}
+          {activePage === 'recurring' && <RecurringPage />}
           {activePage === 'categories' && (
             <CategoryManager
               isOpen={true}

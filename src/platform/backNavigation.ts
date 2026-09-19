@@ -25,7 +25,7 @@
  */
 
 /** 与 store 的 `activePage` 联合类型一致；一旦 store 增删页面，调用点会 tsc 报错 */
-export type BackNavigationPage = 'home' | 'bills' | 'stats' | 'categories' | 'profile'
+export type BackNavigationPage = 'home' | 'bills' | 'stats' | 'recurring' | 'categories' | 'profile'
 
 /** 决策所需的全部输入（结构最小集，便于单测逐个构造） */
 export interface BackNavigationState {

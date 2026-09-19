@@ -73,6 +73,43 @@ const electronAPI = {
   reorderCategories: (orderedIds: number[]) =>
     ipcRenderer.invoke('category:reorder', orderedIds),
 
+  // Recurring（周期支出规则，v2.0）
+  getRecurrings: () =>
+    ipcRenderer.invoke('recurring:getAll'),
+
+  addRecurring: (params: {
+    name: string
+    amount: number
+    type?: 'subscription' | 'dca'
+    cycle_unit?: 'day' | 'week' | 'month' | 'year'
+    cycle_interval?: number
+    next_date: string
+    category1: string
+    category2?: string
+    payment_platform?: string
+    fund_account?: string
+    note?: string
+    paused?: number
+  }) => ipcRenderer.invoke('recurring:add', params),
+
+  updateRecurring: (id: number, params: {
+    name?: string
+    amount?: number
+    type?: 'subscription' | 'dca'
+    cycle_unit?: 'day' | 'week' | 'month' | 'year'
+    cycle_interval?: number
+    next_date?: string
+    category1?: string
+    category2?: string
+    payment_platform?: string
+    fund_account?: string
+    note?: string
+    paused?: number
+  }) => ipcRenderer.invoke('recurring:update', id, params),
+
+  deleteRecurring: (id: number) =>
+    ipcRenderer.invoke('recurring:delete', id),
+
   // Backup / Restore / Clear
   exportBackup: () =>
     ipcRenderer.invoke('backup:export'),

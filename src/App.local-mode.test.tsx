@@ -12,12 +12,13 @@ import { ANDROID_PLATFORM_CLASS } from '@/platform'
 
 const refreshBills = vi.fn()
 const refreshCategories = vi.fn()
+const refreshRecurrings = vi.fn()
 const setUser = vi.fn()
 const setCheckingSession = vi.fn()
 const setActivePage = vi.fn()
 
 const state = {
-  activePage: 'home' as 'home' | 'bills' | 'stats' | 'categories' | 'profile',
+  activePage: 'home' as 'home' | 'bills' | 'stats' | 'recurring' | 'categories' | 'profile',
   openAddDialog: vi.fn(),
   user: null as unknown,
   isCheckingSession: false,
@@ -25,7 +26,8 @@ const state = {
   setCheckingSession,
   setActivePage,
   refreshBills,
-  refreshCategories
+  refreshCategories,
+  refreshRecurrings
 }
 
 vi.mock('@/store', () => ({

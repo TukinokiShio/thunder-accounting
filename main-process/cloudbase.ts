@@ -2,8 +2,8 @@ import cloudbase from '@cloudbase/node-sdk'
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
-import type { BillRow, CategoryRow } from './database'
-import { clearAllData, getDbPath, getBills, getCategories, setBillCloudId, setCategoryCloudId } from './database'
+import type { BillRow, CategoryRow, RecurringRow } from './database'
+import { clearAllData, getDbPath, getBills, getCategories, getRecurrings, setBillCloudId, setCategoryCloudId, setRecurringCloudId } from './database'
 import { saveCredentials as safeSave, loadCredentials as safeLoad, clearCredentials } from './credential-store'
 import { resolveAccountDeletionResponse } from './account-deletion'
 
@@ -912,6 +912,54 @@ export async function deleteRemoteCategory(localId: number): Promise<void> {
   }
 }
 
+// ─── Recurring（周期支出规则）云同步，v2.0。结构对齐 bills/categories 的 upsert 模式 ──
+
+export async function upsertRemoteRecurring(rec: RecurringRow): Promise<void> {
+  try {
+    const { userId } = ensureDbAndUser()
+    const remote = {
+      localId: rec.id, userId,
+      name: rec.name, amount: rec.amount, type: rec.type,
+      cycle_unit: rec.cycle_unit, cycle_interval: rec.cycle_interval,
+      next_date: rec.next_date, category1: rec.category1,
+      category2: rec.category2, payment_platform: rec.payment_platform,
+      fund_account: rec.fund_account, note: rec.note, paused: rec.paused,
+      created_at: rec.created_at || new Date().toISOString(),
+      updated_at: rec.updated_at || new Date().toISOString()
+    }
+    const existing = rec.cloud_id
+      ? { data: [{ _id: rec.cloud_id }] }
+      : await db!.collection('recurrings').where({ localId: rec.id, userId }).get()
+    if (existing.data?.length) {
+      await db!.collection('recurrings').doc(existing.data[0]._id).update(remote)
+      setRecurringCloudId(rec.id, existing.data[0]._id)
+    } else {
+      const added = await db!.collection('recurrings').add(remote)
+      const cloudId = (added as { id?: string }).id
+      if (cloudId) setRecurringCloudId(rec.id, cloudId)
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`同步周期支出规则失败 (localId=${rec.id}):`, msg)
+    throw new Error(`cloud_sync_recurring_failed: ${msg}`)
+  }
+}
+
+export async function deleteRemoteRecurring(localId: number): Promise<void> {
+  try {
+    const { userId } = ensureDbAndUser()
+    const local = getRecurrings().find(rec => rec.id === localId)
+    const existing = local?.cloud_id
+      ? { data: [{ _id: local.cloud_id }] }
+      : await db!.collection('recurrings').where({ localId, userId }).get()
+    if (existing.data?.length) await db!.collection('recurrings').doc(existing.data[0]._id).remove()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`删除云端周期支出规则失败 (localId=${localId}):`, msg)
+    throw new Error(`cloud_delete_recurring_failed: ${msg}`)
+  }
+}
+
 // ─── Cloud → Local Sync (Login) ─────────────────
 
 interface CloudBill {
@@ -938,6 +986,27 @@ interface CloudCategory {
   updated_at: string
   userId: string
   localId: number
+}
+
+/** 云端周期支出规则的原始记录形态（v2.0），由 insertCloudRecurrings 消费 */
+interface CloudRecurring {
+  name: string
+  amount: number
+  type: string
+  cycle_unit: string
+  cycle_interval: number
+  next_date: string
+  category1: string
+  category2?: string | null
+  payment_platform?: string | null
+  fund_account?: string | null
+  note?: string | null
+  paused?: number
+  created_at: string
+  updated_at: string
+  userId: string
+  localId: number
+  _id?: string
 }
 
 /**
@@ -994,6 +1063,32 @@ export async function pullCategoriesFromCloud(): Promise<CloudCategory[]> {
     return data
   } catch (e) {
     console.error('从云端拉取分类失败:', e)
+    return []
+  }
+}
+
+/**
+ * 从云端拉取当前用户的周期支出规则（v2.0）。
+ */
+export async function pullRecurringsFromCloud(): Promise<CloudRecurring[]> {
+  if (!db) return []
+  const userId = getUserId()
+  if (!userId) return []
+
+  try {
+    const data: CloudRecurring[] = []
+    const pageSize = 100
+    let offset = 0
+    while (true) {
+      const result = await db.collection('recurrings').where({ userId }).skip(offset).limit(pageSize).get()
+      const page = (result.data || []) as CloudRecurring[]
+      data.push(...page)
+      if (page.length < pageSize) break
+      offset += page.length
+    }
+    return data
+  } catch (e) {
+    console.error('从云端拉取周期支出规则失败:', e)
     return []
   }
 }

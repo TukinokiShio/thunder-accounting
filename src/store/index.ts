@@ -3,7 +3,7 @@
  * 管理：页面路由、记账弹窗开关、账单列表/筛选、分类数据、Toast 通知、数据刷新触发器。
  */
 import { create } from 'zustand'
-import type { Bill, Category, StatsResult, CloudBaseUser } from '@/types'
+import type { Bill, Category, StatsResult, CloudBaseUser, Recurring } from '@/types'
 
 /** 将数据库行（children 为 JSON 字符串）解析为前端 Category 类型 */
 function parseCategoryRow(row: { name: string; icon: string; children: string; id: number; is_preset: number }): Category {
@@ -25,15 +25,38 @@ export interface Toast {
   message: string
 }
 
+/**
+ * 一键入账预填通道（v2.0 周期支出）：
+ * 周期支出页把到期规则打包成预填数据 → AddBillDialog 按「单笔支出」预填展示，
+ * 确认后逐期落账（漏期时多笔）并推进规则 next_date。
+ */
+export interface RecurringBillPreset {
+  recurringId: number
+  name: string
+  amount: number
+  category1: string
+  category2: string
+  paymentPlatform: string
+  fundAccount: string
+  /** 待入账的各期日期（≥1 期；漏期时多笔，各期各日期） */
+  dueDates: string[]
+  /** 全部期次入账后规则的新 next_date（调用方已按推进函数算好） */
+  nextDateAfter: string
+}
+
 interface AppState {
-  activePage: 'home' | 'bills' | 'stats' | 'categories' | 'profile'
-  setActivePage: (page: 'home' | 'bills' | 'stats' | 'categories' | 'profile') => void
+  activePage: 'home' | 'bills' | 'stats' | 'categories' | 'recurring' | 'profile'
+  setActivePage: (page: AppState['activePage']) => void
 
   isAddDialogOpen: boolean
   editBillId: number | null
+  /** 周期支出「一键入账」预填（非空时 AddBillDialog 走预填模式） */
+  recurringPreset: RecurringBillPreset | null
   openAddDialog: () => void
+  openAddDialogForRecurring: (preset: RecurringBillPreset) => void
   closeAddDialog: () => void
   openEditDialog: (id: number) => void
+  clearRecurringPreset: () => void
 
   // 设置弹窗开关。原先由 `App.tsx` 的本地 state 持有，但唯一入口是侧栏（安卓窄屏
   // 隐藏侧栏 → 安卓根本打不开设置、切不了语言）。改为 store 驱动后「我的」页也能开。
@@ -78,6 +101,13 @@ interface AppState {
   incomeCategories: Category[]
   refreshCategories: () => Promise<void>
 
+  // ─── Recurring（周期支出规则，v2.0） ───
+  recurrings: Recurring[]
+  refreshRecurrings: () => Promise<void>
+  addRecurringAction: (params: Omit<Recurring, 'id' | 'created_at' | 'paused'> & { paused?: number }) => Promise<Recurring>
+  updateRecurringAction: (id: number, params: Partial<Omit<Recurring, 'id' | 'created_at'>>) => Promise<Recurring>
+  deleteRecurringAction: (id: number) => Promise<void>
+
   // ─── Auth State ───
   user: CloudBaseUser | null
   isCheckingSession: boolean
@@ -97,9 +127,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   isAddDialogOpen: false,
   editBillId: null,
-  openAddDialog: () => set({ isAddDialogOpen: true, editBillId: null }),
-  closeAddDialog: () => set({ isAddDialogOpen: false, editBillId: null }),
-  openEditDialog: (id) => set({ isAddDialogOpen: true, editBillId: id }),
+  recurringPreset: null,
+  openAddDialog: () => set({ isAddDialogOpen: true, editBillId: null, recurringPreset: null }),
+  openAddDialogForRecurring: (preset) => set({ isAddDialogOpen: true, editBillId: null, recurringPreset: preset }),
+  closeAddDialog: () => set({ isAddDialogOpen: false, editBillId: null, recurringPreset: null }),
+  openEditDialog: (id) => set({ isAddDialogOpen: true, editBillId: id, recurringPreset: null }),
+  clearRecurringPreset: () => set({ recurringPreset: null }),
 
   settingsOpen: false,
   openSettings: () => set({ settingsOpen: true }),
@@ -179,6 +212,31 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error('Failed to refresh categories:', e)
     }
+  },
+
+  // ─── Recurring（周期支出规则，v2.0） ───
+  recurrings: [],
+  refreshRecurrings: async () => {
+    try {
+      const recurrings = await window.electronAPI.getRecurrings()
+      set({ recurrings })
+    } catch (e) {
+      console.error('Failed to refresh recurrings:', e)
+    }
+  },
+  addRecurringAction: async (params) => {
+    const rec = await window.electronAPI.addRecurring(params)
+    await get().refreshRecurrings()
+    return rec
+  },
+  updateRecurringAction: async (id, params) => {
+    const rec = await window.electronAPI.updateRecurring(id, params)
+    await get().refreshRecurrings()
+    return rec
+  },
+  deleteRecurringAction: async (id) => {
+    await window.electronAPI.deleteRecurring(id)
+    await get().refreshRecurrings()
   },
 
   // ─── Auth State ───

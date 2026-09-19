@@ -1,5 +1,5 @@
 /**
- * 安卓端宿主适配器 —— 实现 `src/types/index.ts` 的 41 个 `AppAPI` 方法。
+ * 安卓端宿主适配器 —— 实现 `src/types/index.ts` 的 45 个 `AppAPI` 方法（v2.0 起 41+4 周期支出）。
  *
  * 契约冻结：方法名 + 返回结构必须与桌面 `main-process/preload.ts` 逐一同名同形
  * （由 `mobile/bridge/contract.test.ts` 的 C1 断言三方集合相等）。
@@ -23,7 +23,7 @@
  */
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
-import type { AppAPI, Bill, CategoryRow } from '../../src/types'
+import type { AppAPI, Bill, CategoryRow, Recurring } from '../../src/types'
 
 // ─── 错误类型 ──────────────────────────────────────
 
@@ -77,6 +77,9 @@ async function upsertRemoteBill(_bill: unknown): Promise<void> {}
 async function deleteRemoteBill(_id: number): Promise<void> {}
 async function upsertRemoteCategory(_category: unknown): Promise<void> {}
 async function deleteRemoteCategory(_id: number): Promise<void> {}
+/** 周期支出规则的远端占位（v2.0，首版 no-op），对应桌面 main.ts 的 recurring handlers */
+async function upsertRemoteRecurring(_recurring: unknown): Promise<void> {}
+async function deleteRemoteRecurring(_id: number): Promise<void> {}
 
 /** 云同步预留位（首版 no-op）。对应桌面 `main-process/main.ts:172-175`。 */
 function trySync(_fn: () => Promise<void>): void {
@@ -161,7 +164,7 @@ function pickTextFile(): Promise<{ filePath: string; content: string } | null> {
   })
 }
 
-// ─── 适配器本体（41 方法） ─────────────────────────
+// ─── 适配器本体（45 方法） ─────────────────────────
 
 export const androidAdapter: AppAPI = {
   // ── 账单（本地） ────────────────────────────────
@@ -191,6 +194,35 @@ export const androidAdapter: AppAPI = {
     db.deleteBill(id)
     // 对应桌面 main.ts:211-214（bill:delete）
     trySync(() => deleteRemoteBill(id))
+  },
+
+  // ── 周期支出规则（本地，v2.0；结构与账单 CRUD 逐条对应） ──
+  getRecurrings: async () => {
+    const db = await localDb()
+    return db.getRecurrings() as unknown as Recurring[]
+  },
+
+  addRecurring: async (params) => {
+    const db = await localDb()
+    const recurring = db.addRecurring(params)
+    // 对应桌面 main.ts（recurring:add）
+    trySync(() => upsertRemoteRecurring(recurring))
+    return recurring as unknown as Recurring
+  },
+
+  updateRecurring: async (id, params) => {
+    const db = await localDb()
+    const recurring = db.updateRecurring(id, params)
+    // 对应桌面 main.ts（recurring:update）
+    trySync(() => upsertRemoteRecurring(recurring))
+    return recurring as unknown as Recurring
+  },
+
+  deleteRecurring: async (id) => {
+    const db = await localDb()
+    db.deleteRecurring(id)
+    // 对应桌面 main.ts（recurring:delete）
+    trySync(() => deleteRemoteRecurring(id))
   },
 
   // ── 统计（本地） ────────────────────────────────

@@ -1,13 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { X, Repeat } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
 import { modalPortalScope } from '@/utils/modalScope'
 import { CategorySelect } from './CategorySelect'
 import { AddBillDatePicker } from './AddBillDatePicker'
-import type { AddBillForm } from '@/types'
+import { RecurringFormFields, firstRecurringErrorMessage } from './Recurring/RecurringFormFields'
+import { emptyRecurringForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch } from './Recurring/recurringFormModel'
+import { defaultCategoryFor } from '@/data/recurringOptions'
+import type { AddBillForm, RecurringForm } from '@/types'
 
 /**
  * 获取空的账单表单初始值。
@@ -32,20 +35,30 @@ export function AddBillDialog() {
   const isOpen = useStore((s) => s.isAddDialogOpen)
   const editBillId = useStore((s) => s.editBillId)
   const bills = useStore((s) => s.bills)
+  const recurringPreset = useStore((s) => s.recurringPreset)
   const closeAddDialog = useStore((s) => s.closeAddDialog)
   const refreshBills = useStore((s) => s.refreshBills)
   const addToast = useStore((s) => s.addToast)
   const notifyChange = useStore((s) => s.notifyChange)
+  const addRecurringAction = useStore((s) => s.addRecurringAction)
+  const updateRecurringAction = useStore((s) => s.updateRecurringAction)
+  const refreshRecurrings = useStore((s) => s.refreshRecurrings)
   const { t } = useLanguage()
 
   const [form, setForm] = useState<AddBillForm>(getEmptyForm)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [futureWarning, setFutureWarning] = useState(false)
+  // v2.0：支出侧双模块。「单笔支出」= 既有流程；「周期支出」= 登记周期规则（不即时落账）。
+  // 仅在「新增 + 支出 + 非一键入账预填」时可见；编辑/收入/预填态无此切换。
+  const [expenseModule, setExpenseModule] = useState<'single' | 'recurring'>('single')
+  const [recForm, setRecForm] = useState<RecurringForm>(emptyRecurringForm)
   const amountInputRef = useRef<HTMLInputElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
 
   const isEditMode = editBillId !== null
+  const isPresetMode = recurringPreset !== null
+  const showModuleSwitch = !isEditMode && !isPresetMode && form.type === 'expense'
 
   // 编辑模式：根据 editBillId 查找已有账单并回填表单
   useEffect(() => {
@@ -66,6 +79,23 @@ export function AddBillDialog() {
     }
   }, [isEditMode, editBillId])
 
+  // 一键入账预填模式：按到期规则预填单笔表单（金额/分类/日期=首期/备注=规则名）
+  useEffect(() => {
+    if (isOpen && recurringPreset) {
+      setForm({
+        amount: String(recurringPreset.amount),
+        category1: recurringPreset.category1,
+        category2: recurringPreset.category2 || '',
+        date: recurringPreset.dueDates[0] ?? formatLocalDate(),
+        note: recurringPreset.name,
+        type: 'expense'
+      })
+      setExpenseModule('single')
+      setError('')
+      setFutureWarning(false)
+    }
+  }, [isOpen, recurringPreset])
+
   useEffect(() => {
     if (!isOpen) return
 
@@ -85,15 +115,91 @@ export function AddBillDialog() {
       ...getEmptyForm(),
       date: formatLocalDate()
     })
+    setExpenseModule('single')
+    setRecForm(emptyRecurringForm())
     setError('')
     setFutureWarning(false)
   }, [])
+
+  const patchRecForm = (patch: RecurringFormPatch) => {
+    setRecForm((prev) => {
+      const next = { ...prev, ...patch }
+      if (patch.type && patch.type !== prev.type) {
+        next.category1 = defaultCategoryFor(patch.type)
+      }
+      return next
+    })
+  }
 
   const typeLabel = form.type === 'income' ? t('收入') : t('支出')
 
   const handleClose = () => {
     resetForm()
     closeAddDialog()
+  }
+
+  /** 周期支出模块提交：登记规则（不即时落账），规则在到期后由页面/提醒引导入账 */
+  const handleRecurringSubmit = async () => {
+    setError('')
+    const errors = validateRecurringForm(recForm)
+    if (errors.length > 0) {
+      setError(firstRecurringErrorMessage(errors, t))
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const params = formToRecurringParams(recForm)
+      await addRecurringAction(params)
+      addToast('success', t('已添加周期支出：{name}').replace('{name}', params.name))
+      notifyChange()
+      resetForm()
+      closeAddDialog()
+    } catch (e) {
+      console.error('Failed to save recurring rule:', e)
+      setError(t('保存失败，请重试'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  /** 一键入账提交：按到期窗口逐期落账（漏期时多笔），完成后推进规则 next_date */
+  const handlePresetSubmit = async (sanitizedAmount: number) => {
+    const preset = recurringPreset!
+    setSubmitting(true)
+    try {
+      for (const dueDate of preset.dueDates) {
+        await window.electronAPI.addBill({
+          amount: sanitizedAmount,
+          category1: form.category1,
+          category2: form.category2 || form.category1,
+          date: dueDate,
+          note: form.note.trim(),
+          type: 'expense',
+          recurring_id: preset.recurringId,
+          payment_platform: preset.paymentPlatform || undefined,
+          fund_account: preset.fundAccount || undefined
+        })
+      }
+      await window.electronAPI.updateRecurring(preset.recurringId, { next_date: preset.nextDateAfter })
+      await refreshRecurrings()
+      addToast('success',
+        preset.dueDates.length > 1
+          ? t('已补记 {n} 笔周期支出：{name}')
+            .replace('{n}', String(preset.dueDates.length))
+            .replace('{name}', preset.name)
+          : t('已入账周期支出：{name}').replace('{name}', preset.name)
+      )
+      resetForm()
+      closeAddDialog()
+      await refreshBills()
+      notifyChange()
+    } catch (e) {
+      console.error('Failed to record recurring bills:', e)
+      setError(t('保存失败，请重试'))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleSubmit = async () => {
@@ -114,7 +220,7 @@ export function AddBillDialog() {
       setError(t('请选择一级分类'))
       return
     }
-    if (!form.category2) {
+    if (!form.category2 && !isPresetMode) {
       setError(t('请选择二级分类'))
       return
     }
@@ -123,9 +229,15 @@ export function AddBillDialog() {
       return
     }
 
-    // 第二步：未来日期确认（允许提交但需用户二次确认）
+    // 周期支出模块：登记规则，不走账单校验的二级分类/未来日期分支
+    if (showModuleSwitch && expenseModule === 'recurring') {
+      await handleRecurringSubmit()
+      return
+    }
+
+    // 第二步：未来日期确认（允许提交但需用户二次确认；一键入账预填模式跳过）
     const today = formatLocalDate()
-    if (form.date > today && !futureWarning) {
+    if (!isPresetMode && form.date > today && !futureWarning) {
       setFutureWarning(true)
       setError(t('⚠️ 日期晚于今天 — 确定这是一笔未来支出预登记吗？再次点击"保存"确认。'))
       return
@@ -133,6 +245,13 @@ export function AddBillDialog() {
 
     // 金额四舍五入到分（浮点数精度修正，如 0.1+0.2 在 JS 中不等于精确的 0.3）
     const sanitizedAmount = Math.round(amount * 100) / 100
+
+    // 一键入账：逐期落账 + 推进 next_date（金额/分类/备注用表单当前值，日期按期次自动分配）
+    if (isPresetMode) {
+      await handlePresetSubmit(sanitizedAmount)
+      return
+    }
+
     const billData = {
       amount: sanitizedAmount,
       category1: form.category1,
@@ -234,7 +353,7 @@ export function AddBillDialog() {
         {/* 弹窗标题栏 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 id="add-bill-dialog-title" className="text-lg font-bold text-gray-900">
-            {isEditMode ? t('编辑账单') : t('记一笔')}
+            {isEditMode ? t('编辑账单') : isPresetMode ? t('周期支出入账') : t('记一笔')}
           </h2>
           <button
             type="button"
@@ -249,7 +368,8 @@ export function AddBillDialog() {
         <form className="add-bill-dialog-form" onSubmit={(e) => { e.preventDefault(); if (!submitting) void handleSubmit() }}>
           {/* 表单内容区 */}
           <div className="px-6 py-4 space-y-4 add-bill-dialog-content">
-          {/* 支出/收入类型切换 */}
+          {/* 支出/收入类型切换（一键入账预填模式固定为支出，隐藏切换） */}
+          {!isPresetMode && (
           <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
             <button
               type="button"
@@ -276,67 +396,137 @@ export function AddBillDialog() {
               {t('收入')}
             </button>
           </div>
+          )}
 
-          {/* 金额输入 */}
-          <div>
-            <label htmlFor="add-bill-amount" className="block text-sm font-medium text-gray-700 mb-1">{t('金额 (¥)')}</label>
-            <div className="relative">
-              <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-lg font-medium
-                ${form.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>¥</span>
+          {/* v2.0 支出双模块：单笔支出（既有流程）/ 周期支出（登记规则，到期后入账） */}
+          {showModuleSwitch && (
+            <div role="group" aria-label={t('支出模块')} className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                type="button"
+                aria-pressed={expenseModule === 'single'}
+                onClick={() => setExpenseModule('single')}
+                className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
+                  ${expenseModule === 'single'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+              >
+                {t('单笔支出')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={expenseModule === 'recurring'}
+                onClick={() => setExpenseModule('recurring')}
+                className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors inline-flex items-center justify-center gap-1
+                  ${expenseModule === 'recurring'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+              >
+                <Repeat size={14} aria-hidden="true" />
+                {t('周期支出')}
+              </button>
+            </div>
+          )}
+
+          {showModuleSwitch && expenseModule === 'recurring' ? (
+            /* 周期支出模块：登记规则（金额/分类/日期等语义见 RecurringFormFields） */
+            <RecurringFormFields form={recForm} onChange={patchRecForm} idPrefix="add-bill-rec" />
+          ) : (
+          <>
+            {/* 一键入账预填横幅：到期规则 → 按模板入账 */}
+            {isPresetMode && recurringPreset && (
+              <div className="flex items-start gap-2 text-sm rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700" role="status">
+                <Repeat size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                <span>
+                  {recurringPreset.dueDates.length > 1
+                    ? t('{name} 已到期 {n} 期，将按各期日期补记 {n} 笔')
+                        .replace('{name}', recurringPreset.name)
+                        .replace(/\{n\}/g, String(recurringPreset.dueDates.length))
+                    : t('{name} 已到期，确认后按模板入账').replace('{name}', recurringPreset.name)}
+                </span>
+              </div>
+            )}
+
+            {/* 金额输入 */}
+            <div>
+              <label htmlFor="add-bill-amount" className="block text-sm font-medium text-gray-700 mb-1">{t('金额 (¥)')}</label>
+              <div className="relative">
+                <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-lg font-medium
+                  ${form.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>¥</span>
+                <input
+                  ref={amountInputRef}
+                  id="add-bill-amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max="99999999.99"
+                  placeholder="0.00"
+                  value={form.amount}
+                  onChange={(e) => setForm(prev => ({ ...prev, amount: e.target.value }))}
+                  className="input-field pl-8 text-lg font-mono font-medium"
+                />
+              </div>
+            </div>
+
+            {/* 分类选择器 */}
+            <div>
+              <span id="add-bill-category-label" className="block text-sm font-medium text-gray-700 mb-1">{t('分类')}</span>
+              <div role="group" aria-labelledby="add-bill-category-label">
+                <CategorySelect
+                  category1={form.category1}
+                  category2={form.category2}
+                  type={form.type}
+                  onCategory1Change={(cat) => setForm(prev => ({ ...prev, category1: cat, category2: '' }))}
+                  onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
+                />
+              </div>
+            </div>
+
+            {/* 日期选择（一键入账模式按期次自动分配，不可改；展示各期日期） */}
+            {isPresetMode && recurringPreset ? (
+              <div>
+                <span className="block text-sm font-medium text-gray-700 mb-1">{t('入账日期')}</span>
+                <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2 font-mono break-words">
+                  {recurringPreset.dueDates.join(t('、'))}
+                </p>
+                {(recurringPreset.paymentPlatform || recurringPreset.fundAccount) && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    {[
+                      recurringPreset.paymentPlatform ? t('支付平台') + t('：') + recurringPreset.paymentPlatform : '',
+                      recurringPreset.fundAccount ? t('资金账户') + t('：') + recurringPreset.fundAccount : ''
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="add-bill-date" className="block text-sm font-medium text-gray-700 mb-1">{t('日期')}</label>
+                <AddBillDatePicker
+                  id="add-bill-date"
+                  value={form.date}
+                  onChange={(date) => setForm(prev => ({ ...prev, date }))}
+                />
+              </div>
+            )}
+
+            {/* 备注输入（可选） */}
+            <div>
+              <label htmlFor="add-bill-note" className="block text-sm font-medium text-gray-700 mb-1">
+                {t('备注')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
+              </label>
               <input
-                ref={amountInputRef}
-                id="add-bill-amount"
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="99999999.99"
-                placeholder="0.00"
-                value={form.amount}
-                onChange={(e) => setForm(prev => ({ ...prev, amount: e.target.value }))}
-                className="input-field pl-8 text-lg font-mono font-medium"
+                id="add-bill-note"
+                type="text"
+                maxLength={200}
+                placeholder={t('添加备注...')}
+                value={form.note}
+                onChange={(e) => setForm(prev => ({ ...prev, note: e.target.value }))}
+                className="input-field"
               />
             </div>
-          </div>
-
-          {/* 分类选择器 */}
-          <div>
-            <span id="add-bill-category-label" className="block text-sm font-medium text-gray-700 mb-1">{t('分类')}</span>
-            <div role="group" aria-labelledby="add-bill-category-label">
-              <CategorySelect
-                category1={form.category1}
-                category2={form.category2}
-                type={form.type}
-                onCategory1Change={(cat) => setForm(prev => ({ ...prev, category1: cat, category2: '' }))}
-                onCategory2Change={(cat) => setForm(prev => ({ ...prev, category2: cat }))}
-              />
-            </div>
-          </div>
-
-          {/* 日期选择 */}
-          <div>
-            <label htmlFor="add-bill-date" className="block text-sm font-medium text-gray-700 mb-1">{t('日期')}</label>
-            <AddBillDatePicker
-              id="add-bill-date"
-              value={form.date}
-              onChange={(date) => setForm(prev => ({ ...prev, date }))}
-            />
-          </div>
-
-          {/* 备注输入（可选） */}
-          <div>
-            <label htmlFor="add-bill-note" className="block text-sm font-medium text-gray-700 mb-1">
-              {t('备注')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
-            </label>
-            <input
-              id="add-bill-note"
-              type="text"
-              maxLength={200}
-              placeholder={t('添加备注...')}
-              value={form.note}
-              onChange={(e) => setForm(prev => ({ ...prev, note: e.target.value }))}
-              className="input-field"
-            />
-          </div>
+          </>
+          )}
 
           {/* 错误提示 / 警告信息 */}
           {error && (
@@ -360,7 +550,15 @@ export function AddBillDialog() {
               disabled={submitting}
               className="btn-primary text-sm min-w-[80px]"
             >
-              {submitting ? t('保存中...') : isEditMode ? t('更新') : t('保存')}
+              {submitting
+                ? t('保存中...')
+                : isEditMode
+                  ? t('更新')
+                  : isPresetMode && recurringPreset && recurringPreset.dueDates.length > 1
+                    ? t('补记 {n} 笔').replace('{n}', String(recurringPreset.dueDates.length))
+                    : isPresetMode
+                      ? t('确认入账')
+                      : t('保存')}
             </button>
           </div>
         </form>
