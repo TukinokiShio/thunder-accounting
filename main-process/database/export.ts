@@ -1,6 +1,6 @@
 import type { BillRow, BillFilters } from './index'
 import { getDb, saveDb, getBills } from './index'
-import { validateInvestmentBatch } from '../../src/utils/investmentHoldings'
+import { validateInvestmentBatch, type InvestmentHolding } from '../../src/utils/investmentHoldings'
 
 // ─── CSV Helpers ───────────────────────────────────
 
@@ -63,24 +63,52 @@ export function exportAllJSON(): string {
   const categories = db.exec('SELECT * FROM categories ORDER BY id ASC')
   const recurrings = db.exec('SELECT * FROM recurrings ORDER BY id ASC')
   const investments = db.exec(`
-    SELECT asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, created_at, updated_at
+    SELECT asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value, currency, as_of, source_note, created_at, updated_at
     FROM investment_positions ORDER BY asset_key ASC
   `)
+  const snapshotRows = db.exec('SELECT * FROM investment_snapshots ORDER BY asset_key ASC, as_of ASC')
+  const flowRows = db.exec('SELECT * FROM investment_cash_flows ORDER BY asset_key ASC, snapshot_date ASC, date ASC, flow_id ASC')
   const agentOperations = db.exec('SELECT operation_id, payload_hash, operation_type, applied_at FROM agent_operations ORDER BY applied_at ASC')
 
   const billsJson = bills.length ? rowsToObjects(bills[0]) : []
   const catsJson = categories.length ? rowsToObjects(categories[0]) : []
   const recurringsJson = recurrings.length ? rowsToObjects(recurrings[0]) : []
   const investmentsJson = investments.length ? rowsToObjects(investments[0]) : []
+  const flows = flowRows.length ? rowsToObjects(flowRows[0]) : []
+  const snapshotsJson = snapshotRows.length ? rowsToObjects(snapshotRows[0]).map((snapshot) => ({
+    asset_key: snapshot.asset_key,
+    name: snapshot.name,
+    asset_type: snapshot.asset_type,
+    quantity: snapshot.quantity,
+    quantity_kind: snapshot.quantity_kind ?? 'unknown',
+    cost_basis: snapshot.cost_basis,
+    cost_basis_kind: snapshot.cost_basis_kind ?? 'unknown',
+    market_value: snapshot.market_value,
+    currency: snapshot.currency,
+    as_of: snapshot.as_of,
+    source_note: snapshot.source_note,
+    cash_flows_complete: Boolean(snapshot.cash_flows_complete),
+    cash_flows: flows.filter((flow) => flow.asset_key === snapshot.asset_key && flow.snapshot_date === snapshot.as_of).map((flow) => ({
+      flow_id: flow.flow_id,
+      date: flow.date,
+      kind: flow.kind,
+      amount: flow.amount,
+      currency: flow.currency,
+      included_in_market_value: Boolean(flow.included_in_market_value)
+    })),
+    operation_id: snapshot.operation_id,
+    recorded_at: snapshot.recorded_at
+  })) : []
   const agentOperationsJson = agentOperations.length ? rowsToObjects(agentOperations[0]) : []
 
   return JSON.stringify({
-    version: 3,
+    version: 4,
     exported_at: new Date().toISOString(),
     bills: billsJson,
     categories: catsJson,
     recurrings: recurringsJson,
     investment_positions: investmentsJson,
+    investment_snapshots: snapshotsJson,
     agent_operations: agentOperationsJson
   }, null, 2)
 }
@@ -97,6 +125,7 @@ export function importAllJSON(json: string): { bills: number; categories: number
     categories?: unknown[]
     recurrings?: unknown[]
     investment_positions?: unknown[]
+    investment_snapshots?: unknown[]
     agent_operations?: unknown[]
     version?: number
   }
@@ -119,18 +148,60 @@ export function importAllJSON(json: string): { bills: number; categories: number
     ? data.investment_positions!.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return value
       const record = value as Record<string, unknown>
-      const allowed = new Set(['asset_key', 'name', 'asset_type', 'quantity', 'cost_basis', 'market_value', 'currency', 'as_of', 'source_note', 'created_at', 'updated_at'])
+      const allowed = new Set(['asset_key', 'name', 'asset_type', 'quantity', 'quantity_kind', 'cost_basis', 'cost_basis_kind', 'market_value', 'currency', 'as_of', 'source_note', 'cash_flows', 'cash_flows_complete', 'created_at', 'updated_at'])
       if (Object.keys(record).some((key) => !allowed.has(key))) return record
       return {
         asset_key: record.asset_key, name: record.name, asset_type: record.asset_type,
-        quantity: record.quantity, cost_basis: record.cost_basis, market_value: record.market_value,
-        currency: record.currency, as_of: record.as_of, source_note: record.source_note
+        quantity: record.quantity, quantity_kind: record.quantity_kind, cost_basis: record.cost_basis,
+        cost_basis_kind: record.cost_basis_kind, market_value: record.market_value,
+        currency: record.currency, as_of: record.as_of, source_note: record.source_note,
+        cash_flows: record.cash_flows, cash_flows_complete: record.cash_flows_complete
       }
     })
     : null
   const investmentResult = investmentPayload ? validateInvestmentBatch(investmentPayload) : null
   if (investmentResult && !investmentResult.valid) {
     throw new Error(`投资持仓数据格式无效：${investmentResult.errors[0]?.message || 'unknown'}`)
+  }
+
+  const hasSnapshotHistory = Object.prototype.hasOwnProperty.call(data, 'investment_snapshots')
+  if (hasSnapshotHistory && !Array.isArray(data.investment_snapshots)) {
+    throw new Error('备份文件 investment_snapshots 必须是数组')
+  }
+  if (data.version === 4 && !hasSnapshotHistory) {
+    throw new Error('v4 备份缺少 investment_snapshots 数组')
+  }
+  if (data.version === 4 && !hasInvestmentSnapshot) {
+    throw new Error('v4 备份缺少 investment_positions 数组')
+  }
+  const snapshots = hasSnapshotHistory ? data.investment_snapshots as Array<Record<string, unknown>> : null
+  const snapshotHoldings: Array<{ holding: InvestmentHolding; operationId: string; recordedAt: string }> = []
+  const seenSnapshotKeys = new Set<string>()
+  const seenFlowIds = new Set<string>()
+  if (snapshots) {
+    for (let index = 0; index < snapshots.length; index++) {
+      const value = snapshots[index]
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`投资快照格式无效，第 ${index + 1} 行`)
+      const record = value as Record<string, unknown>
+      const allowed = new Set(['asset_key', 'name', 'asset_type', 'quantity', 'quantity_kind', 'cost_basis', 'cost_basis_kind', 'market_value', 'currency', 'as_of', 'source_note', 'cash_flows', 'cash_flows_complete', 'operation_id', 'recorded_at'])
+      if (Object.keys(record).some((key) => !allowed.has(key))) throw new Error(`投资快照包含未知字段，第 ${index + 1} 行`)
+      const { operation_id: operationId, recorded_at: recordedAt, ...holdingFields } = record
+      if (typeof operationId !== 'string' || operationId.length > 128 || typeof recordedAt !== 'string' || !Number.isFinite(Date.parse(recordedAt))) {
+        throw new Error(`投资快照记录元数据无效，第 ${index + 1} 行`)
+      }
+      const validation = validateInvestmentBatch([holdingFields])
+      if (!validation.valid) throw new Error(`投资快照格式无效，第 ${index + 1} 行：${validation.errors[0]?.message || 'unknown'}`)
+      const holding = validation.holdings[0]
+      const snapshotKey = `${holding.asset_key}\0${holding.as_of}`
+      if (seenSnapshotKeys.has(snapshotKey)) throw new Error(`投资快照日期重复，第 ${index + 1} 行`)
+      seenSnapshotKeys.add(snapshotKey)
+      for (const flow of holding.cash_flows) {
+        const flowKey = `${holding.asset_key}\0${flow.flow_id}`
+        if (seenFlowIds.has(flowKey)) throw new Error(`投资现金流编号跨快照重复，第 ${index + 1} 行`)
+        seenFlowIds.add(flowKey)
+      }
+      snapshotHoldings.push({ holding, operationId, recordedAt })
+    }
   }
 
   const hasAgentOperations = Object.prototype.hasOwnProperty.call(data, 'agent_operations')
@@ -171,8 +242,7 @@ export function importAllJSON(json: string): { bills: number; categories: number
     db.run('DELETE FROM categories WHERE is_preset = 0')
     db.run('DELETE FROM recurrings')
 
-    // Version 1/2 backups have no investment fields: retain current holdings,
-    // their pending outbox, and the idempotency ledger. Version 3 replaces them.
+    // Version 1/2 backups have no investment fields and retain holdings. Version 3 replaces current holdings; v4 also restores snapshot history.
     let investmentCount = 0
     if (investmentResult?.valid) {
       const current = db.exec('SELECT asset_key FROM investment_positions')
@@ -186,16 +256,18 @@ export function importAllJSON(json: string): { bills: number; categories: number
         `, [assetKey])
       }
       db.run('DELETE FROM investment_positions')
+      db.run('DELETE FROM investment_snapshots')
+      db.run('DELETE FROM investment_cash_flows')
       const investmentStmt = db.prepare(`
         INSERT INTO investment_positions
-          (asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value, currency, as_of, source_note, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       for (const holding of investmentResult.holdings) {
         const backupRow = (data.investment_positions as Array<Record<string, unknown>>).find((value) => value?.asset_key === holding.asset_key)
         investmentStmt.run([
-          holding.asset_key, holding.name, holding.asset_type, holding.quantity, holding.cost_basis,
-          holding.market_value, holding.currency, holding.as_of, holding.source_note,
+          holding.asset_key, holding.name, holding.asset_type, holding.quantity, holding.quantity_kind,
+          holding.cost_basis, holding.cost_basis_kind, holding.market_value, holding.currency, holding.as_of, holding.source_note,
           typeof backupRow?.created_at === 'string' ? backupRow.created_at : new Date().toISOString(),
           typeof backupRow?.updated_at === 'string' ? backupRow.updated_at : new Date().toISOString()
         ])
@@ -209,6 +281,37 @@ export function importAllJSON(json: string): { bills: number; categories: number
         investmentCount++
       }
       investmentStmt.free()
+      if (data.version === 4 && snapshotHoldings.length) {
+        const snapshotStmt = db.prepare(`
+          INSERT INTO investment_snapshots
+            (asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value, currency, as_of, source_note, cash_flows_complete, operation_id, recorded_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        const flowStmt = db.prepare(`
+          INSERT INTO investment_cash_flows
+            (asset_key, flow_id, snapshot_date, date, kind, amount, currency, included_in_market_value, source_note, operation_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        try {
+          for (const row of snapshotHoldings) {
+            const holding = row.holding
+            snapshotStmt.run([
+              holding.asset_key, holding.name, holding.asset_type, holding.quantity, holding.quantity_kind,
+              holding.cost_basis, holding.cost_basis_kind, holding.market_value, holding.currency,
+              holding.as_of, holding.source_note, holding.cash_flows_complete ? 1 : 0, row.operationId, row.recordedAt
+            ])
+            for (const flow of holding.cash_flows) {
+              flowStmt.run([
+                holding.asset_key, flow.flow_id, holding.as_of, flow.date, flow.kind, flow.amount,
+                flow.currency, flow.included_in_market_value ? 1 : 0, holding.source_note, row.operationId
+              ])
+            }
+          }
+        } finally {
+          snapshotStmt.free()
+          flowStmt.free()
+        }
+      }
     }
 
     if (operations) {

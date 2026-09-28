@@ -29,6 +29,7 @@ export async function retryPendingInvestmentSync(deps: InvestmentSyncDependencie
   const stillOwnsDatabase = () => deps.isLoggedIn() &&
     deps.getSessionUserId() === sessionUserId && deps.getDatabaseUserId() === databaseUserId
   const queue = deps.getOutbox()
+  let attempted = 0
   let synced = 0
   let failed = 0
 
@@ -37,10 +38,12 @@ export async function retryPendingInvestmentSync(deps: InvestmentSyncDependencie
     try {
       let cloudId: string | undefined
       if (item.operation === 'delete') {
+        attempted++
         await deps.remove(item.asset_key)
       } else {
         const position = deps.getPositions().find((entry) => entry.asset_key === item.asset_key)
         if (!position) continue
+        attempted++
         cloudId = await deps.upsert(position)
       }
       if (!stillOwnsDatabase()) break
@@ -52,5 +55,5 @@ export async function retryPendingInvestmentSync(deps: InvestmentSyncDependencie
     }
   }
 
-  return { attempted: queue.length, synced, failed }
+  return { attempted, synced, failed }
 }

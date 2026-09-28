@@ -2,10 +2,10 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage,
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories, getRecurrings, addRecurring, updateRecurring, deleteRecurring, insertCloudRecurrings, getInvestmentPositions, getInvestmentSyncOutbox, getInvestmentSyncState, completeInvestmentSync, insertCloudInvestmentPositions, getAgentOperation, applyAgentExpenses, applyAgentInvestments } from './database/index'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories, getRecurrings, addRecurring, updateRecurring, deleteRecurring, insertCloudRecurrings, getInvestmentPositions, getInvestmentSnapshotHistory, getInvestmentSyncOutbox, getInvestmentSyncState, completeInvestmentSync, insertCloudInvestmentPositions, insertCloudInvestmentSnapshots, getAgentOperation, applyAgentExpenses, applyAgentInvestments } from './database/index'
 import { setStoragePort } from './database/storage'
 import { createDesktopStoragePort } from './database/desktop-storage'
-import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, upsertRemoteInvestmentPosition, deleteRemoteInvestmentPosition, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, pullInvestmentPositionsFromCloud, resolveLoginIdentifier, shouldMigrateLegacyDatabase, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, upsertRemoteInvestmentPosition, deleteRemoteInvestmentPosition, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, pullInvestmentPositionsFromCloud, pullInvestmentSnapshotsFromCloud, resolveLoginIdentifier, shouldMigrateLegacyDatabase, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
 import { logoutAndDisableAutoLogin } from './auth-preferences'
 import { AgentSyncService } from './agent-sync'
 import { retryPendingInvestmentSync } from './investment-sync'
@@ -69,15 +69,21 @@ app.whenReady().then(async () => {
   //   `setStoragePort`，因此在安卓上 `initDatabase()` 会以明确错误失败（fail-loud，不静默丢数据）。
   setStoragePort(createDesktopStoragePort())
   await initDatabase()
-  initCloudBase()
+  await initCloudBase()
   agentSync = new AgentSyncService(app.getPath('userData'), {
     getSessionUserId: () => isLoggedIn() ? getUserId() : null,
     getDatabaseUserId: getCurrentUserId,
     getExpenseCategories: () => getCategories('expense'),
     getBills: () => getBills().filter((bill) => bill.type === 'expense')
       .map(({ amount, category1, category2, date, note }) => ({ amount, category1, category2, date, note })),
-    getInvestments: () => getInvestmentPositions().map(({ asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note }) =>
-      ({ asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note })),
+    getInvestments: () => getInvestmentPositions().map(({
+      asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind,
+      market_value, currency, as_of, source_note, cash_flows, cash_flows_complete
+    }) => ({
+      asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind,
+      market_value, currency, as_of, source_note, cash_flows, cash_flows_complete
+    })),
+    getInvestmentSnapshotHistory,
     getOperation: getAgentOperation,
     applyExpenses: applyAgentExpenses,
     onExpensesApplied: (bills) => bills.forEach((bill) => trySync(() => upsertRemoteBill(bill))),
@@ -230,12 +236,24 @@ async function syncCloudData(uid: string): Promise<void> {
 
 async function refreshCloudInvestmentPositions(expectedUserId = getUserId()): Promise<boolean> {
   const databaseUserId = getCurrentUserId()
-  if (!expectedUserId || !isLoggedIn() || expectedUserId !== databaseUserId) return false
+  if (!expectedUserId || !isLoggedIn() || expectedUserId !== databaseUserId) {
+    investmentCloudPullState = { status: 'unknown', error: null }
+    return false
+  }
   investmentCloudPullState = { status: 'pulling', error: null }
   try {
     const cloudInvestments = await pullInvestmentPositionsFromCloud()
+    const snapshotPull = await pullInvestmentSnapshotsFromCloud()
     if (!isLoggedIn() || getUserId() !== expectedUserId || getCurrentUserId() !== databaseUserId) return false
+    if (snapshotPull.rows.length > 0) insertCloudInvestmentSnapshots(snapshotPull.rows)
     if (cloudInvestments.length > 0) insertCloudInvestmentPositions(cloudInvestments)
+    if (!snapshotPull.collectionAvailable) {
+      investmentCloudPullState = {
+        status: 'failed',
+        error: 'investment_history_collection_missing:migration_required: pre-create investment_snapshots and user-scoped security rules; the client SDK cannot create collections. Current positions were read, but history and complete investment sync are unavailable.'
+      }
+      return false
+    }
     investmentCloudPullState = { status: 'synced', error: null }
     return true
   } catch (error) {
@@ -366,6 +384,15 @@ function registerIpcHandlers(): void {
     return result
   })
   ipcMain.handle('agent-sync:rejectProposal', (_event, fileName: string) => agentSync.rejectProposal(fileName))
+  ipcMain.handle('agent-sync:importProposalFile', async () => {
+    if (!mainWindow) throw new Error('agent_proposal_import_unavailable')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      filters: [{ name: 'Agent 提案 JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    return agentSync.importProposalFile(result.filePaths[0])
+  })
   ipcMain.handle('agent-sync:openInbox', async () => {
     const context = await agentSync.getContextInfo()
     if (!context.available) throw new Error(context.reason || 'agent_session_required')
@@ -373,6 +400,7 @@ function registerIpcHandlers(): void {
     if (error) throw new Error(`agent_inbox_open_failed: ${error}`)
   })
   ipcMain.handle('agent-sync:getPositions', () => getInvestmentPositions())
+  ipcMain.handle('agent-sync:getInvestmentSnapshotHistory', () => getInvestmentSnapshotHistory())
   ipcMain.handle('agent-sync:getInvestmentSyncState', () => ({
     ...getInvestmentSyncState(),
     cloudPullStatus: investmentCloudPullState.status,

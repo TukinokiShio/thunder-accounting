@@ -5,7 +5,8 @@
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js'
 import { escapeCSV, exportCSV, exportAllJSON, importAllJSON } from './export'
 import { getStoragePort } from './storage'
-import type { InvestmentHolding } from '../../src/utils/investmentHoldings'
+import type { InvestmentCashFlow, InvestmentHolding } from '../../src/utils/investmentHoldings'
+import type { InvestmentSnapshot } from '../../src/utils/investmentReturns'
 
 let db: SqlJsDatabase
 let dbPath: string
@@ -392,7 +393,7 @@ function ensureRecurringsSchema(): void {
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurrings_cloud_id ON recurrings(cloud_id) WHERE cloud_id IS NOT NULL')
 }
 
-/** v2.1.0 low-frequency investment snapshots and idempotency ledger. */
+/** v2.1.1 low-frequency investment snapshots and idempotency ledger. */
 function ensureInvestmentSchema(): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS investment_positions (
@@ -401,7 +402,9 @@ function ensureInvestmentSchema(): void {
       name TEXT NOT NULL,
       asset_type TEXT NOT NULL,
       quantity TEXT NOT NULL,
+      quantity_kind TEXT NOT NULL DEFAULT 'unknown',
       cost_basis TEXT,
+      cost_basis_kind TEXT NOT NULL DEFAULT 'unknown',
       market_value TEXT,
       currency TEXT NOT NULL,
       as_of TEXT NOT NULL,
@@ -411,6 +414,13 @@ function ensureInvestmentSchema(): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     )
   `)
+  const positionColumns = db.exec('PRAGMA table_info(investment_positions)')[0]?.values || []
+  if (!positionColumns.some((row) => String(row[1]) === 'quantity_kind')) {
+    db.run("ALTER TABLE investment_positions ADD COLUMN quantity_kind TEXT NOT NULL DEFAULT 'unknown'")
+  }
+  if (!positionColumns.some((row) => String(row[1]) === 'cost_basis_kind')) {
+    db.run("ALTER TABLE investment_positions ADD COLUMN cost_basis_kind TEXT NOT NULL DEFAULT 'unknown'")
+  }
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_investment_positions_asset_key ON investment_positions(asset_key)')
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_investment_positions_cloud_id ON investment_positions(cloud_id) WHERE cloud_id IS NOT NULL')
   db.run(`
@@ -433,6 +443,61 @@ function ensureInvestmentSchema(): void {
       payload_hash TEXT NOT NULL,
       operation_type TEXT NOT NULL,
       applied_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS investment_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asset_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      asset_type TEXT NOT NULL,
+      quantity TEXT NOT NULL,
+      quantity_kind TEXT NOT NULL DEFAULT 'unknown',
+      cost_basis TEXT,
+      cost_basis_kind TEXT NOT NULL DEFAULT 'unknown',
+      market_value TEXT,
+      currency TEXT NOT NULL,
+      as_of TEXT NOT NULL,
+      source_note TEXT NOT NULL DEFAULT '',
+      cash_flows_complete INTEGER NOT NULL DEFAULT 0,
+      operation_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      UNIQUE(asset_key, as_of)
+    )
+  `)
+  const snapshotColumns = db.exec('PRAGMA table_info(investment_snapshots)')[0]?.values || []
+  if (!snapshotColumns.some((row) => String(row[1]) === 'quantity_kind')) {
+    db.run("ALTER TABLE investment_snapshots ADD COLUMN quantity_kind TEXT NOT NULL DEFAULT 'unknown'")
+  }
+  if (!snapshotColumns.some((row) => String(row[1]) === 'cost_basis_kind')) {
+    db.run("ALTER TABLE investment_snapshots ADD COLUMN cost_basis_kind TEXT NOT NULL DEFAULT 'unknown'")
+  }
+  if (!snapshotColumns.some((row) => String(row[1]) === 'cash_flows_complete')) {
+    db.run('ALTER TABLE investment_snapshots ADD COLUMN cash_flows_complete INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!snapshotColumns.some((row) => String(row[1]) === 'operation_id')) {
+    db.run("ALTER TABLE investment_snapshots ADD COLUMN operation_id TEXT NOT NULL DEFAULT ''")
+  }
+  if (!snapshotColumns.some((row) => String(row[1]) === 'recorded_at')) {
+    // SQLite ADD COLUMN only permits a constant DEFAULT. Backfill after the
+    // structural migration so legacy rows remain readable on the next launch.
+    db.run("ALTER TABLE investment_snapshots ADD COLUMN recorded_at TEXT NOT NULL DEFAULT ''")
+    db.run("UPDATE investment_snapshots SET recorded_at = datetime('now', 'localtime') WHERE recorded_at = ''")
+  }
+  db.run('CREATE INDEX IF NOT EXISTS idx_investment_snapshots_date ON investment_snapshots(as_of, asset_key)')
+  db.run(`
+    CREATE TABLE IF NOT EXISTS investment_cash_flows (
+      asset_key TEXT NOT NULL,
+      flow_id TEXT NOT NULL,
+      snapshot_date TEXT NOT NULL,
+      date TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      amount TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      included_in_market_value INTEGER NOT NULL,
+      source_note TEXT NOT NULL DEFAULT '',
+      operation_id TEXT NOT NULL,
+      PRIMARY KEY(asset_key, flow_id)
     )
   `)
 }
@@ -982,6 +1047,11 @@ export interface InvestmentOutboxRow {
   updated_at: string
 }
 
+export interface CloudInvestmentSnapshot extends InvestmentSnapshot {
+  userId: string
+  _id?: string
+}
+
 function assertAgentOperation(operationId: string, payloadHash: string): void {
   if (!/^[0-9a-f-]{36}$/i.test(operationId) || !/^[0-9a-f]{64}$/.test(payloadHash)) {
     throw new Error('agent_operation_reference_invalid')
@@ -1016,9 +1086,11 @@ export function getAgentOperation(operationId: string): AgentOperationRow | null
 
 export function getInvestmentPositions(): InvestmentPositionRow[] {
   const result = db.exec(`
-    SELECT p.*, o.status AS sync_status, o.error AS sync_error
+    SELECT p.*, o.status AS sync_status, o.error AS sync_error,
+      s.cash_flows_complete AS cash_flows_complete
     FROM investment_positions p
     LEFT JOIN investment_sync_outbox o ON o.asset_key = p.asset_key
+    LEFT JOIN investment_snapshots s ON s.asset_key = p.asset_key AND s.as_of = p.as_of
     ORDER BY p.asset_key ASC
   `)
   if (!result.length || !result[0].columns.length) return []
@@ -1027,8 +1099,46 @@ export function getInvestmentPositions(): InvestmentPositionRow[] {
     result[0].columns.forEach((column, index) => { obj[column] = values[index] })
     if (obj.sync_status == null) obj.sync_status = 'local'
     if (obj.sync_error == null) obj.sync_error = null
+    obj.quantity_kind = obj.quantity_kind ?? 'unknown'
+    obj.cost_basis_kind = obj.cost_basis_kind ?? 'unknown'
+    obj.cash_flows_complete = Boolean(obj.cash_flows_complete)
+    obj.cash_flows = getSnapshotCashFlows(String(obj.asset_key), String(obj.as_of))
     return rowTo<InvestmentPositionRow>(obj)
   })
+}
+
+export function getInvestmentSnapshotHistory(assetKey?: string): InvestmentSnapshot[] {
+  const result = assetKey
+    ? db.exec('SELECT * FROM investment_snapshots WHERE asset_key = ? ORDER BY as_of ASC', [assetKey])
+    : db.exec('SELECT * FROM investment_snapshots ORDER BY asset_key ASC, as_of ASC')
+  if (!result.length || !result[0].columns.length) return []
+  return result[0].values.map((values) => {
+    const row: Record<string, unknown> = {}
+    result[0].columns.forEach((column, index) => { row[column] = values[index] })
+    row.quantity_kind = row.quantity_kind ?? 'unknown'
+    row.cost_basis_kind = row.cost_basis_kind ?? 'unknown'
+    row.cash_flows_complete = Boolean(row.cash_flows_complete)
+    row.cash_flows = getSnapshotCashFlows(String(row.asset_key), String(row.as_of))
+    return rowTo<InvestmentSnapshot>(row)
+  })
+}
+
+function getSnapshotCashFlows(assetKey: string, snapshotDate: string): InvestmentCashFlow[] {
+  const result = db.exec(`
+    SELECT flow_id, date, kind, amount, currency, included_in_market_value
+    FROM investment_cash_flows
+    WHERE asset_key = ? AND snapshot_date = ?
+    ORDER BY date ASC, flow_id ASC
+  `, [assetKey, snapshotDate])
+  if (!result.length || !result[0].values.length) return []
+  return result[0].values.map((values) => ({
+    flow_id: String(values[0]),
+    date: String(values[1]),
+    kind: String(values[2]) as InvestmentCashFlow['kind'],
+    amount: String(values[3]),
+    currency: String(values[4]),
+    included_in_market_value: Boolean(values[5])
+  }))
 }
 
 export function applyAgentExpenses(operationId: string, payloadHash: string, rows: AgentExpenseRow[]): BillRow[] {
@@ -1084,24 +1194,31 @@ export function applyAgentInvestments(operationId: string, payloadHash: string, 
       const same = before && before.name === position.name && before.asset_type === position.asset_type &&
         before.quantity === position.quantity && before.cost_basis === position.cost_basis &&
         before.market_value === position.market_value && before.currency === position.currency &&
-        before.as_of === position.as_of && before.source_note === position.source_note
-      if (same) continue
-      db.run(`
-        INSERT INTO investment_positions
-          (asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-        ON CONFLICT(asset_key) DO UPDATE SET
-          name = excluded.name,
-          asset_type = excluded.asset_type,
-          quantity = excluded.quantity,
-          cost_basis = excluded.cost_basis,
-          market_value = excluded.market_value,
-          currency = excluded.currency,
-          as_of = excluded.as_of,
-          source_note = excluded.source_note,
-          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-      `, [position.asset_key, position.name, position.asset_type, position.quantity, position.cost_basis,
-        position.market_value, position.currency, position.as_of, position.source_note])
+        before.as_of === position.as_of && before.source_note === position.source_note &&
+        before.quantity_kind === position.quantity_kind && before.cost_basis_kind === position.cost_basis_kind
+      const snapshotChanged = persistConfirmedInvestmentSnapshot(operationId, position)
+      if (same && !snapshotChanged) continue
+      const olderThanCurrent = Boolean(before && before.as_of > position.as_of)
+      if (!same && !olderThanCurrent) {
+        db.run(`
+          INSERT INTO investment_positions
+            (asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value, currency, as_of, source_note, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          ON CONFLICT(asset_key) DO UPDATE SET
+            name = excluded.name,
+            asset_type = excluded.asset_type,
+            quantity = excluded.quantity,
+            quantity_kind = excluded.quantity_kind,
+            cost_basis = excluded.cost_basis,
+            cost_basis_kind = excluded.cost_basis_kind,
+            market_value = excluded.market_value,
+            currency = excluded.currency,
+            as_of = excluded.as_of,
+            source_note = excluded.source_note,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        `, [position.asset_key, position.name, position.asset_type, position.quantity, position.quantity_kind,
+          position.cost_basis, position.cost_basis_kind, position.market_value, position.currency, position.as_of, position.source_note])
+      }
       db.run(`
         INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
         VALUES (?, 'upsert', 'pending', NULL, datetime('now', 'localtime'))
@@ -1119,6 +1236,73 @@ export function applyAgentInvestments(operationId: string, payloadHash: string, 
     try { db.run('ROLLBACK') } catch { /* transaction may already have committed */ }
     throw error
   }
+}
+
+function persistConfirmedInvestmentSnapshot(
+  operationId: string,
+  holding: InvestmentHolding,
+  recordedAt = new Date().toISOString()
+): boolean {
+  const existingSnapshotResult = db.exec(`
+    SELECT name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value,
+      currency, source_note, cash_flows_complete
+    FROM investment_snapshots WHERE asset_key = ? AND as_of = ?
+  `, [holding.asset_key, holding.as_of])
+  const existingValues = existingSnapshotResult[0]?.values[0]
+  const existingFlows = getSnapshotCashFlows(holding.asset_key, holding.as_of)
+  const sameSnapshot = existingValues &&
+    String(existingValues[0]) === holding.name && String(existingValues[1]) === holding.asset_type &&
+    String(existingValues[2]) === holding.quantity && String(existingValues[3] ?? 'unknown') === holding.quantity_kind &&
+    (existingValues[4] === null ? null : String(existingValues[4])) === holding.cost_basis &&
+    String(existingValues[5] ?? 'unknown') === holding.cost_basis_kind &&
+    (existingValues[6] === null ? null : String(existingValues[6])) === holding.market_value &&
+    String(existingValues[7]) === holding.currency && String(existingValues[8]) === holding.source_note &&
+    Boolean(existingValues[9]) === holding.cash_flows_complete &&
+    JSON.stringify(existingFlows) === JSON.stringify(holding.cash_flows)
+  if (sameSnapshot) return false
+
+  db.run(`
+    INSERT INTO investment_snapshots
+      (asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value,
+       currency, as_of, source_note, cash_flows_complete, operation_id, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(asset_key, as_of) DO UPDATE SET
+      name = excluded.name, asset_type = excluded.asset_type, quantity = excluded.quantity,
+      quantity_kind = excluded.quantity_kind, cost_basis = excluded.cost_basis,
+      cost_basis_kind = excluded.cost_basis_kind, market_value = excluded.market_value,
+      currency = excluded.currency, source_note = excluded.source_note,
+      cash_flows_complete = excluded.cash_flows_complete,
+      operation_id = excluded.operation_id, recorded_at = excluded.recorded_at
+  `, [holding.asset_key, holding.name, holding.asset_type, holding.quantity, holding.quantity_kind,
+    holding.cost_basis, holding.cost_basis_kind, holding.market_value, holding.currency, holding.as_of,
+    holding.source_note, holding.cash_flows_complete ? 1 : 0, operationId, recordedAt])
+
+  const oldFlows = db.exec('SELECT flow_id FROM investment_cash_flows WHERE asset_key = ? AND snapshot_date = ?', [holding.asset_key, holding.as_of])
+  const incomingIds = new Set(holding.cash_flows.map((flow) => flow.flow_id))
+  for (const [flowId] of oldFlows[0]?.values || []) {
+    if (!incomingIds.has(String(flowId))) {
+      db.run('DELETE FROM investment_cash_flows WHERE asset_key = ? AND flow_id = ?', [holding.asset_key, flowId])
+    }
+  }
+
+  for (const flow of holding.cash_flows) {
+    const previous = db.exec('SELECT snapshot_date, date, kind, amount, currency, included_in_market_value FROM investment_cash_flows WHERE asset_key = ? AND flow_id = ?', [holding.asset_key, flow.flow_id])[0]?.values[0]
+    if (previous && String(previous[0]) !== holding.as_of) {
+      throw new Error('agent_cash_flow_repeated_across_intervals')
+    }
+    db.run(`
+      INSERT INTO investment_cash_flows
+        (asset_key, flow_id, snapshot_date, date, kind, amount, currency, included_in_market_value, source_note, operation_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(asset_key, flow_id) DO UPDATE SET
+        snapshot_date = excluded.snapshot_date, date = excluded.date, kind = excluded.kind,
+        amount = excluded.amount, currency = excluded.currency,
+        included_in_market_value = excluded.included_in_market_value,
+        source_note = excluded.source_note, operation_id = excluded.operation_id
+    `, [holding.asset_key, flow.flow_id, holding.as_of, flow.date, flow.kind, flow.amount, flow.currency,
+      flow.included_in_market_value ? 1 : 0, holding.source_note, operationId])
+  }
+  return true
 }
 
 export function getInvestmentSyncOutbox(): InvestmentOutboxRow[] {
@@ -1178,29 +1362,66 @@ export function insertCloudInvestmentPositions(rows: CloudInvestmentPosition[]):
   db.run('BEGIN TRANSACTION')
   try {
     for (const row of rows) {
-      const pending = db.exec(`SELECT status FROM investment_sync_outbox WHERE asset_key = ?`, [row.asset_key])
-      if (pending[0]?.values[0]?.[0] === 'pending' || pending[0]?.values[0]?.[0] === 'failed') continue
-      const existing = db.exec('SELECT updated_at FROM investment_positions WHERE asset_key = ?', [row.asset_key])
-      const localUpdatedAt = String(existing[0]?.values[0]?.[0] ?? '')
-      if (localUpdatedAt && localUpdatedAt >= row.updated_at) continue
+      const pending = db.exec('SELECT operation, status FROM investment_sync_outbox WHERE asset_key = ?', [row.asset_key])[0]?.values[0]
+      const existing = db.exec('SELECT updated_at, as_of FROM investment_positions WHERE asset_key = ?', [row.asset_key])[0]?.values[0]
+      const localUpdatedAt = String(existing?.[0] ?? '')
+      const localAsOf = String(existing?.[1] ?? '')
+      const hasPendingWrite = pending?.[1] === 'pending' || pending?.[1] === 'failed'
+      // A newer confirmed cloud snapshot may advance an older local current row
+      // while retaining the pending outbox. The next push will send that newer
+      // current row together with local history instead of overwriting cloud.
+      const advancePendingCurrent = hasPendingWrite && pending?.[0] === 'upsert' && row.as_of > localAsOf
+      if (hasPendingWrite && !advancePendingCurrent) continue
+      if (localUpdatedAt && localUpdatedAt >= row.updated_at && !advancePendingCurrent) continue
       db.run(`
         INSERT INTO investment_positions
-          (asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, cloud_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (asset_key, name, asset_type, quantity, quantity_kind, cost_basis, cost_basis_kind, market_value, currency, as_of, source_note, cloud_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(asset_key) DO UPDATE SET
           name = excluded.name, asset_type = excluded.asset_type, quantity = excluded.quantity,
+          quantity_kind = excluded.quantity_kind, cost_basis_kind = excluded.cost_basis_kind,
           cost_basis = excluded.cost_basis, market_value = excluded.market_value, currency = excluded.currency,
           as_of = excluded.as_of, source_note = excluded.source_note, cloud_id = excluded.cloud_id,
           updated_at = excluded.updated_at
-      `, [row.asset_key, row.name, row.asset_type, row.quantity, row.cost_basis, row.market_value,
-        row.currency, row.as_of, row.source_note, row._id ?? null,
+      `, [row.asset_key, row.name, row.asset_type, row.quantity, row.quantity_kind, row.cost_basis,
+        row.cost_basis_kind, row.market_value, row.currency, row.as_of, row.source_note, row._id ?? null,
         row.created_at, row.updated_at])
-      db.run(`
-        INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
-        VALUES (?, 'upsert', 'synced', NULL, datetime('now', 'localtime'))
-        ON CONFLICT(asset_key) DO UPDATE SET status = 'synced', error = NULL,
-          revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
-      `, [row.asset_key])
+      if (!advancePendingCurrent) {
+        db.run(`
+          INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
+          VALUES (?, 'upsert', 'synced', NULL, datetime('now', 'localtime'))
+          ON CONFLICT(asset_key) DO UPDATE SET status = 'synced', error = NULL,
+            revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
+        `, [row.asset_key])
+      }
+      const snapshotExists = db.exec('SELECT 1 FROM investment_snapshots WHERE asset_key = ? AND as_of = ?', [row.asset_key, row.as_of])
+      if (!snapshotExists[0]?.values.length) {
+        persistConfirmedInvestmentSnapshot('cloud-sync', row, row.updated_at)
+      }
+    }
+    db.run('COMMIT')
+    saveDb()
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction may already have committed */ }
+    throw error
+  }
+}
+
+/** Merge historical user-session snapshots without creating a new local write proposal. */
+export function insertCloudInvestmentSnapshots(rows: CloudInvestmentSnapshot[]): void {
+  db.run('BEGIN TRANSACTION')
+  try {
+    for (const row of rows) {
+      const pending = db.exec('SELECT operation, status FROM investment_sync_outbox WHERE asset_key = ?', [row.asset_key])[0]?.values[0]
+      const hasPendingWrite = pending?.[1] === 'pending' || pending?.[1] === 'failed'
+      if (hasPendingWrite && pending?.[0] === 'delete') continue
+      const existing = db.exec('SELECT recorded_at FROM investment_snapshots WHERE asset_key = ? AND as_of = ?', [row.asset_key, row.as_of])
+      const localRecordedAt = String(existing[0]?.values[0]?.[0] ?? '')
+      // Never replace the same dated local snapshot while it has an unsynced
+      // proposal, but do merge other cloud dates so history can catch up.
+      if (hasPendingWrite && localRecordedAt) continue
+      if (localRecordedAt && localRecordedAt >= row.recorded_at) continue
+      persistConfirmedInvestmentSnapshot(row.operation_id, row, row.recorded_at)
     }
     db.run('COMMIT')
     saveDb()
@@ -1228,6 +1449,8 @@ export function clearAllData(): void {
     db.run('DELETE FROM categories WHERE is_preset = 0')
     db.run('DELETE FROM recurrings')
     db.run('DELETE FROM investment_positions')
+    db.run('DELETE FROM investment_snapshots')
+    db.run('DELETE FROM investment_cash_flows')
     db.run('COMMIT')
     saveDb()
   } catch (error) {

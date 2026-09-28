@@ -8,7 +8,8 @@ function position(quantity: string): InvestmentPositionRow {
     id: 1, cloud_id: null, created_at: '2026-09-28T00:00:00.000Z', updated_at: '2026-09-28T00:00:00.000Z',
     sync_status: 'pending', sync_error: null, asset_key: 'BROKER-A:US:FIXTURE', name: 'Synthetic Fund',
     asset_type: 'fund', quantity, cost_basis: '100.00', market_value: null, currency: 'USD',
-    as_of: '2026-09-28', source_note: 'synthetic fixture'
+    as_of: '2026-09-28', source_note: 'synthetic fixture', quantity_kind: 'units', cost_basis_kind: 'total',
+    cash_flows: [], cash_flows_complete: true
   }
 }
 

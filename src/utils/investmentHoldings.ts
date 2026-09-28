@@ -4,6 +4,7 @@
  */
 
 export const MAX_INVESTMENT_BATCH_ITEMS = 200
+export const MAX_CASH_FLOWS_PER_HOLDING = 200
 
 export const INVESTMENT_FIELD_LIMITS = {
   asset_key: 128,
@@ -15,8 +16,12 @@ export const INVESTMENT_FIELD_LIMITS = {
 const INTEGER_DIGIT_LIMIT = 36
 const FRACTION_DIGIT_LIMIT = 18
 const DECIMAL_PATTERN = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/
+const POSITIVE_DECIMAL_PATTERN = /^(?:[1-9]\d*(?:\.\d+)?|0?\.\d*[1-9]\d*)$/
 const CURRENCY_PATTERN = /^[A-Z]{3}$/
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const QUANTITY_KINDS = ['shares', 'units', 'currency_amount', 'unknown'] as const
+const COST_BASIS_KINDS = ['total', 'per_unit', 'unknown'] as const
+const CASH_FLOW_KINDS = ['contribution', 'withdrawal', 'dividend', 'fee'] as const
 
 const REQUIRED_FIELDS = [
   'asset_key',
@@ -27,8 +32,18 @@ const REQUIRED_FIELDS = [
   'market_value',
   'currency',
   'as_of',
-  'source_note'
+  'source_note',
+  'quantity_kind',
+  'cost_basis_kind',
+  'cash_flows',
+  'cash_flows_complete'
 ] as const
+
+const LEGACY_REQUIRED_FIELDS = [
+  'asset_key', 'name', 'asset_type', 'quantity', 'cost_basis', 'market_value', 'currency', 'as_of', 'source_note'
+] as const
+
+const ALLOWED_FIELDS = [...REQUIRED_FIELDS] as const
 
 export type InvestmentField = (typeof REQUIRED_FIELDS)[number]
 
@@ -43,6 +58,23 @@ export interface InvestmentHolding {
   currency: string
   as_of: string
   source_note: string
+  quantity_kind: InvestmentQuantityKind
+  cost_basis_kind: InvestmentCostBasisKind
+  cash_flows: InvestmentCashFlow[]
+  cash_flows_complete: boolean
+}
+
+export type InvestmentQuantityKind = (typeof QUANTITY_KINDS)[number]
+export type InvestmentCostBasisKind = (typeof COST_BASIS_KINDS)[number]
+export type InvestmentCashFlowKind = (typeof CASH_FLOW_KINDS)[number]
+
+export interface InvestmentCashFlow {
+  flow_id: string
+  date: string
+  kind: InvestmentCashFlowKind
+  amount: string
+  currency: string
+  included_in_market_value: boolean
 }
 
 export type InvestmentValidationCode =
@@ -55,6 +87,9 @@ export type InvestmentValidationCode =
   | 'invalid_decimal'
   | 'invalid_currency'
   | 'invalid_date'
+  | 'invalid_enum'
+  | 'invalid_cash_flow'
+  | 'duplicate_cash_flow_id'
   | 'duplicate_asset_key'
 
 export interface InvestmentValidationIssue {
@@ -182,7 +217,7 @@ function validateRows(input: unknown, maxItems: number | null): InvestmentBatchV
       }
     }
 
-    for (const field of REQUIRED_FIELDS) {
+    for (const field of LEGACY_REQUIRED_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(descriptors, field)) {
         errors.push(issue(itemIndex, field, 'missing_field', 'Required holding field is missing.'))
       }
@@ -202,6 +237,14 @@ function validateRows(input: unknown, maxItems: number | null): InvestmentBatchV
     const currency = validateCurrency(value('currency'), itemIndex, errors)
     const asOf = validateDate(value('as_of'), itemIndex, errors)
     const sourceNote = validateBoundedString(value('source_note'), 'source_note', itemIndex, 0, INVESTMENT_FIELD_LIMITS.source_note, errors, false)
+    const quantityKind = validateEnum(value('quantity_kind'), 'quantity_kind', QUANTITY_KINDS, itemIndex, errors, 'unknown')
+    const costBasisKind = validateEnum(value('cost_basis_kind'), 'cost_basis_kind', COST_BASIS_KINDS, itemIndex, errors, 'unknown')
+    const cashFlowsComplete = validateCashFlowsComplete(value('cash_flows_complete'), itemIndex, errors)
+    const rawCashFlows = value('cash_flows')
+    const cashFlows = validateCashFlows(rawCashFlows, asOf, itemIndex, errors)
+    if (cashFlowsComplete && rawCashFlows === undefined) {
+      errors.push(issue(itemIndex, 'cash_flows', 'invalid_cash_flow', 'A complete cash-flow interval must include its cash_flows array, even when empty.'))
+    }
 
     if (assetKey !== null && seenAssetKeys.has(assetKey)) {
       errors.push(issue(itemIndex, 'asset_key', 'duplicate_asset_key', 'asset_key must be unique within a batch.'))
@@ -219,7 +262,11 @@ function validateRows(input: unknown, maxItems: number | null): InvestmentBatchV
       market_value: marketValue,
       currency: currency!,
       as_of: asOf!,
-      source_note: sourceNote!
+      source_note: sourceNote!,
+      quantity_kind: quantityKind!,
+      cost_basis_kind: costBasisKind!,
+      cash_flows: cashFlows!,
+      cash_flows_complete: cashFlowsComplete!
     })
   }
 
@@ -303,8 +350,115 @@ function validateDate(value: unknown, itemIndex: number, errors: InvestmentValid
   return value
 }
 
+function validateEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: readonly T[],
+  itemIndex: number,
+  errors: InvestmentValidationIssue[],
+  legacyDefault: T
+): T | null {
+  if (value === undefined) return legacyDefault
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    errors.push(issue(itemIndex, field, 'invalid_enum', `Expected one of: ${allowed.join(', ')}.`))
+    return null
+  }
+  return value as T
+}
+
+function validateCashFlowsComplete(value: unknown, itemIndex: number, errors: InvestmentValidationIssue[]): boolean | null {
+  if (value === undefined) return false
+  if (typeof value !== 'boolean') {
+    errors.push(issue(itemIndex, 'cash_flows_complete', 'invalid_cash_flow', 'cash_flows_complete must be a boolean.'))
+    return null
+  }
+  return value
+}
+
+function validateCashFlows(value: unknown, asOf: string | null, itemIndex: number, errors: InvestmentValidationIssue[]): InvestmentCashFlow[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > MAX_CASH_FLOWS_PER_HOLDING) {
+    errors.push(issue(itemIndex, 'cash_flows', 'invalid_cash_flow', `cash_flows must be an array with at most ${MAX_CASH_FLOWS_PER_HOLDING} items.`))
+    return null
+  }
+
+  const seenIds = new Set<string>()
+  const result: InvestmentCashFlow[] = []
+  value.forEach((entry, flowIndex) => {
+    const fieldName = `cash_flows[${flowIndex}]`
+    if (!isPlainRecord(entry)) {
+      errors.push(issue(itemIndex, fieldName, 'invalid_cash_flow', 'Each cash flow must be a plain object.'))
+      return
+    }
+    const allowed = ['flow_id', 'date', 'kind', 'amount', 'currency', 'included_in_market_value']
+    let descriptors: PropertyDescriptorMap
+    try {
+      descriptors = Object.getOwnPropertyDescriptors(entry)
+    } catch {
+      errors.push(issue(itemIndex, fieldName, 'invalid_cash_flow', 'Cash flow fields could not be inspected.'))
+      return
+    }
+    const keys = Reflect.ownKeys(entry)
+    if (keys.some((key) => typeof key !== 'string' || !allowed.includes(key) || !Object.prototype.hasOwnProperty.call(descriptors[key as string], 'value')) ||
+      allowed.some((key) => !Object.prototype.hasOwnProperty.call(descriptors, key))) {
+      errors.push(issue(itemIndex, fieldName, 'invalid_cash_flow', 'Cash flow has unknown, missing, or accessor fields.'))
+      return
+    }
+
+    const flow = entry as Record<string, unknown>
+    const flowId = flow.flow_id
+    const date = flow.date
+    const kind = flow.kind
+    const amount = flow.amount
+    const flowCurrency = flow.currency
+    const included = flow.included_in_market_value
+    const valid = typeof flowId === 'string' && flowId.length > 0 && flowId.length <= 128 && flowId.trim() === flowId &&
+      typeof date === 'string' && isValidDateValue(date) && !!asOf && date <= asOf &&
+      typeof kind === 'string' && (CASH_FLOW_KINDS as readonly string[]).includes(kind) &&
+      typeof amount === 'string' && POSITIVE_DECIMAL_PATTERN.test(amount) && isDecimalWithinLimits(amount) &&
+      typeof flowCurrency === 'string' && CURRENCY_PATTERN.test(flowCurrency) && typeof included === 'boolean'
+    if (!valid) {
+      errors.push(issue(itemIndex, fieldName, 'invalid_cash_flow', 'Cash flow must have a stable ID, valid date, supported kind, positive decimal amount, ISO currency, and boolean inclusion flag.'))
+      return
+    }
+    if (seenIds.has(flowId as string)) {
+      errors.push(issue(itemIndex, `${fieldName}.flow_id`, 'duplicate_cash_flow_id', 'flow_id must be unique within a holding snapshot.'))
+      return
+    }
+    seenIds.add(flowId as string)
+    result.push({
+      flow_id: flowId as string,
+      date: date as string,
+      kind: kind as InvestmentCashFlowKind,
+      amount: amount as string,
+      currency: flowCurrency as string,
+      included_in_market_value: included as boolean
+    })
+  })
+  return result.sort((a, b) => a.date.localeCompare(b.date) || a.flow_id.localeCompare(b.flow_id))
+}
+
+function isValidDateValue(value: string): boolean {
+  const match = DATE_PATTERN.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const daysInMonth = month >= 1 && month <= 12 ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 0
+  return year > 0 && day >= 1 && day <= daysInMonth
+}
+
+function isDecimalWithinLimits(value: string): boolean {
+  if (!DECIMAL_PATTERN.test(value)) return false
+  const unsigned = value.startsWith('-') ? value.slice(1) : value
+  const [integerPart, fractionPart = ''] = unsigned.split('.')
+  return integerPart.length <= INTEGER_DIGIT_LIMIT && fractionPart.length <= FRACTION_DIGIT_LIMIT
+}
+
 function holdingsEqual(a: InvestmentHolding, b: InvestmentHolding): boolean {
-  return REQUIRED_FIELDS.every((field) => a[field] === b[field])
+  return REQUIRED_FIELDS.every((field) => field === 'cash_flows'
+    ? JSON.stringify(a.cash_flows) === JSON.stringify(b.cash_flows)
+    : a[field] === b[field])
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -318,7 +472,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isInvestmentField(value: string): value is InvestmentField {
-  return (REQUIRED_FIELDS as readonly string[]).includes(value)
+  return (ALLOWED_FIELDS as readonly string[]).includes(value)
 }
 
 function issue(

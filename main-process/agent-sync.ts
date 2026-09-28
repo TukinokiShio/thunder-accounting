@@ -7,7 +7,8 @@ import {
   validateInvestmentBatch,
   type InvestmentHolding
 } from '../src/utils/investmentHoldings'
-import type { AgentExpenseItem, AgentProposalPreview } from '../src/types/agentSync'
+import type { InvestmentSnapshot } from '../src/utils/investmentReturns'
+import type { AgentExpenseItem, AgentProposalPreview, AgentProposalProvenance } from '../src/types/agentSync'
 import type { BillRow } from './database/index'
 
 const MAX_PROPOSAL_BYTES = 1024 * 1024
@@ -40,6 +41,7 @@ export interface AgentSyncDependencies {
   getExpenseCategories: () => AgentCategory[]
   getBills: () => AgentBill[]
   getInvestments: () => InvestmentHolding[]
+  getInvestmentSnapshotHistory: () => InvestmentSnapshot[]
   getOperation: (operationId: string) => AgentOperationRecord | null
   applyExpenses: (operationId: string, payloadHash: string, rows: AgentExpenseItem[]) => BillRow[]
   onExpensesApplied?: (rows: BillRow[]) => void
@@ -58,6 +60,9 @@ interface ProposalEnvelope {
   created_at: string
   kind: 'expenses' | 'investments'
   items: unknown[]
+  skill_name?: AgentProposalProvenance['skill_name']
+  skill_version?: string
+  source_summary?: string
 }
 
 interface ValidatedProposal {
@@ -204,7 +209,8 @@ export class AgentSyncService {
       expires_at: new Date(scope.expiresAt).toISOString(),
       scope_token: scope.token,
       expense_categories: categories,
-      investment_holdings: holdings
+      investment_holdings: holdings,
+      investment_snapshot_history: this.deps.getInvestmentSnapshotHistory()
     }
     await this.atomicWrite(paths.contextPath, JSON.stringify(context, null, 2))
 
@@ -246,7 +252,7 @@ export class AgentSyncService {
         const existing = this.deps.getOperation(validated.envelope.operation_id)
         if (existing) {
           if (existing.payload_hash === validated.payloadHash) {
-            await this.archiveProposal(fileName, 'processed', validated.envelope.operation_id, validated.payloadHash, validated.envelope.kind, 0, 0)
+            await this.archiveProposal(fileName, 'processed', validated.envelope.operation_id, validated.payloadHash, validated.envelope.kind, 0, 0, validated.view.provenance)
             continue
           }
           throw new Error('此 operation_id 已用于其他内容，拒绝冲突提案。')
@@ -257,6 +263,52 @@ export class AgentSyncService {
       }
     }
     return views.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+  }
+
+  /** Copy a user-selected JSON proposal into the current account's managed inbox. */
+  async importProposalFile(sourcePath: string): Promise<string> {
+    const scope = await this.requireScope()
+    if (!scope) throw new Error('agent_session_required')
+    const paths = this.accountPaths(this.activeUserId!)
+    await this.ensureDirectories(this.activeUserId)
+    const existingFiles = await readdir(paths.inbox, { withFileTypes: true })
+    if (existingFiles.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json')).length >= MAX_PROPOSAL_ITEMS) {
+      throw new Error(`Inbox 最多允许 ${MAX_PROPOSAL_ITEMS} 个 JSON 提案，请先处理现有文件。`)
+    }
+
+    const before = await lstat(sourcePath)
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error('导入文件必须是普通 JSON 文件，不能是链接。')
+    if (before.size <= 0 || before.size > MAX_PROPOSAL_BYTES) throw new Error('提案文件为空或超过 1 MiB 限制。')
+    const handle = await open(sourcePath, constants.O_RDONLY)
+    let raw: string
+    try {
+      const opened = await handle.stat()
+      const after = await lstat(sourcePath)
+      if (!opened.isFile() || opened.size !== before.size || opened.ino !== after.ino || opened.dev !== after.dev || after.isSymbolicLink()) {
+        throw new Error('提案文件在读取期间发生变化，已拒绝读取。')
+      }
+      if (opened.size > MAX_PROPOSAL_BYTES) throw new Error('提案文件超过 1 MiB 限制。')
+      raw = await handle.readFile({ encoding: 'utf8' })
+    } finally {
+      await handle.close()
+    }
+
+    let operationId: string | null = null
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      if (isPlainRecord(parsed) && typeof parsed.operation_id === 'string' && isUuid(parsed.operation_id)) {
+        operationId = parsed.operation_id
+      }
+    } catch { /* Keep malformed JSON in the managed inbox so the preview can explain the error. */ }
+    const fileName = `${operationId ?? randomUUID()}.json`
+    const target = path.join(paths.inbox, fileName)
+    try {
+      await writeFile(target, raw, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+    } catch (error) {
+      if (isAlreadyExists(error)) throw new Error('该操作编号已在提案目录中，请先刷新列表。')
+      throw error
+    }
+    return fileName
   }
 
   async applyProposal(operationId: string, payloadHash: string, baselineHash: string): Promise<{
@@ -277,7 +329,7 @@ export class AgentSyncService {
     const existing = this.deps.getOperation(operationId)
     if (existing) {
       if (existing.payload_hash !== payloadHash) throw new Error('agent_operation_hash_conflict')
-      await this.archiveProposal(fileName, 'processed', operationId, payloadHash, validated.envelope.kind, 0, 0)
+      await this.archiveProposal(fileName, 'processed', operationId, payloadHash, validated.envelope.kind, 0, 0, validated.view.provenance)
       return { duplicate: true, bills: 0, investments: 0 }
     }
     if (validated.baselineHash !== baselineHash) throw new Error('agent_proposal_baseline_changed_refresh_preview')
@@ -296,7 +348,7 @@ export class AgentSyncService {
 
     // Business rows + ledger commit first. If this move is interrupted, listProposals
     // reconciles the durable ledger and archives the file without showing it again.
-    await this.archiveProposal(fileName, 'processed', operationId, payloadHash, validated.envelope.kind, bills, investments)
+    await this.archiveProposal(fileName, 'processed', operationId, payloadHash, validated.envelope.kind, bills, investments, validated.view.provenance)
     return { duplicate: false, bills, investments }
   }
 
@@ -310,7 +362,14 @@ export class AgentSyncService {
     const info = await lstat(source)
     if (!info.isFile() || info.isSymbolicLink()) throw new Error('agent_proposal_must_be_regular_file')
     const operationId = fileName.slice(0, -'.json'.length)
-    await this.archiveProposal(fileName, 'rejected', operationId, null, 'unknown', 0, 0)
+    let kind = 'unknown'
+    let provenance: AgentProposalProvenance | null = null
+    try {
+      const validated = await this.readAndValidate(fileName)
+      kind = validated.envelope.kind
+      provenance = validated.view.provenance
+    } catch { /* Invalid proposals can still be rejected without source metadata. */ }
+    await this.archiveProposal(fileName, 'rejected', operationId, null, kind, 0, 0, provenance)
   }
 
   private async readAndValidate(fileName: string): Promise<ValidatedProposal> {
@@ -340,7 +399,9 @@ export class AgentSyncService {
 
     let value: unknown
     try { value = JSON.parse(raw) } catch { throw new Error('提案不是有效 JSON。') }
-    if (!isPlainRecord(value) || !hasExactKeys(value, ['schema_version', 'operation_id', 'scope_token', 'created_at', 'kind', 'items'])) {
+    const envelopeKeys = ['schema_version', 'operation_id', 'scope_token', 'created_at', 'kind', 'items']
+    const provenanceKeys = ['skill_name', 'skill_version', 'source_summary']
+    if (!isPlainRecord(value) || !hasOptionalExactKeys(value, envelopeKeys, provenanceKeys)) {
       throw new Error('提案顶层字段不符合白名单。')
     }
     const envelope = value as unknown as ProposalEnvelope
@@ -350,6 +411,7 @@ export class AgentSyncService {
     if (!isValidTimestamp(envelope.created_at)) throw new Error('提案创建时间无效或已超过 30 天。')
     if (!Array.isArray(envelope.items) || envelope.items.length > MAX_PROPOSAL_ITEMS) throw new Error(`提案最多允许 ${MAX_PROPOSAL_ITEMS} 项。`)
     if (envelope.kind !== 'expenses' && envelope.kind !== 'investments') throw new Error('提案 kind 不在支持范围。')
+    const provenance = validateProposalProvenance(envelope, envelope.kind)
 
     const payloadHash = sha256(canonicalStringify(value))
     if (envelope.kind === 'expenses') {
@@ -370,7 +432,7 @@ export class AgentSyncService {
         baselineHash,
         view: {
           fileName, operationId: envelope.operation_id, payloadHash, baselineHash,
-          kind: 'expenses', createdAt: envelope.created_at, expenses: items,
+          kind: 'expenses', createdAt: envelope.created_at, provenance, expenses: items,
           duplicateIndexes: duplicates, investmentDiff: null, errors: [], alreadyApplied: false
         }
       }
@@ -388,7 +450,7 @@ export class AgentSyncService {
       baselineHash,
       view: {
         fileName, operationId: envelope.operation_id, payloadHash, baselineHash,
-        kind: 'investments', createdAt: envelope.created_at, expenses: [],
+        kind: 'investments', createdAt: envelope.created_at, provenance, expenses: [],
         duplicateIndexes: [],
         investmentDiff: { added: diff.added, changed: diff.changed, unchanged: diff.unchanged, unmentioned: diff.unmentioned },
         errors: [], alreadyApplied: false
@@ -497,7 +559,8 @@ export class AgentSyncService {
       expires_at: new Date(0).toISOString(),
       scope_token: '',
       expense_categories: [],
-      investment_holdings: []
+      investment_holdings: [],
+      investment_snapshot_history: []
     })
   }
 
@@ -520,7 +583,8 @@ export class AgentSyncService {
     payloadHash: string | null,
     kind: string,
     bills: number,
-    investments: number
+    investments: number,
+    provenance: AgentProposalProvenance | null = null
   ): Promise<void> {
     if (!this.activeUserId) throw new Error('agent_session_required')
     const paths = this.accountPaths(this.activeUserId)
@@ -535,7 +599,8 @@ export class AgentSyncService {
       state,
       processed_at: new Date().toISOString(),
       bills,
-      investments
+      investments,
+      ...(provenance ? { provenance } : {})
     }
     const receiptTemp = path.join(paths.inbox, `.${randomUUID()}.receipt.tmp`)
     await writeFile(receiptTemp, JSON.stringify(receipt), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
@@ -566,7 +631,7 @@ export class AgentSyncService {
     return {
       fileName, operationId: null, payloadHash: null, baselineHash: null,
       kind: 'invalid', createdAt: null, expenses: [], duplicateIndexes: [],
-      investmentDiff: null, errors: [message], alreadyApplied: false
+      provenance: null, investmentDiff: null, errors: [message], alreadyApplied: false
     }
   }
 }
@@ -620,6 +685,56 @@ function hasExactKeys(value: Record<string, unknown>, expected: string[]): boole
   return keys.length === expected.length && expected.every((key) => Object.prototype.hasOwnProperty.call(value, key))
 }
 
+function hasOptionalExactKeys(value: Record<string, unknown>, required: string[], optionalGroup: string[]): boolean {
+  const keys = Object.keys(value)
+  const allowed = new Set([...required, ...optionalGroup])
+  const optionalCount = optionalGroup.filter((key) => Object.prototype.hasOwnProperty.call(value, key)).length
+  return required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
+    (optionalCount === 0 || optionalCount === optionalGroup.length) &&
+    keys.every((key) => allowed.has(key)) && keys.length === required.length + optionalCount
+}
+
+function validateProposalProvenance(envelope: ProposalEnvelope, kind: 'expenses' | 'investments'): AgentProposalProvenance | null {
+  const present = ['skill_name', 'skill_version', 'source_summary'].filter((key) =>
+    Object.prototype.hasOwnProperty.call(envelope, key)
+  ).length
+  if (present === 0) return null
+  if (present !== 3) throw new Error('Skill 来源说明字段必须同时提供。')
+  const expectedSkill = kind === 'expenses' ? 'thunder-expense-entry' : 'thunder-investment-snapshot'
+  if (envelope.skill_name !== expectedSkill) throw new Error('Skill 名称与提案类型不匹配。')
+  if (typeof envelope.skill_version !== 'string' || envelope.skill_version.length > 32 ||
+    !/^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})(?:-[0-9A-Za-z.-]{1,20})?$/.test(envelope.skill_version)) {
+    throw new Error('Skill 版本必须是有界的 semver 字符串。')
+  }
+  validateSourceSummary(envelope.source_summary)
+  return {
+    skill_name: envelope.skill_name,
+    skill_version: envelope.skill_version,
+    source_summary: envelope.source_summary
+  }
+}
+
+function validateSourceSummary(summary: unknown): asserts summary is string {
+  if (typeof summary !== 'string' || summary.trim().length === 0 || summary.length > 500 || summary.trim() !== summary) {
+    throw new Error('来源摘要必须是 1–500 字符的简短文本。')
+  }
+  if (/[\u0000-\u001f\u007f]/.test(summary)) throw new Error('来源摘要不能包含控制字符。')
+  const forbidden = [
+    /(?:^|\s)[A-Za-z]:[\\/]/,
+    /(?:^|\s)\\\\/,
+    /\bfile:\/\//i,
+    /(?:^|\s)\/(?:Users|home|tmp|private|var|mnt|Volumes)\b/i,
+    /\b(?:password|passwd|secret|api[\s_-]?key|bearer|authorization|scope[\s_-]?token)\b/i,
+    /\b(?:cloudbase|broker)[\s_-]*(?:key|secret|token|credential)\b/i,
+    /(?<!\d)1[3-9]\d{9}(?!\d)/,
+    /(?<!\d)\d{16,19}(?!\d)/,
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i
+  ]
+  if (forbidden.some((pattern) => pattern.test(summary))) {
+    throw new Error('来源摘要不能包含路径、凭证、手机号、账号号或邮箱。')
+  }
+}
+
 function canonicalStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(',')}]`
   if (isPlainRecord(value)) {
@@ -646,6 +761,10 @@ function isSha256(value: unknown): value is string {
 
 function isSimpleJsonName(value: string): boolean {
   return value.toLowerCase().endsWith('.json') && isUuid(value.slice(0, -'.json'.length))
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST'
 }
 
 function isWithin(root: string, child: string): boolean {

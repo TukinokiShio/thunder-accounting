@@ -215,8 +215,10 @@ const electronAgentAPI = {
   applyProposal: (operationId: string, payloadHash: string, baselineHash: string) =>
     ipcRenderer.invoke('agent-sync:applyProposal', operationId, payloadHash, baselineHash),
   rejectProposal: (fileName: string) => ipcRenderer.invoke('agent-sync:rejectProposal', fileName),
+  importProposalFile: () => ipcRenderer.invoke('agent-sync:importProposalFile'),
   openInbox: () => ipcRenderer.invoke('agent-sync:openInbox'),
   getPositions: () => ipcRenderer.invoke('agent-sync:getPositions'),
+  getSnapshotHistory: () => ipcRenderer.invoke('agent-sync:getInvestmentSnapshotHistory'),
   getSyncState: () => ipcRenderer.invoke('agent-sync:getInvestmentSyncState'),
   retrySync: () => ipcRenderer.invoke('agent-sync:retryInvestmentSync')
 }

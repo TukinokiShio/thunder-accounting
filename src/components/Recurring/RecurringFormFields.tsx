@@ -6,6 +6,7 @@
  * ⚠ i18n 门禁：全部文案走 t()，词典 key 见 translations.ts（N6 单写者维护）。
  */
 import { useLanguage } from '@/i18n/LanguageContext'
+import { ChevronDown } from 'lucide-react'
 import { AddBillDatePicker } from '../AddBillDatePicker'
 import { PAYMENT_PLATFORM_OPTIONS, FUND_ACCOUNT_OPTIONS } from '@/data/recurringOptions'
 import { CategorySelect } from '@/components/CategorySelect'
@@ -192,23 +193,6 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
         </div>
       </div>
 
-      {/* 到期自动入账：开启后到期期次在打开应用时自动落账，不再逐笔确认（v2.0.5） */}
-      <div className="flex items-start gap-2">
-        <input
-          id={`${idPrefix}-auto-post`}
-          type="checkbox"
-          checked={form.auto_post}
-          onChange={(e) => onChange({ auto_post: e.target.checked })}
-          className="h-4 w-4 mt-0.5 shrink-0 accent-[var(--accent)]"
-        />
-        <div className="min-w-0">
-          <label htmlFor={`${idPrefix}-auto-post`} className="text-sm text-gray-700 dark:text-gray-300 select-none">
-            {t('到期自动入账（不再逐笔确认）')}
-          </label>
-          <p className="text-xs text-gray-400 mt-0.5">{t('开启后：到期时自动按上述金额记账，账单仍可编辑或删除')}</p>
-        </div>
-      </div>
-
       {/* 下一期日期 */}
       <div>
         <label htmlFor={`${idPrefix}-next-date`} className="block text-sm font-medium text-gray-700 mb-1">{t('下一期日期')}</label>
@@ -241,50 +225,75 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
         <FieldError id={`${idPrefix}-category2-error`} message={errors?.category2} />
       </div>
 
-      {/* 支付平台（选填）：在哪笔交易发生 */}
-      <div>
-        <label htmlFor={`${idPrefix}-platform`} className="block text-sm font-medium text-gray-700 mb-1">
-          {t('支付平台')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
-        </label>
-        <OptionInput
-          id={`${idPrefix}-platform`}
-          value={form.payment_platform}
-          options={platformOptions}
-          placeholder={t('如：微信 / 支付宝 / Apple Pay')}
-          onChange={(v) => onChange({ payment_platform: v })}
-        />
-      </div>
+      <details className="group rounded-lg border aurora-border px-3">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-gray-600 dark:text-gray-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
+          {t('更多信息')}
+          <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="grid gap-4 border-t aurora-border pb-3 pt-3">
+          {/* 到期自动入账默认关闭，保留给希望采用该行为的订阅用户。 */}
+          <div className="flex items-start gap-2">
+            <input
+              id={`${idPrefix}-auto-post`}
+              type="checkbox"
+              checked={form.auto_post}
+              onChange={(e) => onChange({ auto_post: e.target.checked })}
+              className="h-4 w-4 mt-0.5 shrink-0 accent-[var(--accent)]"
+            />
+            <div className="min-w-0">
+              <label htmlFor={`${idPrefix}-auto-post`} className="text-sm text-gray-700 dark:text-gray-300 select-none">
+                {t('到期自动入账（不再逐笔确认）')}
+              </label>
+              <p className="text-xs text-gray-400 mt-0.5">{t('开启后：到期时自动按上述金额记账，账单仍可编辑或删除')}</p>
+            </div>
+          </div>
 
-      {/* 资金账户（选填）：钱从哪个账户出 */}
-      <div>
-        <label htmlFor={`${idPrefix}-account`} className="block text-sm font-medium text-gray-700 mb-1">
-          {t('资金账户')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
-        </label>
-        <OptionInput
-          id={`${idPrefix}-account`}
-          value={form.fund_account}
-          options={accountOptions}
-          placeholder={t('如：银行卡 / 微信零钱 / 信用卡')}
-          onChange={(v) => onChange({ fund_account: v })}
-        />
-      </div>
+          {/* 支付平台（选填）：在哪笔交易发生 */}
+          <div>
+            <label htmlFor={`${idPrefix}-platform`} className="block text-sm font-medium text-gray-700 mb-1">
+              {t('支付平台')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
+            </label>
+            <OptionInput
+              id={`${idPrefix}-platform`}
+              value={form.payment_platform}
+              options={platformOptions}
+              placeholder={t('如：微信 / 支付宝 / Apple Pay')}
+              onChange={(v) => onChange({ payment_platform: v })}
+            />
+          </div>
 
-      {/* 备注（选填） */}
-      <div>
-        <label htmlFor={`${idPrefix}-note`} className="block text-sm font-medium text-gray-700 mb-1">
-          {t('备注')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
-        </label>
-        <input
-          id={`${idPrefix}-note`}
-          type="text"
-          maxLength={200}
-          autoComplete="off"
-          placeholder={t('添加备注...')}
-          value={form.note}
-          onChange={(e) => onChange({ note: e.target.value })}
-          className="input-field"
-        />
-      </div>
+          {/* 资金账户（选填）：钱从哪个账户出 */}
+          <div>
+            <label htmlFor={`${idPrefix}-account`} className="block text-sm font-medium text-gray-700 mb-1">
+              {t('资金账户')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
+            </label>
+            <OptionInput
+              id={`${idPrefix}-account`}
+              value={form.fund_account}
+              options={accountOptions}
+              placeholder={t('如：银行卡 / 微信零钱 / 信用卡')}
+              onChange={(v) => onChange({ fund_account: v })}
+            />
+          </div>
+
+          {/* 备注（选填） */}
+          <div>
+            <label htmlFor={`${idPrefix}-note`} className="block text-sm font-medium text-gray-700 mb-1">
+              {t('备注')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
+            </label>
+            <input
+              id={`${idPrefix}-note`}
+              type="text"
+              maxLength={200}
+              autoComplete="off"
+              placeholder={t('添加备注...')}
+              value={form.note}
+              onChange={(e) => onChange({ note: e.target.value })}
+              className="input-field"
+            />
+          </div>
+        </div>
+      </details>
     </>
   )
 }

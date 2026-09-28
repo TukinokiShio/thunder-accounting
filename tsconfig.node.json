@@ -17,6 +17,7 @@
   "include": [
     "main-process/**/*.ts",
     "src/utils/investmentHoldings.ts",
+    "src/utils/investmentReturns.ts",
     "src/types/agentSync.ts",
     "main-process/investment-cloud-key.ts",
     "electron-vite.config.mjs",

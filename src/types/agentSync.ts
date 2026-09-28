@@ -1,4 +1,5 @@
 import type { InvestmentDiff, InvestmentHolding } from '../utils/investmentHoldings'
+import type { InvestmentSnapshot } from '../utils/investmentReturns'
 
 export interface AgentExpenseItem {
   amount: number
@@ -8,6 +9,12 @@ export interface AgentExpenseItem {
   note: string
 }
 
+export interface AgentProposalProvenance {
+  skill_name: 'thunder-expense-entry' | 'thunder-investment-snapshot'
+  skill_version: string
+  source_summary: string
+}
+
 export interface AgentProposalPreview {
   fileName: string
   operationId: string | null
@@ -15,6 +22,7 @@ export interface AgentProposalPreview {
   baselineHash: string | null
   kind: 'expenses' | 'investments' | 'invalid'
   createdAt: string | null
+  provenance: AgentProposalProvenance | null
   expenses: AgentExpenseItem[]
   duplicateIndexes: number[]
   investmentDiff: InvestmentDiff | null
@@ -44,8 +52,10 @@ export interface AgentSyncAPI {
   listProposals: () => Promise<AgentProposalPreview[]>
   applyProposal: (operationId: string, payloadHash: string, baselineHash: string) => Promise<{ duplicate: boolean; bills: number; investments: number }>
   rejectProposal: (fileName: string) => Promise<void>
+  importProposalFile: () => Promise<string | null>
   openInbox: () => Promise<void>
   getPositions: () => Promise<InvestmentPositionView[]>
+  getSnapshotHistory: () => Promise<InvestmentSnapshot[]>
   getSyncState: () => Promise<{
     pending: number
     failed: number

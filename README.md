@@ -1,25 +1,37 @@
 # ⚡ 雷霆记账
 
-雷霆记账是一个以本地存储为主的个人记账应用，提供 Windows/macOS 桌面端和 Android 客户端。
+雷霆记账是一个以本机存储为主的个人记账应用，提供 Windows/macOS 桌面端与 Android 客户端。
 
-## v2.1.0
+## v2.1.1
 
-- 周期支出使用与单笔支出相同的一级、二级分类，仅保留订阅服务规则。历史定投规则保留兼容，不再生成投资或支出记录。
-- 新增低频投资持仓快照，支持手动导入 Agent 提案、查看新增/变更/未提及项目和云同步状态。
-- 附件记账与持仓 Skill 只能创建待审提案；每次写入均须在雷霆记账中预览并由用户确认。
-- 不包含券商登录、自动交易、实时行情或 K 线图。
+本版修复周期支出分类展示与订阅流程，恢复基于当前登录用户会话的云同步，并新增低频投资快照历史、资产配置图、估算收益和响应式持仓页。收益不是实时行情，数据不完整时会明确显示不可计算。
 
-## 下载
+Agent 支出与持仓更新通过待审提案进入应用。每个提案都要在雷霆记账中重新预览并由用户逐次确认；定时 Agent 只能生成待审提案。投资云同步需要目标 CloudBase 环境预先存在 `investment_positions`、`investment_snapshots` 集合并配置用户范围权限；应用不会自动创建集合，也不会把缺集合误报为空仓或同步成功。
 
-在 [GitHub Releases](https://github.com/TukinokiShio/thunder-accounting/releases) 下载 Windows 安装包和便携压缩包。校验值随每次 Release 发布。
+## 项目结构
+
+| 路径 | 内容 |
+| --- | --- |
+| `src/`、`main-process/` | Electron/React/TypeScript 桌面应用与本机数据库/会话逻辑 |
+| `mobile/`、`android/` | Capacitor Android 客户端及原生壳 |
+| `cloudfunctions/` | CloudBase 云函数源码与部署清单 |
+| `scripts/`、`tests/` | 构建、打包、验收和 UI/协议测试脚本 |
+| `skills/` | 跨 Agent 的支出与投资 Skills、JSON 协议、合成验收 |
+| `docs/` | 用户集成、同步和平台说明；内部执行资料不属于发布文档 |
+| `resources/` | 应用图标与打包资源 |
 
 ## Agent Skills
 
-- [支出录入 Skill](./skills/thunder-expense-entry)：从用户提供的图片、文本或文档提取支出并生成待确认提案。
-- [投资持仓 Skill](./skills/thunder-investment-snapshot)：从持仓材料生成低频快照提案；定时运行也必须停在待确认状态。
-- [Skill 使用说明与边界](./skills/README.md)
+- [支出录入 Skill](./skills/thunder-expense-entry/SKILL.md)：从用户提供的图片、文字或文档提取交易并生成待审提案。
+- [投资持仓 Skill](./skills/thunder-investment-snapshot/SKILL.md)：整理持仓、明确数量/成本/现金流语义，生成低频快照提案。
+- [Skills 入口与宿主能力矩阵](./skills/README.md)；[提案协议和 JSON Schema](./skills/protocol/README.md)。
+- [Agent 集成与用户态云同步说明](./docs/agent-integration.md)。
 
-Skill 不需要账号密码，不访问数据库或 CloudBase。请只把本机雷霆记账生成的 context 提供给你信任的 Agent。更多协议说明见 [Agent 集成与云同步设置](./docs/agent-integration.md)。
+Skill 遵循 Agent Skills 通用目录和 `SKILL.md` frontmatter。宿主支持能力各异：没有本地脚本/文件能力的 Agent 只能展示 JSON 草案；能生成文件的 Agent 也不能直接写账本或云端。应用会验证当前登录 scope；账本只在用户于应用中确认该提案后更新。不要向 Agent 提供账号密码、券商凭证、服务端 API Key 或未经验证的本地路径。
+
+## Releases
+
+从 [GitHub Releases](https://github.com/TukinokiShio/thunder-accounting/releases) 下载 Windows 安装包和便携压缩包；每个版本附 SHA-256 校验值。查看 [v2.1.1 发布说明](./docs/releases/v2.1.1.md)。
 
 ## 从源码构建
 
@@ -34,7 +46,7 @@ npm test
 npm run build
 ```
 
-桌面端使用 Electron + React + TypeScript；Android 使用 Capacitor。应用数据保存在本机。云同步需要自行配置 CloudBase；不要把 API key 或 `.env` 文件提交到 Git。
+桌面端使用 Electron + React + TypeScript；Android 使用 Capacitor。用户数据先保存在本机。普通业务云同步目标采用当前已登录用户会话与用户范围权限规则；桌面端不应携带 CloudBase 服务端管理 API Key。部署或升级到具体 CloudBase 环境前，必须在隔离环境验证集合和跨账号权限；本仓库源码不能证明生产规则已部署。
 
 ## 验证
 
@@ -44,7 +56,7 @@ npm run typecheck
 node --test skills/tests/proposal-skills.test.mjs
 ```
 
-上述 Skill 协议测试仅使用合成 fixture，不连接真实账号或生产云端。
+Skill 协议测试只使用合成 context、合成 scope 和系统临时目录，不连接真实账号或生产云端。
 
 ## 开源协议
 

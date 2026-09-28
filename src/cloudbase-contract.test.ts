@@ -13,10 +13,11 @@ describe('Tencent Cloud contracts', () => {
     expect(source).toContain("path.join(path.dirname(process.execPath), '.env')")
   })
 
-  it('does not expose a false cloud-enabled state without an API key', () => {
+  it('enables user data sync only for the authenticated, UID-bound database session', () => {
     const source = read('main-process/cloudbase.ts')
     expect(source).toContain('db = apiKey ? cloudbase.init')
-    expect(source).toContain('return !!(cloudApiKey && db && currentSession?.accessToken)')
+    expect(source).toContain('userCloudApp = userCloudbase.init')
+    expect(source).toContain('return !!(isLoggedIn() && currentSession?.accessToken && userDb && userDatabaseUid === currentSession.user.uid)')
   })
 
   it('uses CloudBase reauthentication codes for password changes instead of generic verification ids', () => {

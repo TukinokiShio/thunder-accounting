@@ -29,6 +29,7 @@ export function RecurringPage() {
   const openAddDialogForRecurring = useStore((s) => s.openAddDialogForRecurring)
   const addToast = useStore((s) => s.addToast)
   const refreshBills = useStore((s) => s.refreshBills)
+  const expenseCategories = useStore((s) => s.expenseCategories)
   const { t } = useLanguage()
 
   const [historyBills, setHistoryBills] = useState<Bill[]>([])
@@ -198,6 +199,8 @@ export function RecurringPage() {
     const nextActual = rule.next_date
     const isExpanded = expandedId === rule.id
     const history = historyBills.filter((b) => b.recurring_id === rule.id)
+    const categoryIcon = expenseCategories.find((category) => category.name === rule.category1)?.icon
+    const categoryPath = [rule.category1, rule.category2].filter((part): part is string => Boolean(part?.trim()))
 
     return (
       <div key={rule.id} className="rounded-xl border aurora-border bg-white dark:bg-gray-800 overflow-hidden">
@@ -215,6 +218,16 @@ export function RecurringPage() {
               {cycleText} · {t('下次')} {nextActual}
               {rule.payment_platform ? ` · ${t('支付平台')}${t('：')}${rule.payment_platform}` : ''}
               {rule.fund_account ? ` · ${t('资金账户')}${t('：')}${rule.fund_account}` : ''}
+            </p>
+            <p aria-label={`${t('分类')}${t('：')}${categoryPath.map((part) => t(part)).join(' / ')}`} className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-[var(--text2)]">
+              <span aria-hidden="true">{categoryIcon ?? '•'}</span>
+              <span>{t(rule.category1)}</span>
+              {rule.category2 && (
+                <>
+                  <span aria-hidden="true">/</span>
+                  <span>{t(rule.category2)}</span>
+                </>
+              )}
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -342,6 +355,10 @@ export function RecurringPage() {
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
                   {win.dueDates.join(t('、'))} · ¥{rule.amount.toFixed(2)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--text2)]">
+                  {expenseCategories.find((category) => category.name === rule.category1)?.icon ?? '•'} {t(rule.category1)}
+                  {rule.category2 ? ` / ${t(rule.category2)}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">

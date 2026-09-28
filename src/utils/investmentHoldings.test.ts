@@ -18,6 +18,10 @@ function holding(overrides: Partial<InvestmentHolding> = {}): InvestmentHolding 
     currency: 'USD',
     as_of: '2026-09-28',
     source_note: 'Synthetic fixture',
+    quantity_kind: 'unknown',
+    cost_basis_kind: 'unknown',
+    cash_flows: [],
+    cash_flows_complete: false,
     ...overrides
   }
 }
