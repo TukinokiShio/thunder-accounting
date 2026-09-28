@@ -22,7 +22,10 @@ const SAFE_CLOUDBASE_CODES = new Set([
   'cloud_sdk_not_initialized', 'cloud_sdk_init_failed', 'cloud_user_database_unavailable',
   'cloud_pull_investments_failed', 'cloud_pull_investment_snapshots_failed', 'cloud_sync_investment_failed', 'cloud_delete_investment_failed',
   'token_expired', 'access_token_expired', 'invalid_refresh_token', 'refresh_token_expired',
-  'investment_history_collection_missing', 'migration_required', 'reauth_required'
+  'investment_history_collection_missing', 'migration_required', 'reauth_required',
+  'database_permission_denied', 'database_collection_not_exist', 'database_timeout', 'database_request_failed',
+  'database_invalid_operrator', 'database_duplicate_write', 'permission_denied', 'invalid_credentials',
+  'access_token_invalid', 'unauthorized', 'network_error', 'request_timeout', 'fetch_failed', 'failed_to_fetch'
 ])
 
 function asRecord(value: unknown): ErrorRecord | null {
@@ -48,12 +51,20 @@ export function safeCloudbaseErrorCode(value: unknown, fallback = 'cloud_unknown
   const candidates = [
     root?.code,
     root?.error_code,
+    root?.errCode,
     root?.error,
     asRecord(root?.error)?.code,
     asRecord(root?.error)?.error_code,
+    asRecord(root?.error)?.errCode,
     asRecord(root?.data)?.code,
     asRecord(root?.data)?.error_code,
-    asRecord(root?.data)?.error
+    asRecord(root?.data)?.errCode,
+    asRecord(root?.data)?.error,
+    asRecord(root?.response)?.code,
+    asRecord(root?.response)?.status,
+    asRecord(asRecord(root?.response)?.data)?.code,
+    asRecord(asRecord(root?.response)?.data)?.error_code,
+    asRecord(root?.cause)?.code
   ]
   const normalizedCandidates = candidates
     .map(normalizedCodeCandidate)

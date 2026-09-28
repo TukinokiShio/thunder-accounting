@@ -45,10 +45,11 @@ describe('Investments page asset-allocation direction', () => {
 
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('puts allocation before proposal work, shows holding cards and a common-date trend', async () => {
+  it('shows the allocation chart before the holdings list and proposal work', async () => {
     render(<InvestmentsPage />)
 
     expect(await screen.findByText('资产配置')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /资产类别占比图表说明/ })).toBeVisible()
     expect(screen.getByText('基金')).toBeInTheDocument()
     expect(screen.getAllByText('120.00 CNY').length).toBeGreaterThan(1)
     expect(screen.getByText('历史市值趋势')).toBeInTheDocument()
@@ -58,7 +59,7 @@ describe('Investments page asset-allocation direction', () => {
     expect(screen.getByText('云端持仓已同步')).toBeInTheDocument()
     expect((window as any).electronAgentAPI.getSnapshotHistory).toHaveBeenCalledTimes(1)
 
-    expect(screen.getByTestId('investment-holdings-section').compareDocumentPosition(screen.getByTestId('investment-dashboard')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('investment-dashboard').compareDocumentPosition(screen.getByTestId('investment-holdings-section')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     const dashboard = screen.getByTestId('investment-dashboard')
     expect(dashboard.compareDocumentPosition(screen.getByText('等待确认的 Agent 提案')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '导入提案文件' }))
@@ -89,7 +90,7 @@ describe('Investments page asset-allocation direction', () => {
 
     const cards = await screen.findAllByTestId('investment-holding-card')
     expect(cards.map((card) => card.querySelector('h3')?.textContent)).toEqual(['高市值', '低市值', '无估值'])
-    expect(screen.getByTestId('investment-holdings-section').compareDocumentPosition(screen.getByTestId('investment-dashboard')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('investment-dashboard').compareDocumentPosition(screen.getByTestId('investment-holdings-section')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('does not claim the account is empty when local holdings are absent and cloud sync failed', async () => {

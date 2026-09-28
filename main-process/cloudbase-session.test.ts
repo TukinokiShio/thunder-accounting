@@ -67,6 +67,10 @@ describe('CloudBase user-session database binding', () => {
     expect(isExplicitAccessTokenExpiredError(conflictingExpiryCodes)).toBe(false)
     expect(safeCloudbaseErrorCode({ code: 'private-session-token-123' })).toBe('cloud_unknown_error')
     expect(safeCloudbaseErrorCode(new Error('cloud_session_rejected:syntheticsecret123'))).toBe('cloud_unknown_error')
+    expect(safeCloudbaseErrorCode({ code: 'DATABASE_PERMISSION_DENIED' })).toBe('database_permission_denied')
+    expect(safeCloudbaseErrorCode({ errCode: 'DATABASE_COLLECTION_NOT_EXIST' })).toBe('database_collection_not_exist')
+    expect(safeCloudbaseErrorCode({ response: { data: { code: 'DATABASE_TIMEOUT' } } })).toBe('database_timeout')
+    expect(safeCloudbaseErrorCode({ code: 'DATABASE_PERMISSION_DENIED', error_code: 'TOKEN_EXPIRED' })).toBe('cloud_unknown_error')
     expect(fixture.getDatabase).not.toHaveBeenCalled()
   })
 

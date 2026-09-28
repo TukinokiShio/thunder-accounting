@@ -323,17 +323,6 @@ export function InvestmentsPage() {
         )}
       </section>
 
-      <section aria-labelledby="positions-heading" data-testid="investment-holdings-section">
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h2 id="positions-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('当前持仓')}</h2><p className="text-sm text-gray-500">{t('{n} 项资产').replace('{n}', String(currencyPositions.length))} · {activeCurrency}</p></div></div>
-        {currencyPositions.length === 0 ? <div className="aurora-card rounded-xl border p-5 text-sm text-gray-500 dark:text-gray-400">{loading ? t('正在读取…') : positions.length > 0 ? t('该币种下暂无持仓。') : syncState.cloudPullStatus === 'failed' ? t('本机暂无可显示持仓；云端状态未知。请重试云同步后再确认。') : syncState.cloudPullStatus === 'pulling' ? t('正在确认云端持仓…') : syncState.cloudPullStatus === 'synced' ? t('当前没有已同步的持仓。') : t('本机暂无持仓记录。')}</div> : <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {currencyPositions.map((position) => <article key={position.asset_key} data-testid="investment-holding-card" className="aurora-card min-w-0 rounded-xl border p-4">
-            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">{position.name}</h3><p className="mt-1 break-all text-xs text-gray-500">{position.asset_type} · {position.asset_key}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${position.sync_status === 'failed' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' : position.sync_status === 'synced' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>{syncLabel(position.sync_status, t)}</span></div>
-            <div className="mt-4 grid grid-cols-2 gap-3"><div><p className="text-xs text-gray-500">{t('市值')}</p><p className="mt-1 break-all font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatMoney(position.market_value, position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数量')}</p><p className="mt-1 break-all font-medium tabular-nums text-gray-800 dark:text-gray-200">{position.quantity}</p></div><div><p className="text-xs text-gray-500">{t('总成本')}</p><p className="mt-1 break-all text-sm tabular-nums text-gray-700 dark:text-gray-300">{positionTotalCost(position) === null ? '—' : formatMoney(positionTotalCost(position)!.toFixed(2), position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数据日期')}</p><p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{position.as_of}</p></div></div>
-            <details className="mt-3 border-t aurora-border pt-2"><summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">{t('来源与同步详情')}</summary><div className="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400"><p className="break-words">{t('数据来源：')}{position.source_note || '—'}</p>{position.sync_error && <p className="break-words text-red-600 dark:text-red-300">{position.sync_error}</p>}</div></details>
-          </article>)}
-        </div>}
-      </section>
-
       <section aria-labelledby="allocation-heading" className="space-y-4" data-testid="investment-dashboard">
         <div className="aurora-card flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -407,6 +396,17 @@ export function InvestmentsPage() {
           </div> : <div className="mt-3 flex h-[150px] items-center justify-center rounded-lg bg-gray-50 text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('暂无可比较的持仓历史。') : t('暂无完整且可比较的估值日期。')}</div>}
         </section>
 
+      </section>
+
+      <section aria-labelledby="positions-heading" data-testid="investment-holdings-section">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h2 id="positions-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('当前持仓')}</h2><p className="text-sm text-gray-500">{t('{n} 项资产').replace('{n}', String(currencyPositions.length))} · {activeCurrency}</p></div></div>
+        {currencyPositions.length === 0 ? <div className="aurora-card rounded-xl border p-5 text-sm text-gray-500 dark:text-gray-400">{loading ? t('正在读取…') : positions.length > 0 ? t('该币种下暂无持仓。') : syncState.cloudPullStatus === 'failed' ? t('本机暂无可显示持仓；云端状态未知。请重试云同步后再确认。') : syncState.cloudPullStatus === 'pulling' ? t('正在确认云端持仓…') : syncState.cloudPullStatus === 'synced' ? t('当前没有已同步的持仓。') : t('本机暂无持仓记录。')}</div> : <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {currencyPositions.map((position) => <article key={position.asset_key} data-testid="investment-holding-card" className="aurora-card min-w-0 rounded-xl border p-4">
+            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">{position.name}</h3><p className="mt-1 break-all text-xs text-gray-500">{position.asset_type} · {position.asset_key}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${position.sync_status === 'failed' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' : position.sync_status === 'synced' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>{syncLabel(position.sync_status, t)}</span></div>
+            <div className="mt-4 grid grid-cols-2 gap-3"><div><p className="text-xs text-gray-500">{t('市值')}</p><p className="mt-1 break-all font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatMoney(position.market_value, position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数量')}</p><p className="mt-1 break-all font-medium tabular-nums text-gray-800 dark:text-gray-200">{position.quantity}</p></div><div><p className="text-xs text-gray-500">{t('总成本')}</p><p className="mt-1 break-all text-sm tabular-nums text-gray-700 dark:text-gray-300">{positionTotalCost(position) === null ? '—' : formatMoney(positionTotalCost(position)!.toFixed(2), position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数据日期')}</p><p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{position.as_of}</p></div></div>
+            <details className="mt-3 border-t aurora-border pt-2"><summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">{t('来源与同步详情')}</summary><div className="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400"><p className="break-words">{t('数据来源：')}{position.source_note || '—'}</p>{position.sync_error && <p className="break-words text-red-600 dark:text-red-300">{position.sync_error}</p>}</div></details>
+          </article>)}
+        </div>}
       </section>
 
       <section aria-labelledby="agent-proposals-heading" className="space-y-3">
