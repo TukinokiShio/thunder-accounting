@@ -4,7 +4,7 @@
  */
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { advanceDate, adjustToTradingDay, computeDueWindow, upcomingOccurrences, planAutoPost } from './recurringCycle'
+import { advanceDate, adjustToTradingDay, computeDueWindow, upcomingOccurrences, isSubscriptionRule, subscriptionRules, planAutoPost } from './recurringCycle'
 
 describe('advanceDate：锚日对齐', () => {
   it('月周期 + 锚日 31：1月31日 → 2月末（28）→ 3月31日（不漂移）', () => {
@@ -89,11 +89,11 @@ describe('planAutoPost：到期自动入账计划（v2.0.5）', () => {
   const anchor = (date: string) => Number(date.slice(8, 10))
   const base = {
     id: 1,
-    name: '华安纳斯达克100ETF联接A',
-    symbol: '040046',
+    name: 'Codex Plus',
+    type: 'subscription',
     amount: 10,
-    category1: '金融保险',
-    category2: '其他杂项',
+    category1: '娱乐休闲',
+    category2: '会员服务',
     note: '',
     payment_platform: '支付宝',
     fund_account: '招行',
@@ -105,12 +105,12 @@ describe('planAutoPost：到期自动入账计划（v2.0.5）', () => {
     auto_post: 1
   }
 
-  it('开启自动入账且已到期 → 出计划（含交易日顺延后的实际日期与推进后的下一期）', () => {
+  it('开启自动入账且已到期 → 原样保留两级分类', () => {
     const plan = planAutoPost([base], '2026-09-21', anchor)
     expect(plan).toHaveLength(1)
-    expect(plan[0].dueDates).toEqual(['2026-09-21'])
+    expect(plan[0].dueDates).toEqual(['2026-09-19', '2026-09-20', '2026-09-21'])
     expect(plan[0].nextDateAfter).toBe('2026-09-22')
-    expect(plan[0].symbol).toBe('040046')
+    expect(plan[0]).toMatchObject({ category1: '娱乐休闲', category2: '会员服务' })
   })
 
   it('未开启自动入账 → 不出计划（仍需用户手动确认）', () => {
@@ -127,6 +127,21 @@ describe('planAutoPost：到期自动入账计划（v2.0.5）', () => {
 
   it('漏期多期 → 一期一笔（逐期落账）', () => {
     const plan = planAutoPost([base], '2026-09-23', anchor)
-    expect(plan[0].dueDates).toEqual(['2026-09-21', '2026-09-22', '2026-09-23'])
+    expect(plan[0].dueDates).toEqual(['2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23'])
+  })
+
+  it('legacy dca 和缺少任一分类层级的规则都不会产生入账计划', () => {
+    expect(planAutoPost([{ ...base, type: 'dca' }], '2026-09-21', anchor)).toEqual([])
+    expect(planAutoPost([{ ...base, category1: '' }], '2026-09-21', anchor)).toEqual([])
+    expect(planAutoPost([{ ...base, category2: null }], '2026-09-21', anchor)).toEqual([])
+  })
+})
+
+describe('subscriptionRules：只开放订阅规则', () => {
+  it('保留订阅规则并从可操作列表排除 legacy dca', () => {
+    const subscription = { id: 1, type: 'subscription' }
+    const dca = { id: 2, type: 'dca' }
+    expect(isSubscriptionRule(subscription)).toBe(true)
+    expect(subscriptionRules([subscription, dca])).toEqual([subscription])
   })
 })

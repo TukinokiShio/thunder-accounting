@@ -155,11 +155,16 @@ describe('Tencent Cloud contracts', () => {
     expect(client).toContain("email: target.type === 'phone' ? `${target.target}@phone.tb` : target.target")
   })
 
-  it('resolves the admin aliases without requiring the accounts database mapping', () => {
+  it('keeps administrator alias addresses in local configuration and falls back to the accounts mapping', () => {
     const client = read('main-process/cloudbase.ts')
     expect(client).toContain("identifier.trim().toLowerCase() === 'admin'")
     expect(client).toContain('ADMIN_ACCOUNT_ID.toLowerCase()')
-    expect(client).toContain("return ADMIN_EMAIL")
+    expect(client).toContain("env['THUNDER_ADMIN_EMAIL']")
+    expect(client).toContain('if (isAdminAlias && adminEmail) return adminEmail')
+    expect(client).toContain("env['THUNDER_LEGACY_MIGRATION_EMAIL']")
+    expect(client).toContain('export function shouldMigrateLegacyDatabase')
+    const identitySources = client + read('main-process/main.ts')
+    expect(identitySources).not.toMatch(/\b(?:\d{6,}|[a-z]\d{8,})@[a-z\d.-]+\b/i)
   })
 
   it('uses CloudBase document ids instead of local auto-increment ids for sync merges', () => {

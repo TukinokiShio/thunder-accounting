@@ -16,9 +16,13 @@
   },
   "include": [
     "main-process/**/*.ts",
+    "src/utils/investmentHoldings.ts",
+    "src/types/agentSync.ts",
+    "main-process/investment-cloud-key.ts",
     "electron-vite.config.mjs",
     "src/database-addcategory.test.ts",
     "src/database-deletecategory.test.ts",
-    "src/database-switchuser.test.ts"
+    "src/database-switchuser.test.ts",
+    "src/database-agent-sync.test.ts"
   ]
 }

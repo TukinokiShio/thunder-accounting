@@ -5,11 +5,11 @@ import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
 import { modalPortalScope } from '@/utils/modalScope'
+import { isSubscriptionRule } from '@/utils/recurringCycle'
 import { CategorySelect } from './CategorySelect'
 import { AddBillDatePicker } from './AddBillDatePicker'
 import { RecurringFormFields, firstRecurringErrorMessage, recurringErrorMap } from './Recurring/RecurringFormFields'
 import { emptyRecurringForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch, type RecurringFieldKey } from './Recurring/recurringFormModel'
-import { defaultCategoryFor } from '@/data/recurringOptions'
 import type { AddBillForm, RecurringForm } from '@/types'
 
 /**
@@ -35,6 +35,7 @@ export function AddBillDialog() {
   const isOpen = useStore((s) => s.isAddDialogOpen)
   const editBillId = useStore((s) => s.editBillId)
   const bills = useStore((s) => s.bills)
+  const expenseCategories = useStore((s) => s.expenseCategories)
   const recurringPreset = useStore((s) => s.recurringPreset)
   const closeAddDialog = useStore((s) => s.closeAddDialog)
   const refreshBills = useStore((s) => s.refreshBills)
@@ -128,15 +129,7 @@ export function AddBillDialog() {
   }, [])
 
   const patchRecForm = (patch: RecurringFormPatch) => {
-    setRecForm((prev) => {
-      const next = { ...prev, ...patch }
-      // 切换类型时重置默认分类（订阅→其他杂项 / 定投→金融保险）与交易日标志（定投默认开）
-      if (patch.type && patch.type !== prev.type) {
-        next.category1 = defaultCategoryFor(patch.type)
-        next.trade_day_only = patch.type === 'dca'
-      }
-      return next
-    })
+    setRecForm((prev) => ({ ...prev, ...patch }))
   }
 
   const typeLabel = form.type === 'income' ? t('收入') : t('支出')
@@ -173,12 +166,18 @@ export function AddBillDialog() {
   /** 周期支出模块提交：登记规则（不即时落账），规则在到期后由页面/提醒引导入账 */
   const handleRecurringSubmit = async () => {
     setError('')
-    const errors = validateRecurringForm(recForm)
+    const errors = validateRecurringForm(recForm, expenseCategories)
     if (errors.length > 0) {
       const map = recurringErrorMap(errors, t)
       setRecFieldErrors(map)
-      const focusId = { name: 'add-bill-rec-name', amount: 'add-bill-rec-amount', next_date: 'add-bill-rec-next-date', category1: 'add-bill-rec-category' }[errors[0]]
-      reportValidationFailure(map, firstRecurringErrorMessage(errors, t), focusId)
+      const focusId = {
+        name: 'add-bill-rec-name',
+        amount: 'add-bill-rec-amount',
+        next_date: 'add-bill-rec-next-date',
+        category1: 'add-bill-rec-category1',
+        category2: 'add-bill-rec-category2'
+      }[errors[0]]
+      reportValidationFailure(map, firstRecurringErrorMessage(errors, t), focusId, '.add-bill-category-select input')
       return
     }
     setRecFieldErrors({})
@@ -202,13 +201,19 @@ export function AddBillDialog() {
   /** 一键入账提交：按到期窗口逐期落账（漏期时多笔），完成后推进规则 next_date */
   const handlePresetSubmit = async (sanitizedAmount: number) => {
     const preset = recurringPreset!
+    if (!isSubscriptionRule(preset)) {
+      const message = t('操作失败，请重试')
+      setError(message)
+      addToast('error', message)
+      return
+    }
     setSubmitting(true)
     try {
       for (const dueDate of preset.dueDates) {
         await window.electronAPI.addBill({
           amount: sanitizedAmount,
           category1: form.category1,
-          category2: form.category2 || form.category1,
+          category2: form.category2,
           date: dueDate,
           note: form.note.trim(),
           type: 'expense',
@@ -242,6 +247,13 @@ export function AddBillDialog() {
     setError('')
     setFutureWarning(false)
 
+    if (isPresetMode && !isSubscriptionRule(recurringPreset)) {
+      const message = t('操作失败，请重试')
+      setError(message)
+      addToast('error', message)
+      return
+    }
+
     // ⚠ 顺序纪律（v2.0.4 修正）：**周期模块必须在单笔校验之前分流**。
     // 此前单笔校验（金额/分类/日期）排在模块分支之前 —— 在周期模块里点保存时，
     // 校验的是那张空的单笔表单，报出来的错误永远不对路（用户感受：「保存不了，也没提示」）。
@@ -255,8 +267,9 @@ export function AddBillDialog() {
     const nextFieldErrors: Partial<Record<'amount' | 'category1' | 'category2' | 'date', string>> = {}
     if (isNaN(amount) || amount <= 0) nextFieldErrors.amount = t('请输入有效的金额')
     else if (amount > 99999999.99) nextFieldErrors.amount = t('金额不能超过 99,999,999.99')
-    if (!form.category1) nextFieldErrors.category1 = t('请选择一级分类')
-    else if (!form.category2 && !isPresetMode) nextFieldErrors.category2 = t('请选择二级分类')
+    const selectedCategory1 = expenseCategories.find((category) => category.name === form.category1)
+    if (!form.category1 || (isPresetMode && !selectedCategory1)) nextFieldErrors.category1 = t('请选择一级分类')
+    else if (!form.category2 || (isPresetMode && !selectedCategory1?.children.includes(form.category2))) nextFieldErrors.category2 = t('请选择二级分类')
     if (!form.date) nextFieldErrors.date = t('请选择日期')
 
     const firstInvalid = (['amount', 'category1', 'category2', 'date'] as const).find((k) => nextFieldErrors[k])

@@ -208,4 +208,19 @@ const electronAPI = {
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
+/** Desktop-only, account-scoped Agent proposal bridge. No arbitrary file path is accepted. */
+const electronAgentAPI = {
+  getContextInfo: () => ipcRenderer.invoke('agent-sync:getContextInfo'),
+  listProposals: () => ipcRenderer.invoke('agent-sync:listProposals'),
+  applyProposal: (operationId: string, payloadHash: string, baselineHash: string) =>
+    ipcRenderer.invoke('agent-sync:applyProposal', operationId, payloadHash, baselineHash),
+  rejectProposal: (fileName: string) => ipcRenderer.invoke('agent-sync:rejectProposal', fileName),
+  openInbox: () => ipcRenderer.invoke('agent-sync:openInbox'),
+  getPositions: () => ipcRenderer.invoke('agent-sync:getPositions'),
+  getSyncState: () => ipcRenderer.invoke('agent-sync:getInvestmentSyncState'),
+  retrySync: () => ipcRenderer.invoke('agent-sync:retryInvestmentSync')
+}
+
+contextBridge.exposeInMainWorld('electronAgentAPI', electronAgentAPI)
+
 export type ElectronAPI = typeof electronAPI

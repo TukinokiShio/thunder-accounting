@@ -3,10 +3,11 @@
  * 显示应用 Logo、四个导航项（总览/账单/统计/分类管理）、底部设置按钮和版本号。
  * 当前激活的导航项高亮显示。
  */
-import { Home, FileText, PieChart, Settings, Tags, LogOut, User, Repeat } from 'lucide-react'
+import { Home, FileText, PieChart, Settings, Tags, LogOut, User, Repeat, BriefcaseBusiness } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
+import { isSubscriptionRule } from '@/utils/recurringCycle'
 import pkg from '../../package.json'
 import logoUrl from '../../resources/icon.ico?url'
 
@@ -16,6 +17,7 @@ const navItems = [
   { id: 'bills' as const, icon: FileText },
   { id: 'stats' as const, icon: PieChart },
   { id: 'recurring' as const, icon: Repeat },
+  { id: 'investments' as const, icon: BriefcaseBusiness },
   { id: 'categories' as const, icon: Tags },
   { id: 'profile' as const, icon: User }
 ]
@@ -38,6 +40,7 @@ export function Sidebar({ onOpenSettings }: Props) {
     bills: t('账单'),
     stats: t('统计'),
     recurring: t('周期支出'),
+    investments: t('投资持仓'),
     categories: t('分类管理'),
     profile: t('个人中心')
   }
@@ -45,7 +48,7 @@ export function Sidebar({ onOpenSettings }: Props) {
   // 到期规则数 → 「周期支出」导航项的小红点数字徽标（UX 决策：不打断 3 秒记账流，
   // 用常驻徽标代替开屏弹窗；处理完归零即消失）。多期漏记也只算 1，详情在页面内看。
   const today = formatLocalDate()
-  const dueCount = recurrings.filter((r) => !r.paused && r.next_date <= today).length
+  const dueCount = recurrings.filter((r) => isSubscriptionRule(r) && !r.paused && r.next_date <= today).length
 
   const handleLogout = async () => {
     await appLogout()

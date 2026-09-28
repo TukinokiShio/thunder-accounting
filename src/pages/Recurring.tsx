@@ -1,5 +1,5 @@
 /**
- * 周期支出页（v2.0）：订阅与机械定投的规则管理 + 到期入账。
+ * 周期支出页：订阅规则管理 + 到期入账。
  *
  * 结构（PRD docs/prd-v2.0.0-recurring.md §七）：
  * ① 顶部汇总卡：本月已入账 / 未来 30 天待发生 / 进行中项目
@@ -15,13 +15,14 @@ import { Repeat, Plus, Pencil, Trash2, Pause, Play, ChevronDown, ChevronUp, Wall
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { formatLocalDate } from '@/utils/date'
-import { computeDueWindow, advanceDate, upcomingOccurrences, anchorDayOf, adjustToTradingDay, planAutoPost } from '@/utils/recurringCycle'
+import { computeDueWindow, advanceDate, upcomingOccurrences, anchorDayOf, isSubscriptionRule, planAutoPost, subscriptionRules } from '@/utils/recurringCycle'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { RecurringFormDialog } from '@/components/Recurring/RecurringFormDialog'
 import type { Bill, Recurring } from '@/types'
 
 export function RecurringPage() {
-  const recurrings = useStore((s) => s.recurrings)
+  const allRecurrings = useStore((s) => s.recurrings)
+  const recurrings = useMemo(() => subscriptionRules(allRecurrings), [allRecurrings])
   const refreshRecurrings = useStore((s) => s.refreshRecurrings)
   const updateRecurringAction = useStore((s) => s.updateRecurringAction)
   const deleteRecurringAction = useStore((s) => s.deleteRecurringAction)
@@ -64,7 +65,7 @@ export function RecurringPage() {
             await window.electronAPI.addBill({
               amount: item.amount,
               category1: item.category1,
-              category2: item.category2 || item.category1,
+              category2: item.category2,
               date: dueDate,
               note: item.note,
               type: 'expense',
@@ -96,22 +97,23 @@ export function RecurringPage() {
   const dueRules = useMemo(() => {
     return recurrings
       .filter((r) => !r.paused && r.next_date <= today)
-      .map((r) => ({ rule: r, window: computeDueWindow(r, today, anchorDayOf(r.next_date)) }))
+      .map((r) => ({ rule: r, window: computeDueWindow({ ...r, trade_day_only: 0 }, today, anchorDayOf(r.next_date)) }))
   }, [recurrings, today])
 
   /** 本月已入账（按账单日期归月） */
   const monthPrefix = today.slice(0, 7)
+  const subscriptionIds = useMemo(() => new Set(recurrings.map((rule) => rule.id)), [recurrings])
   const monthlyRecorded = useMemo(() => {
-    const rows = historyBills.filter((b) => b.recurring_id && b.date.startsWith(monthPrefix))
+    const rows = historyBills.filter((b) => b.recurring_id && subscriptionIds.has(b.recurring_id) && b.date.startsWith(monthPrefix))
     return { count: rows.length, total: rows.reduce((s, b) => s + b.amount, 0) }
-  }, [historyBills, monthPrefix])
+  }, [historyBills, monthPrefix, subscriptionIds])
 
   /** 未来 30 天待发生（每条规则的首个未来期次；已在到期区的规则从下一期算起） */
   const upcomingTotal = useMemo(() => {
     let total = 0
     for (const r of recurrings) {
       if (r.paused) continue
-      const occ = upcomingOccurrences(r, today, 30, anchorDayOf(r.next_date))
+      const occ = upcomingOccurrences({ ...r, trade_day_only: 0 }, today, 30, anchorDayOf(r.next_date))
       // 已到期未处理的规则其到期期次由「一键入账」消化，未来 30 天从推进后的下一期算
       const future = r.next_date <= today
         ? [advanceDate(r.next_date, r.cycle_unit, r.cycle_interval, anchorDayOf(r.next_date))]
@@ -127,14 +129,14 @@ export function RecurringPage() {
   const recurringStats = useMemo(() => {
     const map = new Map<number, { count: number; total: number }>()
     for (const b of historyBills) {
-      if (!b.recurring_id) continue
+      if (!b.recurring_id || !subscriptionIds.has(b.recurring_id)) continue
       const cur = map.get(b.recurring_id) ?? { count: 0, total: 0 }
       cur.count += 1
       cur.total += b.amount
       map.set(b.recurring_id, cur)
     }
     return map
-  }, [historyBills])
+  }, [historyBills, subscriptionIds])
 
   const handleSkip = async (rule: Recurring) => {
     try {
@@ -171,8 +173,10 @@ export function RecurringPage() {
   }
 
   const openOneClick = (rule: Recurring, dueDates: string[], nextDateAfter: string) => {
+    if (!isSubscriptionRule(rule)) return
     openAddDialogForRecurring({
       recurringId: rule.id,
+      type: rule.type,
       name: rule.name,
       amount: rule.amount,
       category1: rule.category1,
@@ -191,8 +195,7 @@ export function RecurringPage() {
       : rule.cycle_unit === 'month' ? t('月')
       : t('年')
     const cycleText = t('每 {n} {unit}').replace('{n}', String(rule.cycle_interval)).replace('{unit}', unitText)
-    // 「下次」展示实际发生日（仅交易日执行的规则，周末顺延后的日期）
-    const nextActual = rule.trade_day_only ? adjustToTradingDay(rule.next_date) : rule.next_date
+    const nextActual = rule.next_date
     const isExpanded = expandedId === rule.id
     const history = historyBills.filter((b) => b.recurring_id === rule.id)
 
@@ -205,13 +208,11 @@ export function RecurringPage() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
               {rule.name}
-              {rule.symbol ? <span className="ml-1.5 text-xs font-normal text-gray-400 font-mono">{rule.symbol}</span> : null}
               {rule.auto_post === 1 && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-[var(--accent-dim)] text-[var(--accent)]">{t('自动入账')}</span>}
               {rule.paused === 1 && <span className="ml-2 text-xs text-gray-400">{t('已暂停')}</span>}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {cycleText} · {t('下次')} {nextActual}
-              {rule.trade_day_only === 1 ? ` ${t('(交易日顺延)')}` : ''}
               {rule.payment_platform ? ` · ${t('支付平台')}${t('：')}${rule.payment_platform}` : ''}
               {rule.fund_account ? ` · ${t('资金账户')}${t('：')}${rule.fund_account}` : ''}
             </p>
@@ -292,7 +293,7 @@ export function RecurringPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">{t('周期支出')}</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t('订阅与定投，到期一键入账')}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('订阅服务，到期一键入账')}</p>
         </div>
         <button
           type="button"
@@ -333,7 +334,6 @@ export function RecurringPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                   {rule.name}
-                  {rule.symbol ? <span className="ml-1.5 text-xs font-normal text-gray-400 font-mono">{rule.symbol}</span> : null}
                   {win.dueDates.length > 1 && (
                     <span className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400">
                       {t('已漏 {n} 期').replace('{n}', String(win.dueDates.length))}

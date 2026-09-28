@@ -2,13 +2,20 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, globalShortcut, nativeImage,
 import path from 'path'
 import fs from 'fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
-import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories, getRecurrings, addRecurring, updateRecurring, deleteRecurring, insertCloudRecurrings } from './database/index'
+import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories, getRecurrings, addRecurring, updateRecurring, deleteRecurring, insertCloudRecurrings, getInvestmentPositions, getInvestmentSyncOutbox, getInvestmentSyncState, completeInvestmentSync, insertCloudInvestmentPositions, getAgentOperation, applyAgentExpenses, applyAgentInvestments } from './database/index'
 import { setStoragePort } from './database/storage'
 import { createDesktopStoragePort } from './database/desktop-storage'
-import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, resolveLoginIdentifier, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, upsertRemoteInvestmentPosition, deleteRemoteInvestmentPosition, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, pullInvestmentPositionsFromCloud, resolveLoginIdentifier, shouldMigrateLegacyDatabase, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
 import { logoutAndDisableAutoLogin } from './auth-preferences'
+import { AgentSyncService } from './agent-sync'
+import { retryPendingInvestmentSync } from './investment-sync'
 
 let mainWindow: BrowserWindow | null = null
+let agentSync: AgentSyncService
+let investmentCloudPullState: {
+  status: 'unknown' | 'pulling' | 'synced' | 'failed'
+  error: string | null
+} = { status: 'unknown', error: null }
 
 function createWindow(): void {
   // 运行时图标路径（开发模式 vs 生产模式）
@@ -63,6 +70,19 @@ app.whenReady().then(async () => {
   setStoragePort(createDesktopStoragePort())
   await initDatabase()
   initCloudBase()
+  agentSync = new AgentSyncService(app.getPath('userData'), {
+    getSessionUserId: () => isLoggedIn() ? getUserId() : null,
+    getDatabaseUserId: getCurrentUserId,
+    getExpenseCategories: () => getCategories('expense'),
+    getBills: () => getBills().filter((bill) => bill.type === 'expense')
+      .map(({ amount, category1, category2, date, note }) => ({ amount, category1, category2, date, note })),
+    getInvestments: () => getInvestmentPositions().map(({ asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note }) =>
+      ({ asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note })),
+    getOperation: getAgentOperation,
+    applyExpenses: applyAgentExpenses,
+    onExpensesApplied: (bills) => bills.forEach((bill) => trySync(() => upsertRemoteBill(bill))),
+    applyInvestments: applyAgentInvestments
+  })
   registerIpcHandlers()
   createWindow()
   setupMenu()
@@ -204,6 +224,43 @@ async function syncCloudData(uid: string): Promise<void> {
   } catch (e) {
     console.error('[Sync] 云端数据拉取失败:', e)
   }
+  await refreshCloudInvestmentPositions(uid)
+  await retryInvestmentOutbox()
+}
+
+async function refreshCloudInvestmentPositions(expectedUserId = getUserId()): Promise<boolean> {
+  const databaseUserId = getCurrentUserId()
+  if (!expectedUserId || !isLoggedIn() || expectedUserId !== databaseUserId) return false
+  investmentCloudPullState = { status: 'pulling', error: null }
+  try {
+    const cloudInvestments = await pullInvestmentPositionsFromCloud()
+    if (!isLoggedIn() || getUserId() !== expectedUserId || getCurrentUserId() !== databaseUserId) return false
+    if (cloudInvestments.length > 0) insertCloudInvestmentPositions(cloudInvestments)
+    investmentCloudPullState = { status: 'synced', error: null }
+    return true
+  } catch (error) {
+    if (isLoggedIn() && getUserId() === expectedUserId && getCurrentUserId() === databaseUserId) {
+      investmentCloudPullState = {
+        status: 'failed',
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 500)
+      }
+      console.error('[Sync] 云端投资持仓拉取失败；本地持仓未覆盖:', error)
+    }
+    return false
+  }
+}
+
+async function retryInvestmentOutbox(): Promise<{ attempted: number; synced: number; failed: number }> {
+  return retryPendingInvestmentSync({
+    isLoggedIn,
+    getSessionUserId: getUserId,
+    getDatabaseUserId: getCurrentUserId,
+    getOutbox: getInvestmentSyncOutbox,
+    getPositions: getInvestmentPositions,
+    upsert: upsertRemoteInvestmentPosition,
+    remove: deleteRemoteInvestmentPosition,
+    complete: completeInvestmentSync
+  })
 }
 
 function registerIpcHandlers(): void {
@@ -300,10 +357,44 @@ function registerIpcHandlers(): void {
     trySync(() => deleteRemoteRecurring(id))
   })
 
+  // ─── Desktop-only Agent proposal inbox ──────────────
+  ipcMain.handle('agent-sync:getContextInfo', () => agentSync.getContextInfo())
+  ipcMain.handle('agent-sync:listProposals', () => agentSync.listProposals())
+  ipcMain.handle('agent-sync:applyProposal', async (_event, operationId: string, payloadHash: string, baselineHash: string) => {
+    const result = await agentSync.applyProposal(operationId, payloadHash, baselineHash)
+    if (result.investments > 0) void retryInvestmentOutbox()
+    return result
+  })
+  ipcMain.handle('agent-sync:rejectProposal', (_event, fileName: string) => agentSync.rejectProposal(fileName))
+  ipcMain.handle('agent-sync:openInbox', async () => {
+    const context = await agentSync.getContextInfo()
+    if (!context.available) throw new Error(context.reason || 'agent_session_required')
+    const error = await shell.openPath(context.inboxPath)
+    if (error) throw new Error(`agent_inbox_open_failed: ${error}`)
+  })
+  ipcMain.handle('agent-sync:getPositions', () => getInvestmentPositions())
+  ipcMain.handle('agent-sync:getInvestmentSyncState', () => ({
+    ...getInvestmentSyncState(),
+    cloudPullStatus: investmentCloudPullState.status,
+    cloudPullError: investmentCloudPullState.error
+  }))
+  ipcMain.handle('agent-sync:retryInvestmentSync', async () => {
+    const cloudPullSucceeded = await refreshCloudInvestmentPositions()
+    const sync = await retryInvestmentOutbox()
+    return { ...sync, cloudPullSucceeded }
+  })
+
   // Backup / Restore / Clear
   ipcMain.handle('backup:export', () => exportAllJSON())
-  ipcMain.handle('backup:import', (_event, json: string) => importAllJSON(json))
-  ipcMain.handle('data:clear', () => { clearAllData() })
+  ipcMain.handle('backup:import', (_event, json: string) => {
+    const result = importAllJSON(json)
+    void retryInvestmentOutbox()
+    return result
+  })
+  ipcMain.handle('data:clear', () => {
+    clearAllData()
+    void retryInvestmentOutbox()
+  })
 
   // Open file dialog
   ipcMain.handle('dialog:open', async () => {
@@ -334,6 +425,7 @@ function registerIpcHandlers(): void {
       : await registerWithEmail(identifier, password, verifyCode, verificationId)
     const uid = result.user.uid
     await switchToUserDatabase(uid, false)
+    await agentSync.activate(uid)
     return result
   })
 
@@ -342,8 +434,9 @@ function registerIpcHandlers(): void {
     const email = await resolveLoginIdentifier(identifier)
     const result = await loginWithEmail(email, password)
     const uid = result.user.uid
-    const shouldMigrate = email === 'd850216088@163.com'
+    const shouldMigrate = shouldMigrateLegacyDatabase(email)
     await switchToUserDatabase(uid, shouldMigrate)
+    await agentSync.activate(uid)
     await syncCloudData(uid)
     return result
   })
@@ -352,11 +445,9 @@ function registerIpcHandlers(): void {
     // 验证码登录走 identifier → resolveVerificationTarget（手机号优先）
     const result = await loginWithVerificationCode(identifier, code, verificationId)
     const uid = result.user.uid
-    let dbEmail: string | undefined
-    if (identifier === 'admin') dbEmail = '15211073887@163.com'
-    else if (identifier.includes('@')) dbEmail = identifier
-    const shouldMigrate = dbEmail === 'd850216088@163.com'
+    const shouldMigrate = shouldMigrateLegacyDatabase(result.user.email || (identifier.includes('@') ? identifier : undefined))
     await switchToUserDatabase(uid, shouldMigrate)
+    await agentSync.activate(uid)
     await syncCloudData(uid)
     return result
   })
@@ -364,6 +455,8 @@ function registerIpcHandlers(): void {
   ipcMain.handle('auth:logout', async () => {
     // 主动退出应撤销“自动恢复会话”的许可，但保留用户明确选择的记住账号标识符。
     await logoutAndDisableAutoLogin(logout, loadCredentials, saveCredentials)
+    await agentSync.invalidate()
+    investmentCloudPullState = { status: 'unknown', error: null }
   })
 
   ipcMain.handle('auth:checkSession', async (_event, allowAutoLogin = false) => {
@@ -371,7 +464,11 @@ function registerIpcHandlers(): void {
     const session = await checkSession()
     if (session?.user.uid) {
       await switchToUserDatabase(session.user.uid, false)
+      await agentSync.activate(session.user.uid, true)
       await syncCloudData(session.user.uid)
+    } else {
+      investmentCloudPullState = { status: 'unknown', error: null }
+      await agentSync.invalidateAll()
     }
     return session
   })
@@ -442,7 +539,10 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('account:deleteAccount', async (_event, code: string) => {
-    return deleteAccount(code)
+    const result = await deleteAccount(code)
+    await agentSync.invalidate()
+    investmentCloudPullState = { status: 'unknown', error: null }
+    return result
   })
 
   ipcMain.handle('account:getUserStats', async () => {

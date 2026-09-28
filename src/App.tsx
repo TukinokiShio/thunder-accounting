@@ -10,6 +10,7 @@ import { Bills } from '@/pages/Bills'
 import { Stats } from '@/pages/Stats'
 import ProfilePage from '@/pages/Profile'
 import { RecurringPage } from '@/pages/Recurring'
+import { InvestmentsPage } from '@/pages/Investments'
 import { AddBillDialog } from '@/components/AddBillDialog'
 import { CategoryManager } from '@/components/CategoryManager'
 import { SettingsDialog } from '@/components/SettingsDialog'
@@ -85,6 +86,7 @@ export default function App() {
           {activePage === 'bills' && <Bills />}
           {activePage === 'stats' && <Stats />}
           {activePage === 'recurring' && <RecurringPage />}
+          {activePage === 'investments' && !localMode && <InvestmentsPage />}
           {activePage === 'categories' && (
             <CategoryManager
               isOpen={true}

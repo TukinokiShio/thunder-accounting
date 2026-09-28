@@ -7,7 +7,8 @@
  */
 import { useLanguage } from '@/i18n/LanguageContext'
 import { AddBillDatePicker } from '../AddBillDatePicker'
-import { PAYMENT_PLATFORM_OPTIONS, FUND_ACCOUNT_OPTIONS, SUBSCRIPTION_CATEGORY_OPTIONS, DCA_CATEGORY_OPTIONS } from '@/data/recurringOptions'
+import { PAYMENT_PLATFORM_OPTIONS, FUND_ACCOUNT_OPTIONS } from '@/data/recurringOptions'
+import { CategorySelect } from '@/components/CategorySelect'
 import type { RecurringFieldKey } from './recurringFormModel'
 import type { RecurringForm } from '@/types'
 
@@ -17,7 +18,8 @@ export function firstRecurringErrorMessage(errors: RecurringFieldKey[], t: (k: s
   if (code === 'name') return t('请填写名称')
   if (code === 'amount') return t('请输入有效的金额')
   if (code === 'next_date') return t('请选择下一期日期')
-  return t('请填写入账分类')
+  if (code === 'category1') return t('请选择一级分类')
+  return t('请选择二级分类')
 }
 
 /** 字段码 → 逐字段文案（表单里就地显示用） */
@@ -26,7 +28,8 @@ export function recurringErrorMap(errors: RecurringFieldKey[], t: (k: string) =>
   if (errors.includes('name')) out.name = t('请填写名称')
   if (errors.includes('amount')) out.amount = t('请输入有效的金额')
   if (errors.includes('next_date')) out.next_date = t('请选择下一期日期')
-  if (errors.includes('category1')) out.category1 = t('请填写入账分类')
+  if (errors.includes('category1')) out.category1 = t('请选择一级分类')
+  if (errors.includes('category2')) out.category2 = t('请选择二级分类')
   return out
 }
 
@@ -107,7 +110,7 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
 
   return (
     <>
-      {/* 名称：订阅了什么 / 定投什么标的 */}
+      {/* 订阅服务名称 */}
       <div>
         <label htmlFor={`${idPrefix}-name`} className="block text-sm font-medium text-gray-700 mb-1">{t('名称')}</label>
         <input
@@ -118,7 +121,7 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
           spellCheck={false}
           aria-invalid={errors?.name ? true : undefined}
           aria-describedby={errors?.name ? `${idPrefix}-name-error` : undefined}
-          placeholder={form.type === 'dca' ? t('如：华安纳斯达克100ETF联接A') : t('如：Codex Plus')}
+          placeholder={t('如：Codex Plus')}
           value={form.name}
           onChange={(e) => onChange({ name: e.target.value })}
           className={`input-field${errors?.name ? ' border-red-400' : ''}`}
@@ -126,52 +129,10 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
         <FieldError id={`${idPrefix}-name-error`} message={errors?.name} />
       </div>
 
-      {/* 标的代码（定投选填，如 040046）：订阅无此概念，不显示 */}
-      {form.type === 'dca' && (
-        <div>
-          <label htmlFor={`${idPrefix}-symbol`} className="block text-sm font-medium text-gray-700 mb-1">
-            {t('代码')} <span className="text-gray-400 font-normal">{t('(可选)')}</span>
-          </label>
-          <input
-            id={`${idPrefix}-symbol`}
-            type="text"
-            maxLength={20}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={t('如：040046')}
-            value={form.symbol}
-            onChange={(e) => onChange({ symbol: e.target.value })}
-            className="input-field font-mono"
-          />
-        </div>
-      )}
-
-      {/* 类型：订阅 / 定投 */}
-      <div>
-        <span id={`${idPrefix}-rtype-label`} className="block text-sm font-medium text-gray-700 mb-1">{t('类型')}</span>
-        <div role="group" aria-labelledby={`${idPrefix}-rtype-label`} className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-          {(['subscription', 'dca'] as const).map((rt) => (
-            <button
-              key={rt}
-              type="button"
-              aria-pressed={form.type === rt}
-              onClick={() => onChange({ type: rt, category1: '', category2: '' })}
-              className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors
-                ${form.type === rt
-                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                }`}
-            >
-              {rt === 'subscription' ? t('订阅') : t('定投')}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* 金额（每期） */}
       <div>
         <label htmlFor={`${idPrefix}-amount`} className="block text-sm font-medium text-gray-700 mb-1">
-          {form.type === 'dca' ? t('每期定投金额 (¥)') : t('每期金额 (¥)')}
+          {t('每期金额 (¥)')}
         </label>
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-medium text-red-500">¥</span>
@@ -248,22 +209,6 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
         </div>
       </div>
 
-      {/* 定投专属：仅在交易日执行（法定节假日与周末自动顺延） */}
-      {form.type === 'dca' && (
-        <div className="flex items-center gap-2">
-          <input
-            id={`${idPrefix}-trade-day`}
-            type="checkbox"
-            checked={form.trade_day_only}
-            onChange={(e) => onChange({ trade_day_only: e.target.checked })}
-            className="h-4 w-4 shrink-0 accent-[var(--accent)]"
-          />
-          <label htmlFor={`${idPrefix}-trade-day`} className="text-sm text-gray-700 dark:text-gray-300 select-none">
-            {t('仅在交易日执行（节假日与周末自动顺延）')}
-          </label>
-        </div>
-      )}
-
       {/* 下一期日期 */}
       <div>
         <label htmlFor={`${idPrefix}-next-date`} className="block text-sm font-medium text-gray-700 mb-1">{t('下一期日期')}</label>
@@ -275,17 +220,25 @@ export function RecurringFormFields({ form, onChange, idPrefix, errors }: Props)
         <FieldError id={`${idPrefix}-next-date-error`} message={errors?.next_date} />
       </div>
 
-      {/* 分类（生成账单归入；默认按类型预填，可改） */}
+      {/* 分类沿用单笔支出的账号分类树；新建、编辑和入账都保留两级分类。 */}
       <div>
-        <label htmlFor={`${idPrefix}-category`} className="block text-sm font-medium text-gray-700 mb-1">{t('入账分类')}</label>
-        <OptionInput
-          id={`${idPrefix}-category`}
-          value={form.category1}
-          options={(form.type === 'dca' ? DCA_CATEGORY_OPTIONS : SUBSCRIPTION_CATEGORY_OPTIONS).map((k) => t(k))}
-          placeholder={t('如：其他杂项 / 金融保险')}
-          onChange={(v) => onChange({ category1: v })}
-        />
-        <FieldError id={`${idPrefix}-category-error`} message={errors?.category1} />
+        <span id={`${idPrefix}-category-label`} className="block text-sm font-medium text-gray-700 mb-1">{t('分类')}</span>
+        <div role="group" aria-labelledby={`${idPrefix}-category-label`}>
+          <CategorySelect
+            category1={form.category1}
+            category2={form.category2}
+            type="expense"
+            inputIdPrefix={`${idPrefix}-category`}
+            ariaInvalidCategory1={Boolean(errors?.category1)}
+            ariaInvalidCategory2={Boolean(errors?.category2)}
+            ariaDescribedByCategory1={errors?.category1 ? `${idPrefix}-category1-error` : undefined}
+            ariaDescribedByCategory2={errors?.category2 ? `${idPrefix}-category2-error` : undefined}
+            onCategory1Change={(category1) => onChange({ category1, category2: '' })}
+            onCategory2Change={(category2) => onChange({ category2 })}
+          />
+        </div>
+        <FieldError id={`${idPrefix}-category1-error`} message={errors?.category1} />
+        <FieldError id={`${idPrefix}-category2-error`} message={errors?.category2} />
       </div>
 
       {/* 支付平台（选填）：在哪笔交易发生 */}

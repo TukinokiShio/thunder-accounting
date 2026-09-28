@@ -47,7 +47,6 @@ const EXPECT = {
   dialogWidth: 480,
   /** 塌缩判据：低于此值即视为「跟着内容走」（实测塌缩时约 270~330px） */
   minDialogWidth: 440,
-  maxCheckboxPx: 24,
   minChips: 5
 }
 
@@ -107,6 +106,7 @@ function staticChecks(root) {
     const p = path.join(root, 'src', 'components', 'AddBillDialog.tsx')
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''
   })()
+  const recurringDialog = fs.readFileSync(path.join(root, 'src', 'components', 'Recurring', 'RecurringFormDialog.tsx'), 'utf8')
   // R11s：v2.0.5 去掉了「校验类」底部汇总条，但**未来日期二次确认**属非字段级警告，必须保留可见路径。
   // 行为级构造需要真实驱动 react-select + 自定义日期选择器（成本高且脆弱），暂以源码断言兜住回归。
   const keepsFutureWarning = /setFutureWarning\(true\)/.test(billSrc) && /futureWarning/.test(billSrc) && /add-bill-dialog-error/.test(billSrc)
@@ -124,6 +124,18 @@ function staticChecks(root) {
     pass: hasAutoPost,
     actual: hasAutoPost ? '命中 auto_post + 到期自动入账' : '未命中',
     threshold: 'RecurringFormFields.tsx 同时含 auto_post 绑定与「到期自动入账」文案'
+  })
+  const sameExpenseCategoryTree = /<CategorySelect[\s\S]*?type="expense"/.test(formSrc)
+    && /<RecurringFormFields/.test(recurringDialog)
+    && /<RecurringFormFields/.test(billSrc)
+    && /<CategorySelect[\s\S]*?type=\{form\.type\}/.test(billSrc)
+  const noInvestmentSchedulingFields = !/trade_day_only|symbol|定投|交易日/.test(formSrc)
+  out.push({
+    id: 'R13',
+    title: '周期支出与单笔支出复用账号级两级支出分类，不显示定投字段',
+    pass: sameExpenseCategoryTree && noInvestmentSchedulingFields,
+    actual: `两处复用同一表单=${sameExpenseCategoryTree}；订阅表单无投资定投字段=${noInvestmentSchedulingFields}`,
+    threshold: '两种周期入口复用相同两级支出分类选择器；表单无定投字段'
   })
   out.push({
     id: 'R2s',
@@ -145,7 +157,7 @@ function printReport(report, sourceChecks) {
   log('')
   log('── 断言 ─────────────────────────────────────────────────────────')
   const all = [...report.checks, ...sourceChecks]
-  const order = ['R1', 'R1s', 'R2', 'R2s', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11s', 'R12']
+  const order = ['R1', 'R1s', 'R2', 'R2s', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11s', 'R12', 'R13']
   all.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
   for (const c of all) {
     log(`${c.pass ? 'PASS' : 'FAIL'}  ${pad(c.id, 4)} ${c.title}`)

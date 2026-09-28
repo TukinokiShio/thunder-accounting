@@ -21,6 +21,11 @@ interface Props {
   type: 'expense' | 'income'
   onCategory1Change: (cat: string) => void
   onCategory2Change: (cat: string) => void
+  inputIdPrefix?: string
+  ariaInvalidCategory1?: boolean
+  ariaInvalidCategory2?: boolean
+  ariaDescribedByCategory1?: string
+  ariaDescribedByCategory2?: string
 }
 
 /* react-select 选项类型（label 字符串，value 即分类名） */
@@ -104,7 +109,18 @@ const SELECT_STYLES: StylesConfig<Option, false> = {
   menuPortal: (base: any) => ({ ...base, zIndex: 10000 }),
 }
 
-export function CategorySelect({ category1, category2, type, onCategory1Change, onCategory2Change }: Props) {
+export function CategorySelect({
+  category1,
+  category2,
+  type,
+  onCategory1Change,
+  onCategory2Change,
+  inputIdPrefix,
+  ariaInvalidCategory1,
+  ariaInvalidCategory2,
+  ariaDescribedByCategory1,
+  ariaDescribedByCategory2,
+}: Props) {
   const expenseCategories = useStore((s) => s.expenseCategories)
   const incomeCategories = useStore((s) => s.incomeCategories)
   const cats: Category[] = type === 'income' ? incomeCategories : expenseCategories
@@ -131,6 +147,7 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
     <div className="flex flex-col gap-2 sm:flex-row add-bill-category-select">
       {/* ── 一级分类 ── */}
       <Select<Option>
+        inputId={inputIdPrefix ? `${inputIdPrefix}1` : undefined}
         options={cat1Options}
         value={selectedCat1}
         onChange={(opt) => onCategory1Change(opt?.value || '')}
@@ -143,10 +160,13 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
         className="flex-1"
         classNamePrefix="rs"
         aria-label={t('一级分类')}
+        aria-invalid={ariaInvalidCategory1 || undefined}
+        aria-errormessage={ariaDescribedByCategory1}
       />
 
       {/* ── 二级分类 ── */}
       <Select<Option>
+        inputId={inputIdPrefix ? `${inputIdPrefix}2` : undefined}
         options={cat2Options}
         value={selectedCat2}
         onChange={(opt) => onCategory2Change(opt?.value || '')}
@@ -161,6 +181,8 @@ export function CategorySelect({ category1, category2, type, onCategory1Change, 
         classNamePrefix="rs"
         aria-label={t('二级分类')}
         noOptionsMessage={() => t('先选择一级分类')}
+        aria-invalid={ariaInvalidCategory2 || undefined}
+        aria-errormessage={ariaDescribedByCategory2}
       />
     </div>
   )

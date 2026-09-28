@@ -10,9 +10,9 @@ import { X } from 'lucide-react'
 import { useStore } from '@/store'
 import { useLanguage } from '@/i18n/LanguageContext'
 import { modalPortalScope } from '@/utils/modalScope'
+import { isSubscriptionRule } from '@/utils/recurringCycle'
 import { RecurringFormFields, firstRecurringErrorMessage, recurringErrorMap } from './RecurringFormFields'
 import { emptyRecurringForm, ruleToForm, validateRecurringForm, formToRecurringParams, type RecurringFormPatch, type RecurringFieldKey } from './recurringFormModel'
-import { defaultCategoryFor } from '@/data/recurringOptions'
 import type { Recurring, RecurringForm } from '@/types'
 
 interface Props {
@@ -25,6 +25,7 @@ interface Props {
 export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
   const addRecurringAction = useStore((s) => s.addRecurringAction)
   const updateRecurringAction = useStore((s) => s.updateRecurringAction)
+  const expenseCategories = useStore((s) => s.expenseCategories)
   const notifyChange = useStore((s) => s.notifyChange)
   const addToast = useStore((s) => s.addToast)
   const { t } = useLanguage()
@@ -37,23 +38,14 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
 
   useEffect(() => {
     if (!isOpen) return
-    setForm(editing ? ruleToForm(editing) : emptyRecurringForm())
+    if (isSubscriptionRule(editing)) setForm(ruleToForm(editing))
+    else setForm(emptyRecurringForm())
     setError('')
     setFieldErrors({})
     nameInputRef.current?.focus()
   }, [isOpen, editing])
 
-  const patchForm = (patch: RecurringFormPatch) => {
-    setForm((prev) => {
-      const next = { ...prev, ...patch }
-      // 切换类型时重置默认分类（订阅→其他杂项 / 定投→金融保险）与交易日标志（定投默认开）
-      if (patch.type && patch.type !== prev.type) {
-        next.category1 = defaultCategoryFor(patch.type)
-        next.trade_day_only = patch.type === 'dca'
-      }
-      return next
-    })
-  }
+  const patchForm = (patch: RecurringFormPatch) => setForm((prev) => ({ ...prev, ...patch }))
 
   const handleClose = () => {
     onClose()
@@ -72,7 +64,8 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
       name: 'recurring-form-name',
       amount: 'recurring-form-amount',
       next_date: 'recurring-form-next-date',
-      category1: 'recurring-form-category'
+      category1: 'recurring-form-category1',
+      category2: 'recurring-form-category2'
     }
     // 等一帧让错误态渲染出来，再滚动/聚焦到首个问题字段
     setTimeout(() => {
@@ -85,7 +78,7 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
   const handleSubmit = async () => {
     setError('')
     setFieldErrors({})
-    const errors = validateRecurringForm(form)
+    const errors = validateRecurringForm(form, expenseCategories)
     if (errors.length > 0) {
       reportValidationFailure(errors)
       return
@@ -119,7 +112,7 @@ export function RecurringFormDialog({ isOpen, editing, onClose }: Props) {
     }
   }
 
-  if (!isOpen) return null
+  if (!isOpen || (editing !== null && editing.type !== 'subscription')) return null
 
   const portalScope = modalPortalScope()
 

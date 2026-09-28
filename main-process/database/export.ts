@@ -1,5 +1,6 @@
 import type { BillRow, BillFilters } from './index'
 import { getDb, saveDb, getBills } from './index'
+import { validateInvestmentBatch } from '../../src/utils/investmentHoldings'
 
 // ─── CSV Helpers ───────────────────────────────────
 
@@ -55,23 +56,32 @@ function rowsToObjects(result: { columns: string[]; values: unknown[][] }): Reco
   })
 }
 
-/** 将全部账单、分类和周期支出规则导出为 JSON 字符串，用于备份功能 */
+/** 将账单、分类、周期支出、投资快照和最小幂等账本导出为 JSON。 */
 export function exportAllJSON(): string {
   const db = getDb()
   const bills = db.exec('SELECT * FROM bills ORDER BY id ASC')
   const categories = db.exec('SELECT * FROM categories ORDER BY id ASC')
   const recurrings = db.exec('SELECT * FROM recurrings ORDER BY id ASC')
+  const investments = db.exec(`
+    SELECT asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, created_at, updated_at
+    FROM investment_positions ORDER BY asset_key ASC
+  `)
+  const agentOperations = db.exec('SELECT operation_id, payload_hash, operation_type, applied_at FROM agent_operations ORDER BY applied_at ASC')
 
   const billsJson = bills.length ? rowsToObjects(bills[0]) : []
   const catsJson = categories.length ? rowsToObjects(categories[0]) : []
   const recurringsJson = recurrings.length ? rowsToObjects(recurrings[0]) : []
+  const investmentsJson = investments.length ? rowsToObjects(investments[0]) : []
+  const agentOperationsJson = agentOperations.length ? rowsToObjects(agentOperations[0]) : []
 
   return JSON.stringify({
-    version: 2,
+    version: 3,
     exported_at: new Date().toISOString(),
     bills: billsJson,
     categories: catsJson,
-    recurrings: recurringsJson
+    recurrings: recurringsJson,
+    investment_positions: investmentsJson,
+    agent_operations: agentOperationsJson
   }, null, 2)
 }
 
@@ -80,9 +90,16 @@ export function exportAllJSON(): string {
  * 先校验数据格式，再用事务包裹批量写入；中途失败自动回滚，保证数据一致性。
  * 预设分类（is_preset=1）在导入时跳过，由 initPresetCategories 统一管理。
  */
-export function importAllJSON(json: string): { bills: number; categories: number; recurrings: number } {
+export function importAllJSON(json: string): { bills: number; categories: number; recurrings: number; investments: number } {
   const db = getDb()
-  let data: { bills?: unknown[]; categories?: unknown[]; recurrings?: unknown[]; version?: number }
+  let data: {
+    bills?: unknown[]
+    categories?: unknown[]
+    recurrings?: unknown[]
+    investment_positions?: unknown[]
+    agent_operations?: unknown[]
+    version?: number
+  }
   try {
     data = JSON.parse(json)
   } catch (e) {
@@ -92,6 +109,45 @@ export function importAllJSON(json: string): { bills: number; categories: number
 
   if (!data.bills || !Array.isArray(data.bills)) {
     throw new Error('备份数据中没有 bills 数组')
+  }
+
+  const hasInvestmentSnapshot = Object.prototype.hasOwnProperty.call(data, 'investment_positions')
+  if (hasInvestmentSnapshot && !Array.isArray(data.investment_positions)) {
+    throw new Error('备份文件 investment_positions 必须是数组')
+  }
+  const investmentPayload = hasInvestmentSnapshot
+    ? data.investment_positions!.map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+      const record = value as Record<string, unknown>
+      const allowed = new Set(['asset_key', 'name', 'asset_type', 'quantity', 'cost_basis', 'market_value', 'currency', 'as_of', 'source_note', 'created_at', 'updated_at'])
+      if (Object.keys(record).some((key) => !allowed.has(key))) return record
+      return {
+        asset_key: record.asset_key, name: record.name, asset_type: record.asset_type,
+        quantity: record.quantity, cost_basis: record.cost_basis, market_value: record.market_value,
+        currency: record.currency, as_of: record.as_of, source_note: record.source_note
+      }
+    })
+    : null
+  const investmentResult = investmentPayload ? validateInvestmentBatch(investmentPayload) : null
+  if (investmentResult && !investmentResult.valid) {
+    throw new Error(`投资持仓数据格式无效：${investmentResult.errors[0]?.message || 'unknown'}`)
+  }
+
+  const hasAgentOperations = Object.prototype.hasOwnProperty.call(data, 'agent_operations')
+  if (hasAgentOperations && !Array.isArray(data.agent_operations)) {
+    throw new Error('备份文件 agent_operations 必须是数组')
+  }
+  const operations = hasAgentOperations ? data.agent_operations as Array<Record<string, unknown>> : null
+  if (operations) {
+    for (let i = 0; i < operations.length; i++) {
+      const operation = operations[i]
+      if (typeof operation.operation_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(operation.operation_id) ||
+        typeof operation.payload_hash !== 'string' || !/^[0-9a-f]{64}$/.test(operation.payload_hash) ||
+        (operation.operation_type !== 'expenses' && operation.operation_type !== 'investments') ||
+        typeof operation.applied_at !== 'string') {
+        throw new Error(`Agent 幂等账本格式无效，第 ${i + 1} 行`)
+      }
+    }
   }
 
   // 在清空数据前逐条校验账单格式，避免写到一半才发现数据有问题
@@ -114,6 +170,58 @@ export function importAllJSON(json: string): { bills: number; categories: number
     // 仅删除自定义分类，保留预设分类
     db.run('DELETE FROM categories WHERE is_preset = 0')
     db.run('DELETE FROM recurrings')
+
+    // Version 1/2 backups have no investment fields: retain current holdings,
+    // their pending outbox, and the idempotency ledger. Version 3 replaces them.
+    let investmentCount = 0
+    if (investmentResult?.valid) {
+      const current = db.exec('SELECT asset_key FROM investment_positions')
+      for (const [assetKey] of (current[0]?.values || [])) {
+        db.run(`
+          INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
+          VALUES (?, 'delete', 'pending', NULL, datetime('now', 'localtime'))
+          ON CONFLICT(asset_key) DO UPDATE SET
+            operation = 'delete', status = 'pending', error = NULL,
+            revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
+        `, [assetKey])
+      }
+      db.run('DELETE FROM investment_positions')
+      const investmentStmt = db.prepare(`
+        INSERT INTO investment_positions
+          (asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      for (const holding of investmentResult.holdings) {
+        const backupRow = (data.investment_positions as Array<Record<string, unknown>>).find((value) => value?.asset_key === holding.asset_key)
+        investmentStmt.run([
+          holding.asset_key, holding.name, holding.asset_type, holding.quantity, holding.cost_basis,
+          holding.market_value, holding.currency, holding.as_of, holding.source_note,
+          typeof backupRow?.created_at === 'string' ? backupRow.created_at : new Date().toISOString(),
+          typeof backupRow?.updated_at === 'string' ? backupRow.updated_at : new Date().toISOString()
+        ])
+        db.run(`
+          INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
+          VALUES (?, 'upsert', 'pending', NULL, datetime('now', 'localtime'))
+          ON CONFLICT(asset_key) DO UPDATE SET
+            operation = 'upsert', status = 'pending', error = NULL,
+            revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
+        `, [holding.asset_key])
+        investmentCount++
+      }
+      investmentStmt.free()
+    }
+
+    if (operations) {
+      db.run('DELETE FROM agent_operations')
+      const operationStmt = db.prepare(`
+        INSERT INTO agent_operations (operation_id, payload_hash, operation_type, applied_at)
+        VALUES (?, ?, ?, ?)
+      `)
+      for (const operation of operations) {
+        operationStmt.run([operation.operation_id, operation.payload_hash, operation.operation_type, operation.applied_at])
+      }
+      operationStmt.free()
+    }
 
     // 逐条恢复账单
     let billCount = 0
@@ -166,7 +274,7 @@ export function importAllJSON(json: string): { bills: number; categories: number
 
     db.run('COMMIT')
     saveDb()
-    return { bills: billCount, categories: catCount, recurrings: recCount }
+    return { bills: billCount, categories: catCount, recurrings: recCount, investments: investmentCount }
   } catch (e) {
     db.run('ROLLBACK')
     throw e

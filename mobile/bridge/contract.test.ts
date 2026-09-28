@@ -117,7 +117,7 @@ describe('C1 边界：平台隔离与安全边界', () => {
   })
 })
 
-describe('C6 云同步预留位：适配器 trySync 调用点与桌面 IPC handler 一一对应', () => {
+describe('C6 云同步：基础平台调用点与 Agent 确认写入路径', () => {
   /** 桌面 main.ts:200-214 的 6 个写后同步调用点（按调用形状断言，变量名可不同） */
   const CALLPOINTS = [
     'trySync(() => upsertRemoteBill(',
@@ -129,8 +129,10 @@ describe('C6 云同步预留位：适配器 trySync 调用点与桌面 IPC handl
   const countCallpoints = (source: string) =>
     CALLPOINTS.reduce((total, point) => total + source.split(point).length - 1, 0)
 
-  it('桌面与安卓两侧各有 6 个同形状调用点', () => {
-    expect(countCallpoints(stripComments(read('main-process/main.ts')))).toBe(6)
+  it('桌面基础路径有 6 个调用点，外加 Agent 确认支出后的同步；安卓保留 6 个基础调用点', () => {
+    const desktopSource = stripComments(read('main-process/main.ts'))
+    expect(countCallpoints(desktopSource)).toBe(7)
+    expect(desktopSource).toContain('onExpensesApplied: (bills) => bills.forEach((bill) => trySync(() => upsertRemoteBill(bill)))')
     expect(countCallpoints(stripComments(read('mobile/bridge/android-adapter.ts')))).toBe(6)
   })
 

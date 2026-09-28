@@ -8,6 +8,7 @@ declare module 'sql.js' {
     exec(sql: string, params?: unknown[]): QueryExecResult[]
     prepare(sql: string, params?: unknown[]): Statement
     export(): Uint8Array
+    getRowsModified(): number
   }
 
   interface Statement {

@@ -32,6 +32,7 @@ export interface Toast {
  */
 export interface RecurringBillPreset {
   recurringId: number
+  type: 'subscription' | 'dca'
   name: string
   amount: number
   category1: string
@@ -45,7 +46,7 @@ export interface RecurringBillPreset {
 }
 
 interface AppState {
-  activePage: 'home' | 'bills' | 'stats' | 'categories' | 'recurring' | 'profile'
+  activePage: 'home' | 'bills' | 'stats' | 'categories' | 'recurring' | 'investments' | 'profile'
   setActivePage: (page: AppState['activePage']) => void
 
   isAddDialogOpen: boolean

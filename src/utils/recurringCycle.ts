@@ -79,6 +79,16 @@ export interface RecurringLike {
   trade_day_only?: number
 }
 
+/** Legacy DCA rules remain in storage, but cannot drive the subscription UI or create bills. */
+export function isSubscriptionRule<T extends { type?: string }>(rule: T | null | undefined): rule is T & { type: 'subscription' } {
+  return rule?.type === 'subscription'
+}
+
+/** Keep legacy records in state while exposing only subscriptions as actionable periodic rules. */
+export function subscriptionRules<T extends { type?: string }>(rules: readonly T[]): T[] {
+  return rules.filter(isSubscriptionRule)
+}
+
 /**
  * 非交易日顺延到下一交易日（节假日 + 周末，含调休补班）。
  * 数据源见 src/data/tradingCalendar.ts（2007-2026 官方公告；数据外年份退化为仅排除周末）。
@@ -146,7 +156,6 @@ export function computeDueWindow(
 export interface AutoPostItem {
   ruleId: number
   name: string
-  symbol: string | null
   amount: number
   category1: string
   category2: string
@@ -158,22 +167,22 @@ export interface AutoPostItem {
 }
 
 export function planAutoPost(
-  rules: Array<RecurringLike & { id: number; name: string; amount: number; category1: string; category2?: string | null; note?: string | null; payment_platform?: string | null; fund_account?: string | null; symbol?: string | null; auto_post?: number }>,
+  rules: Array<RecurringLike & { id: number; name: string; type?: string; amount: number; category1: string; category2?: string | null; note?: string | null; payment_platform?: string | null; fund_account?: string | null; auto_post?: number }>,
   today: string,
   anchorDayOf: (date: string) => number
 ): AutoPostItem[] {
   const out: AutoPostItem[] = []
   for (const rule of rules) {
-    if (rule.paused || rule.auto_post !== 1) continue
-    const win = computeDueWindow(rule, today, anchorDayOf(rule.next_date))
+    if (!isSubscriptionRule(rule) || rule.paused || rule.auto_post !== 1) continue
+    if (!rule.category1.trim() || !rule.category2?.trim()) continue
+    const win = computeDueWindow({ ...rule, trade_day_only: 0 }, today, anchorDayOf(rule.next_date))
     if (win.dueDates.length === 0) continue
     out.push({
       ruleId: rule.id,
       name: rule.name,
-      symbol: rule.symbol ?? null,
       amount: rule.amount,
       category1: rule.category1,
-      category2: rule.category2 || rule.category1,
+      category2: rule.category2,
       note: rule.note || '',
       payment_platform: rule.payment_platform ?? null,
       fund_account: rule.fund_account ?? null,

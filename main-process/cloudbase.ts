@@ -2,8 +2,10 @@ import cloudbase from '@cloudbase/node-sdk'
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
-import type { BillRow, CategoryRow, RecurringRow } from './database'
-import { clearAllData, getDbPath, getBills, getCategories, getRecurrings, setBillCloudId, setCategoryCloudId, setRecurringCloudId } from './database'
+import type { BillRow, CategoryRow, RecurringRow, InvestmentPositionRow, CloudInvestmentPosition } from './database'
+import { clearAllData, getDbPath, getBills, getCategories, getRecurrings, getInvestmentPositions, setBillCloudId, setCategoryCloudId, setRecurringCloudId } from './database'
+import { validateInvestmentBatch } from '../src/utils/investmentHoldings'
+import { investmentDocumentId } from './investment-cloud-key'
 import { saveCredentials as safeSave, loadCredentials as safeLoad, clearCredentials } from './credential-store'
 import { resolveAccountDeletionResponse } from './account-deletion'
 
@@ -49,6 +51,19 @@ const DELETE_ACCOUNT_URL = 'https://shio-d0gsoo414401468d6-1458734732.tcloudbase
 function getApiKey(): string {
   const env = process.env as Record<string, string | undefined>
   return (env['CLOUDBASE_API_KEY'] || env['CLOUDBASE_APIKEY'] || '').trim()
+}
+
+function getConfiguredAdminEmail(): string {
+  const env = process.env as Record<string, string | undefined>
+  return (env['THUNDER_ADMIN_EMAIL'] || '').trim()
+}
+
+/** Optional local migration mapping. Keep account-specific email addresses out of the public source tree. */
+export function shouldMigrateLegacyDatabase(email: string | undefined): boolean {
+  if (!email) return false
+  const env = process.env as Record<string, string | undefined>
+  const migrationEmail = (env['THUNDER_LEGACY_MIGRATION_EMAIL'] || '').trim()
+  return Boolean(migrationEmail && email === migrationEmail)
 }
 
 // ─── Types ────────────────────────────────────────
@@ -225,10 +240,7 @@ function authError(data: Record<string, unknown>, status: number, fallback: stri
 /** 30 字符可用字符集（排除 I/O/0/1 易混淆字符） */
 const ACCOUNT_ID_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
-/** admin 账号邮箱（识别为系统管理员） */
-export const ADMIN_EMAIL = '15211073887@163.com'
-
-/** admin 用户专属账号 ID */
+/** Optional local administrator alias; when configured, it maps to this generic account ID. */
 export const ADMIN_ACCOUNT_ID = 'TBAdmin'
 
 /**
@@ -248,8 +260,8 @@ export function generateAccountId(): string {
  * 按邮箱规范化生成账号 ID（核心规范）。
  *
  * 规则（按顺序匹配）：
- * 1. ADMIN_EMAIL → "TBAdmin"
- * 2. 邮箱本地部分含 6+ 位数字 → "TB" + 前 6 位数字（如 d850216088@163.com → "TBD85021"）
+ * 1. Locally configured THUNDER_ADMIN_EMAIL → "TBAdmin"
+ * 2. 邮箱本地部分含 6+ 位数字 → "TB" + 前 6 位数字（如 alex123456@example.com → "TB123456"）
  * 3. 邮箱本地部分含 4-5 位数字 → "TB" + 数字部分
  * 4. 邮箱本地部分含 6+ 位字母 → "TB" + 前 6 位大写字母（如 alice@x.com → "TBAlice"）
  * 5. 邮箱本地部分含 3-5 位字母 → "TB" + 大写字母部分
@@ -259,7 +271,8 @@ export function generateAccountId(): string {
  */
 export function generateStandardAccountId(email: string): string {
   // 1. admin 特殊映射
-  if (email === ADMIN_EMAIL) return ADMIN_ACCOUNT_ID
+  const adminEmail = getConfiguredAdminEmail()
+  if (adminEmail && email === adminEmail) return ADMIN_ACCOUNT_ID
 
   // 2-5. 邮箱规范化
   const local = (email || '').split('@')[0]
@@ -292,7 +305,8 @@ export function isValidAccountId(id: string): boolean {
  * 从 email 本地部分提取，截断到 20 字符。
  */
 export function generateDefaultNickname(email: string): string {
-  if (email === ADMIN_EMAIL) return 'adminer'
+  const adminEmail = getConfiguredAdminEmail()
+  if (adminEmail && email === adminEmail) return 'adminer'
   if (!email) return '新用户'
   const local = email.split('@')[0]
   if (!local) return '新用户'
@@ -305,8 +319,9 @@ export function generateDefaultNickname(email: string): string {
  * 支持：账号 ID → 查 accounts 集合；邮箱 → 直接返回；手机号 → 查 accounts 集合。
  */
 export async function resolveLoginIdentifier(identifier: string): Promise<string> {
-  // 管理员入口是产品保留别名，不能依赖 accounts 集合或 API Key 才能解析。
-  if (identifier.trim().toLowerCase() === 'admin' || identifier.trim() === ADMIN_ACCOUNT_ID.toLowerCase()) return ADMIN_EMAIL
+  const isAdminAlias = identifier.trim().toLowerCase() === 'admin' || identifier.trim().toLowerCase() === ADMIN_ACCOUNT_ID.toLowerCase()
+  const adminEmail = getConfiguredAdminEmail()
+  if (isAdminAlias && adminEmail) return adminEmail
   // CloudBase Auth 原生支持手机号登录；不应因本地 accounts 映射不可用而阻断。
   if (/^\d{11}$/.test(identifier)) return identifier
   // 邮箱格式 → 直接返回
@@ -315,9 +330,10 @@ export async function resolveLoginIdentifier(identifier: string): Promise<string
   // 尝试从 accounts 集合查找
   if (db) {
     try {
+      const accountIdentifier = isAdminAlias ? ADMIN_ACCOUNT_ID : identifier
       const result = await db.collection('accounts').where({
         _or: [
-          { accountId: identifier },
+          { accountId: accountIdentifier },
           { phone: identifier }
         ]
       }).limit(1).get()
@@ -340,7 +356,9 @@ export async function resolveLoginIdentifier(identifier: string): Promise<string
  * 返回 null 表示账号未找到。
  */
 export async function resolveVerificationTarget(identifier: string): Promise<{ type: 'phone' | 'email'; target: string } | null> {
-  if (identifier.trim().toLowerCase() === 'admin' || identifier.trim() === ADMIN_ACCOUNT_ID.toLowerCase()) return { type: 'email', target: ADMIN_EMAIL }
+  const isAdminAlias = identifier.trim().toLowerCase() === 'admin' || identifier.trim().toLowerCase() === ADMIN_ACCOUNT_ID.toLowerCase()
+  const adminEmail = getConfiguredAdminEmail()
+  if (isAdminAlias && adminEmail) return { type: 'email', target: adminEmail }
   // 手机号格式
   if (/^\d{11}$/.test(identifier)) return { type: 'phone', target: identifier }
   // 邮箱格式
@@ -349,7 +367,8 @@ export async function resolveVerificationTarget(identifier: string): Promise<{ t
   // 账号 ID：通过 accounts 集合查找，手机号优先
   if (db) {
     try {
-      const result = await db.collection('accounts').where({ accountId: identifier }).limit(1).get()
+      const accountIdentifier = isAdminAlias ? ADMIN_ACCOUNT_ID : identifier
+      const result = await db.collection('accounts').where({ accountId: accountIdentifier }).limit(1).get()
       if (result.data?.length) {
         const account = result.data[0] as { phone: string; email: string }
         if (account.phone) return { type: 'phone', target: account.phone }
@@ -963,6 +982,46 @@ export async function deleteRemoteRecurring(localId: number): Promise<void> {
   }
 }
 
+// ─── Investment snapshots cloud sync (stable user + asset key) ─────
+
+/** Stable CloudBase document ID prevents device-local SQLite ids from colliding. */
+export async function upsertRemoteInvestmentPosition(position: InvestmentPositionRow): Promise<string> {
+  try {
+    const { userId } = ensureDbAndUser()
+    const documentId = investmentDocumentId(userId, position.asset_key)
+    const remote = {
+      userId,
+      asset_key: position.asset_key,
+      name: position.name,
+      asset_type: position.asset_type,
+      quantity: position.quantity,
+      cost_basis: position.cost_basis,
+      market_value: position.market_value,
+      currency: position.currency,
+      as_of: position.as_of,
+      source_note: position.source_note,
+      created_at: position.created_at,
+      updated_at: position.updated_at
+    }
+    await db!.collection('investment_positions').doc(documentId).set(remote)
+    return documentId
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`同步投资持仓失败 (asset_key=${position.asset_key}):`, message)
+    throw new Error(`cloud_sync_investment_failed: ${message}`)
+  }
+}
+
+export async function deleteRemoteInvestmentPosition(assetKey: string): Promise<void> {
+  try {
+    const { userId } = ensureDbAndUser()
+    await db!.collection('investment_positions').doc(investmentDocumentId(userId, assetKey)).remove()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`cloud_delete_investment_failed: ${message}`)
+  }
+}
+
 // ─── Cloud → Local Sync (Login) ─────────────────
 
 interface CloudBill {
@@ -1096,6 +1155,52 @@ export async function pullRecurringsFromCloud(): Promise<CloudRecurring[]> {
   } catch (e) {
     console.error('从云端拉取周期支出规则失败:', e)
     return []
+  }
+}
+
+/**
+ * Pull current-account investment rows. Errors are propagated so callers can
+ * distinguish a missing/unavailable collection from a genuinely empty result.
+ */
+export async function pullInvestmentPositionsFromCloud(): Promise<CloudInvestmentPosition[]> {
+  const { userId } = ensureDbAndUser()
+  const rows: CloudInvestmentPosition[] = []
+  const pageSize = 100
+  let offset = 0
+  try {
+    while (true) {
+      const result = await db!.collection('investment_positions').where({ userId }).skip(offset).limit(pageSize).get()
+      const page = (result.data || []) as Array<Record<string, unknown>>
+      const normalized = page.map((record) => ({
+        asset_key: record.asset_key,
+        name: record.name,
+        asset_type: record.asset_type,
+        quantity: record.quantity,
+        cost_basis: record.cost_basis,
+        market_value: record.market_value,
+        currency: record.currency,
+        as_of: record.as_of,
+        source_note: record.source_note
+      }))
+      const validation = validateInvestmentBatch(normalized)
+      if (!validation.valid) throw new Error(`云端持仓格式无效：${validation.errors[0]?.message || 'unknown'}`)
+      for (let index = 0; index < page.length; index++) {
+        const record = page[index]
+        rows.push({
+          ...validation.holdings[index],
+          userId,
+          created_at: typeof record.created_at === 'string' ? record.created_at : new Date(0).toISOString(),
+          updated_at: typeof record.updated_at === 'string' ? record.updated_at : new Date(0).toISOString(),
+          ...(typeof record._id === 'string' ? { _id: record._id } : {})
+        })
+      }
+      if (page.length < pageSize) break
+      offset += page.length
+    }
+    return rows
+  } catch (error) {
+    console.error('从 CloudBase 拉取投资持仓失败:', error)
+    throw new Error(`cloud_pull_investments_failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 

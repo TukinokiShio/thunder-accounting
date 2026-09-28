@@ -78,9 +78,9 @@ describe('Sidebar', () => {
   it('should render a fixed-width navigation shell', () => {
     render(<Sidebar onOpenSettings={() => {}} />);
 
-    // nav items (6: 总览/账单/统计/周期支出/分类管理/个人中心) + settings button (1) = 7 buttons total
+    // nav items (7, including investment holdings) + settings button = 8 buttons total
     const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(7);
+    expect(buttons).toHaveLength(8);
     expect(screen.getByRole('complementary')).toHaveClass('aurora-sidebar');
     expect(screen.getByRole('navigation', { name: '页面导航' })).toHaveClass('min-h-0', 'overflow-y-auto');
   });

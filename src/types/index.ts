@@ -21,7 +21,7 @@ export interface Bill {
 }
 
 /**
- * 周期支出规则（v2.0）：订阅 / 机械定投。
+ * 周期支出规则。旧 dca 值仍保留在持久化类型中以便读取和备份，但不再由 UI 使用。
  * 规则 ≠ 账单：规则按周期产生支出事件，入账时落为带 recurring_id 的 Bill。
  */
 export interface Recurring {
@@ -38,9 +38,9 @@ export interface Recurring {
   fund_account: string | null
   note: string | null
   paused: number
-  /** v2.0.1：仅在交易日执行（定投专属；周末自动顺延到下一交易日）。0=否 1=是 */
+  /** Legacy DCA scheduling flag; retained for storage compatibility. 0=否 1=是 */
   trade_day_only: number
-  /** v2.0.4：标的代码（定投选填，如 040046；订阅不适用） */
+  /** Legacy DCA instrument code; retained for storage compatibility. */
   symbol?: string | null
   /** v2.0.5：到期自动入账（不再逐笔确认）。0=否 1=是 */
   auto_post: number
@@ -50,12 +50,10 @@ export interface Recurring {
 /** 周期支出规则表单（新增/编辑共用，金额与间隔用 string 方便输入框双向绑定） */
 export interface RecurringForm {
   name: string
-  /** v2.0.4：标的代码（定投选填） */
-  symbol: string
   /** v2.0.5：到期自动入账（不再逐笔确认） */
   auto_post: boolean
   amount: string
-  type: 'subscription' | 'dca'
+  type: 'subscription'
   cycle_unit: 'day' | 'week' | 'month' | 'year'
   cycle_interval: string
   next_date: string
@@ -64,7 +62,6 @@ export interface RecurringForm {
   payment_platform: string
   fund_account: string
   note: string
-  trade_day_only: boolean
 }
 
 /** 分类（前端视图模型，children 已解析为数组） */
@@ -134,7 +131,7 @@ export interface AppAPI {
   deleteCategory: (id: number) => Promise<void>
   reorderCategories: (orderedIds: number[]) => Promise<void>
   exportBackup: () => Promise<string>
-  importBackup: (json: string) => Promise<{ bills: number; categories: number; recurrings?: number }>
+  importBackup: (json: string) => Promise<{ bills: number; categories: number; recurrings?: number; investments?: number }>
   clearAllData: () => Promise<void>
   showOpenDialog: () => Promise<{ filePath: string; content: string } | null>
   onShortcut: (callback: (action: string) => void) => () => void

@@ -3,8 +3,7 @@
  *
  * 覆盖的缺陷（全部来自 2026-09-19 的用户截图，不靠肉眼验收）：
  *   R1 周期规则弹窗的**宽度骨架**（缺 width 规则 ⇒ 弹窗按内容塌缩成窄条）
- *   R2/R3 定投「仅在交易日执行」复选框**不能被全局 input 规则撑大**
- *        （`.aurora-shell input{width:100%;min-height:42px}` 命中 checkbox ⇒ 巨型方块 + 标签竖排）
+ *   R2/R3 周期支出表单只呈现订阅字段，不包含定投入口，并提供完整两级支出分类
  *   R4/R5 支付平台、资金账户**可自由填写**（且快选芯片点一下能把值填进去）
  *   R6/R7 记一笔弹窗内的周期模块同样成立 + 内容区无横向溢出
  *   R8 **负对照自检**：把 `.recurring-form-dialog` 的宽度规则禁掉后必须复现塌缩
@@ -33,7 +32,6 @@ export interface GateReport {
 declare const __GATE_EXPECT__: {
   dialogWidth: number
   minDialogWidth: number
-  maxCheckboxPx: number
   minChips: number
 }
 
@@ -79,16 +77,6 @@ function chipsNear(root: HTMLElement, labelText: string): HTMLButtonElement[] {
   const wrapper = input.parentElement
   if (!wrapper) return []
   return Array.from(wrapper.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'))
-}
-
-/** 点击弹窗内文本匹配的按钮（按 trim 后的完整文本） */
-async function clickButtonByText(dialog: HTMLElement, text: string): Promise<boolean> {
-  const btn = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-    .find((b) => (b.textContent || '').trim() === text)
-  if (!btn) return false
-  btn.click()
-  await sleep(180)
-  return true
 }
 
 /** 用原生 setter 触发 React onChange（模拟用户逐字输入） */
@@ -141,24 +129,17 @@ async function checkRecurringDialog(EXPECT: ReturnType<typeof thresholds>): Prom
     threshold: `禁用后 < ${EXPECT.minDialogWidth}px，移除后回到 ${EXPECT.dialogWidth}±2px`
   })
 
-  // R2 复选框尺寸（全局 input 规则回归的哨兵）。
-  // ⚠ 必须先切到「定投」：交易日期选项只对定投渲染（订阅类型下本就不该有这个复选框）。
-  const switchedToDca = await clickButtonByText(dialog, '定投')
-  const checkbox = dialog.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  if (!switchedToDca) {
-    checks.push({ id: 'R2', title: '周期规则弹窗：切到「定投」', pass: false, actual: '未找到文本为「定投」的类型按钮', threshold: '存在' })
-  } else if (!checkbox) {
-    checks.push({ id: 'R2', title: '定投复选框存在', pass: false, actual: '切到定投后仍未找到 input[type=checkbox]', threshold: '存在' })
-  } else {
-    const r = rectOf(checkbox)
-    checks.push({
-      id: 'R2',
-      title: '「仅在交易日执行」复选框尺寸正常（不被全局 input 规则撑大）',
-      pass: r.width <= EXPECT.maxCheckboxPx && r.height <= EXPECT.maxCheckboxPx,
-      actual: `复选框 ${r.width.toFixed(1)}×${r.height.toFixed(1)}px`,
-      threshold: `宽高均 ≤ ${EXPECT.maxCheckboxPx}px`
-    })
-  }
+  // R2：周期规则只保留订阅服务字段，分类使用与单笔支出相同的两级选择器。
+  const dcaUi = /定投|交易日/.test(dialog.textContent || '')
+  const recurringCategories = ['#recurring-form-category1', '#recurring-form-category2']
+    .map((selector) => dialog.querySelector(selector))
+  checks.push({
+    id: 'R2',
+    title: '周期规则仅呈现订阅，并包含两级分类选择器',
+    pass: !dcaUi && recurringCategories.every(Boolean),
+    actual: `定投/交易日界面=${dcaUi}；一级分类=${!!recurringCategories[0]}；二级分类=${!!recurringCategories[1]}`,
+    threshold: '无定投/交易日 UI；存在一级与二级分类输入'
+  })
 
   // R4 支付平台可输入
   const platformInput = inputByLabel(dialog, '支付平台')
@@ -232,28 +213,17 @@ async function checkAddBillDialog(EXPECT: ReturnType<typeof thresholds>): Promis
   moduleBtn.click()
   await sleep(200)
 
-  // 同样先切到「定投」：交易日复选框只对定投渲染
-  const dcaOk = await clickButtonByText(dialog, '定投')
-  const checkbox = dialog.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  if (!dcaOk) {
-    checks.push({ id: 'R3', title: '记一笔（周期模块）：切到「定投」', pass: false, actual: '未找到「定投」类型按钮', threshold: '存在' })
-  } else if (!checkbox) {
-    checks.push({ id: 'R3', title: '记一笔（周期模块）复选框存在', pass: false, actual: '切到定投后仍未找到 input[type=checkbox]', threshold: '存在' })
-  } else {
-    const r = rectOf(checkbox)
-    const labelText = (checkbox.closest('div')?.textContent || '').replace(/\s+/g, '')
-    // 竖排文字的判据：承载标签文字的那个容器宽度必须够（≥ 120px），否则说明被挤成竖排
-    const labelHost = Array.from(dialog.querySelectorAll<HTMLElement>('label'))
-      .find((l) => (l.textContent || '').includes('交易日'))
-    const hostWidth = labelHost ? rectOf(labelHost).width : 0
-    checks.push({
-      id: 'R3',
-      title: '记一笔（周期模块）复选框尺寸正常 + 标签未被挤成竖排',
-      pass: r.width <= EXPECT.maxCheckboxPx && r.height <= EXPECT.maxCheckboxPx && hostWidth >= 120,
-      actual: `复选框 ${r.width.toFixed(1)}×${r.height.toFixed(1)}px；标签宽 ${hostWidth.toFixed(1)}px（文本 ${labelText.slice(0, 20)}…）`,
-      threshold: `复选框 ≤ ${EXPECT.maxCheckboxPx}px；标签宽 ≥ 120px`
-    })
-  }
+  // R3：记一笔中的周期模块复用相同订阅表单和两级支出分类。
+  const addBillDcaUi = /定投|交易日/.test(dialog.textContent || '')
+  const addBillCategories = ['#add-bill-rec-category1', '#add-bill-rec-category2']
+    .map((selector) => dialog.querySelector(selector))
+  checks.push({
+    id: 'R3',
+    title: '记一笔周期模块仅呈现订阅，并包含两级分类选择器',
+    pass: !addBillDcaUi && addBillCategories.every(Boolean),
+    actual: `定投/交易日界面=${addBillDcaUi}；一级分类=${!!addBillCategories[0]}；二级分类=${!!addBillCategories[1]}`,
+    threshold: '无定投/交易日 UI；存在一级与二级分类输入'
+  })
 
   const body = dialog.querySelector<HTMLElement>('div.space-y-4') ?? dialog
   const ov = overflowOf(body)
@@ -285,20 +255,14 @@ async function checkAddBillDialog(EXPECT: ReturnType<typeof thresholds>): Promis
     threshold: '前两者成立且底部汇总条不存在（v2.0.5 用户要求：字段下方有红字就够了）'
   })
 
-  // R10 定投标的代码字段（v2.0.4）：可自由输入
+  // R10：投资定投专用字段必须退出周期支出表单。
   const symbolInput = dialog.querySelector<HTMLInputElement>('#add-bill-rec-symbol')
-  let symbolOk = false
-  if (symbolInput) {
-    typeInto(symbolInput, '040046')
-    await sleep(50)
-    symbolOk = symbolInput.value === '040046'
-  }
   checks.push({
     id: 'R10',
-    title: '定投「代码」字段存在且可自由输入',
-    pass: !!symbolInput && symbolOk,
-    actual: symbolInput ? `输入 040046 后 value=${JSON.stringify(symbolInput.value)}` : '未找到 #add-bill-rec-symbol',
-    threshold: '存在该输入框且输入回显一致'
+    title: '周期支出表单不包含投资标的代码字段',
+    pass: !symbolInput && !addBillDcaUi,
+    actual: `标的代码字段=${!!symbolInput}；定投/交易日界面=${addBillDcaUi}`,
+    threshold: '投资定投字段与入口均不存在'
   })
 
   return checks

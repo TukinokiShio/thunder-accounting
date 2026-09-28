@@ -5,6 +5,7 @@
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js'
 import { escapeCSV, exportCSV, exportAllJSON, importAllJSON } from './export'
 import { getStoragePort } from './storage'
+import type { InvestmentHolding } from '../../src/utils/investmentHoldings'
 
 let db: SqlJsDatabase
 let dbPath: string
@@ -130,6 +131,7 @@ export async function initDatabase(): Promise<void> {
 
   // v2.0 周期支出：recurrings 表 + bills 关联列（增量迁移，两处建库路径共用）
   ensureRecurringsSchema()
+  ensureInvestmentSchema()
 
   // ─── Categories table ──────────────────────────
   db.run(`
@@ -296,6 +298,7 @@ export async function switchToUserDatabase(userId: string, migrateSharedData = f
 
   // v2.0 周期支出：recurrings 表 + bills 关联列（增量迁移，与 initDatabase 共用）
   ensureRecurringsSchema()
+  ensureInvestmentSchema()
 
   // 5. 初始化预设分类
   initPresetCategories()
@@ -389,6 +392,51 @@ function ensureRecurringsSchema(): void {
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_recurrings_cloud_id ON recurrings(cloud_id) WHERE cloud_id IS NOT NULL')
 }
 
+/** v2.1.0 low-frequency investment snapshots and idempotency ledger. */
+function ensureInvestmentSchema(): void {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS investment_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asset_key TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      asset_type TEXT NOT NULL,
+      quantity TEXT NOT NULL,
+      cost_basis TEXT,
+      market_value TEXT,
+      currency TEXT NOT NULL,
+      as_of TEXT NOT NULL,
+      source_note TEXT NOT NULL DEFAULT '',
+      cloud_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_investment_positions_asset_key ON investment_positions(asset_key)')
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_investment_positions_cloud_id ON investment_positions(cloud_id) WHERE cloud_id IS NOT NULL')
+  db.run(`
+    CREATE TABLE IF NOT EXISTS investment_sync_outbox (
+      asset_key TEXT PRIMARY KEY,
+      operation TEXT NOT NULL DEFAULT 'upsert',
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+  const outboxColumns = db.exec('PRAGMA table_info(investment_sync_outbox)')[0]?.values || []
+  if (!outboxColumns.some((row) => String(row[1]) === 'revision')) {
+    db.run('ALTER TABLE investment_sync_outbox ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
+  }
+  db.run(`
+    CREATE TABLE IF NOT EXISTS agent_operations (
+      operation_id TEXT PRIMARY KEY,
+      payload_hash TEXT NOT NULL,
+      operation_type TEXT NOT NULL,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+}
+
 // ─── Recurring CRUD（周期支出规则） ───────────────
 
 export interface RecurringRow {
@@ -452,6 +500,7 @@ export function getRecurrings(): RecurringRow[] {
 
 /** 新增周期支出规则，返回写入后的完整行。注意时序：先取 rowid 再 saveDb（见 runStmt 注释） */
 export function addRecurring(params: AddRecurringParams): RecurringRow {
+  if (params.type === 'dca') throw new Error('已移除定投周期规则；请改用投资持仓快照。')
   const id = runStmt(`
     INSERT INTO recurrings (name, amount, type, cycle_unit, cycle_interval, next_date, category1, category2, payment_platform, fund_account, note, paused, trade_day_only, symbol, auto_post)
     VALUES (@name, @amount, @type, @cycle_unit, @cycle_interval, @next_date, @category1, @category2, @payment_platform, @fund_account, @note, @paused, @trade_day_only, @symbol, @auto_post)
@@ -479,6 +528,11 @@ export function addRecurring(params: AddRecurringParams): RecurringRow {
 
 /** 按传入字段动态更新周期支出规则，仅更新非 undefined 字段，返回更新后的完整行 */
 export function updateRecurring(id: number, params: Partial<AddRecurringParams>): RecurringRow {
+  const existingRecurring = queryAllRecurring('SELECT * FROM recurrings WHERE id = @id', { id })[0]
+  if (existingRecurring?.type === 'dca' && (params.type !== undefined || params.auto_post === 1)) {
+    throw new Error('旧定投规则不可转换或自动入账。')
+  }
+  if (params.type === 'dca') throw new Error('已移除定投周期规则；请改用投资持仓快照。')
   const fields: string[] = []
   const values: Record<string, string | number | null> = { id }
 
@@ -759,6 +813,12 @@ function runStmt(sql: string, params?: Record<string, string | number | null>): 
  * 使用命名参数 @xxx 语法，通过 convertNamedParams 转为 sql.js 的 ? 占位符。
  */
 export function addBill(params: AddBillParams): BillRow {
+  if (params.recurring_id !== undefined && params.recurring_id !== null) {
+    const recurring = db.exec('SELECT type FROM recurrings WHERE id = ?', [params.recurring_id])
+    if (recurring[0]?.values[0]?.[0] === 'dca') {
+      throw new Error('旧定投规则已停用，不能再生成账单。')
+    }
+  }
   const id = runStmt(`
     INSERT INTO bills (amount, category1, category2, date, note, type, recurring_id, payment_platform, fund_account)
     VALUES (@amount, @category1, @category2, @date, @note, @type, @recurring_id, @payment_platform, @fund_account)
@@ -887,12 +947,293 @@ export function getStats(startDate: string, endDate: string, type?: 'expense' | 
   return { totalAmount, count, byCategory1, byCategory2, byDate }
 }
 
-/** 清除全部账单、自定义分类与周期支出规则数据（预设分类保留），操作后立即持久化到磁盘 */
-export function clearAllData(): void {
-  db.run('DELETE FROM bills')
-  db.run('DELETE FROM categories WHERE is_preset = 0')
-  db.run('DELETE FROM recurrings')
+// ─── Investment snapshots and Agent proposal ledger ───────────────
+
+export interface InvestmentPositionRow extends InvestmentHolding {
+  id: number
+  cloud_id: string | null
+  created_at: string
+  updated_at: string
+  sync_status: 'pending' | 'synced' | 'failed' | 'local'
+  sync_error: string | null
+}
+
+export interface AgentOperationRow {
+  operation_id: string
+  payload_hash: string
+  operation_type: string
+  applied_at: string
+}
+
+export interface AgentExpenseRow {
+  amount: number
+  category1: string
+  category2: string
+  date: string
+  note: string
+}
+
+export interface InvestmentOutboxRow {
+  asset_key: string
+  operation: 'upsert' | 'delete'
+  status: 'pending' | 'synced' | 'failed'
+  error: string | null
+  revision: number
+  updated_at: string
+}
+
+function assertAgentOperation(operationId: string, payloadHash: string): void {
+  if (!/^[0-9a-f-]{36}$/i.test(operationId) || !/^[0-9a-f]{64}$/.test(payloadHash)) {
+    throw new Error('agent_operation_reference_invalid')
+  }
+}
+
+function readAgentOperation(operationId: string): AgentOperationRow | null {
+  const result = db.exec('SELECT * FROM agent_operations WHERE operation_id = ?', [operationId])
+  if (!result.length || !result[0].values.length) return null
+  const obj: Record<string, unknown> = {}
+  result[0].columns.forEach((column, index) => { obj[column] = result[0].values[0][index] })
+  return rowTo<AgentOperationRow>(obj)
+}
+
+function assertOperationCanApply(operationId: string, payloadHash: string): boolean {
+  const existing = readAgentOperation(operationId)
+  if (!existing) return false
+  if (existing.payload_hash !== payloadHash) throw new Error('agent_operation_hash_conflict')
+  return true
+}
+
+function writeAgentOperation(operationId: string, payloadHash: string, operationType: string): void {
+  db.run(
+    'INSERT INTO agent_operations (operation_id, payload_hash, operation_type) VALUES (?, ?, ?)',
+    [operationId, payloadHash, operationType]
+  )
+}
+
+export function getAgentOperation(operationId: string): AgentOperationRow | null {
+  return readAgentOperation(operationId)
+}
+
+export function getInvestmentPositions(): InvestmentPositionRow[] {
+  const result = db.exec(`
+    SELECT p.*, o.status AS sync_status, o.error AS sync_error
+    FROM investment_positions p
+    LEFT JOIN investment_sync_outbox o ON o.asset_key = p.asset_key
+    ORDER BY p.asset_key ASC
+  `)
+  if (!result.length || !result[0].columns.length) return []
+  return result[0].values.map((values) => {
+    const obj: Record<string, unknown> = {}
+    result[0].columns.forEach((column, index) => { obj[column] = values[index] })
+    if (obj.sync_status == null) obj.sync_status = 'local'
+    if (obj.sync_error == null) obj.sync_error = null
+    return rowTo<InvestmentPositionRow>(obj)
+  })
+}
+
+export function applyAgentExpenses(operationId: string, payloadHash: string, rows: AgentExpenseRow[]): BillRow[] {
+  assertAgentOperation(operationId, payloadHash)
+  if (assertOperationCanApply(operationId, payloadHash)) return []
+
+  db.run('BEGIN TRANSACTION')
+  try {
+    if (assertOperationCanApply(operationId, payloadHash)) {
+      db.run('COMMIT')
+      return []
+    }
+    const inserted: BillRow[] = []
+    const statement = db.prepare(`
+      INSERT INTO bills (amount, category1, category2, date, note, type, recurring_id)
+      VALUES (?, ?, ?, ?, ?, 'expense', NULL)
+    `)
+    try {
+      for (const row of rows) {
+        statement.run([row.amount, row.category1, row.category2, row.date, row.note])
+        const id = Number(db.exec('SELECT last_insert_rowid()')[0]?.values[0]?.[0])
+        const bill = queryOne('SELECT * FROM bills WHERE id = @id', { id })
+        if (!bill) throw new Error('agent_expense_insert_readback_failed')
+        inserted.push(bill)
+      }
+    } finally {
+      statement.free()
+    }
+    writeAgentOperation(operationId, payloadHash, 'expenses')
+    db.run('COMMIT')
+    saveDb()
+    return inserted
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction may already have committed */ }
+    throw error
+  }
+}
+
+export function applyAgentInvestments(operationId: string, payloadHash: string, rows: InvestmentHolding[]): number {
+  assertAgentOperation(operationId, payloadHash)
+  if (assertOperationCanApply(operationId, payloadHash)) return 0
+
+  db.run('BEGIN TRANSACTION')
+  try {
+    if (assertOperationCanApply(operationId, payloadHash)) {
+      db.run('COMMIT')
+      return 0
+    }
+    let changed = 0
+    const current = new Map(getInvestmentPositions().map((position) => [position.asset_key, position]))
+    for (const position of rows) {
+      const before = current.get(position.asset_key)
+      const same = before && before.name === position.name && before.asset_type === position.asset_type &&
+        before.quantity === position.quantity && before.cost_basis === position.cost_basis &&
+        before.market_value === position.market_value && before.currency === position.currency &&
+        before.as_of === position.as_of && before.source_note === position.source_note
+      if (same) continue
+      db.run(`
+        INSERT INTO investment_positions
+          (asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        ON CONFLICT(asset_key) DO UPDATE SET
+          name = excluded.name,
+          asset_type = excluded.asset_type,
+          quantity = excluded.quantity,
+          cost_basis = excluded.cost_basis,
+          market_value = excluded.market_value,
+          currency = excluded.currency,
+          as_of = excluded.as_of,
+          source_note = excluded.source_note,
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      `, [position.asset_key, position.name, position.asset_type, position.quantity, position.cost_basis,
+        position.market_value, position.currency, position.as_of, position.source_note])
+      db.run(`
+        INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
+        VALUES (?, 'upsert', 'pending', NULL, datetime('now', 'localtime'))
+        ON CONFLICT(asset_key) DO UPDATE SET
+          operation = 'upsert', status = 'pending', error = NULL,
+          revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
+      `, [position.asset_key])
+      changed++
+    }
+    writeAgentOperation(operationId, payloadHash, 'investments')
+    db.run('COMMIT')
+    saveDb()
+    return changed
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction may already have committed */ }
+    throw error
+  }
+}
+
+export function getInvestmentSyncOutbox(): InvestmentOutboxRow[] {
+  const result = db.exec(`
+    SELECT asset_key, operation, status, error, revision, updated_at
+    FROM investment_sync_outbox
+    WHERE status IN ('pending', 'failed')
+    ORDER BY updated_at ASC
+  `)
+  if (!result.length || !result[0].columns.length) return []
+  return result[0].values.map((values) => {
+    const row: Record<string, unknown> = {}
+    result[0].columns.forEach((column, index) => { row[column] = values[index] })
+    return rowTo<InvestmentOutboxRow>(row)
+  })
+}
+
+export function getInvestmentSyncState(): { pending: number; failed: number } {
+  const result = db.exec(`
+    SELECT
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+    FROM investment_sync_outbox
+  `)
+  const row = result[0]?.values[0] || [0, 0]
+  return { pending: Number(row[0] || 0), failed: Number(row[1] || 0) }
+}
+
+export function completeInvestmentSync(
+  expectedUserId: string,
+  assetKey: string,
+  expectedRevision: number,
+  status: 'synced' | 'failed',
+  error: string | null = null,
+  cloudId?: string
+): boolean {
+  if (!expectedUserId || currentUserId !== expectedUserId) return false
+  db.run(`
+    UPDATE investment_sync_outbox
+    SET status = ?, error = ?, updated_at = datetime('now', 'localtime')
+    WHERE asset_key = ? AND revision = ? AND status IN ('pending', 'failed')
+  `, [status, error, assetKey, expectedRevision])
+  if (db.getRowsModified() === 0) return false
+  if (cloudId) db.run('UPDATE investment_positions SET cloud_id = ? WHERE asset_key = ?', [cloudId, assetKey])
   saveDb()
+  return true
+}
+
+export interface CloudInvestmentPosition extends InvestmentHolding {
+  userId: string
+  created_at: string
+  updated_at: string
+  _id?: string
+}
+
+export function insertCloudInvestmentPositions(rows: CloudInvestmentPosition[]): void {
+  db.run('BEGIN TRANSACTION')
+  try {
+    for (const row of rows) {
+      const pending = db.exec(`SELECT status FROM investment_sync_outbox WHERE asset_key = ?`, [row.asset_key])
+      if (pending[0]?.values[0]?.[0] === 'pending' || pending[0]?.values[0]?.[0] === 'failed') continue
+      const existing = db.exec('SELECT updated_at FROM investment_positions WHERE asset_key = ?', [row.asset_key])
+      const localUpdatedAt = String(existing[0]?.values[0]?.[0] ?? '')
+      if (localUpdatedAt && localUpdatedAt >= row.updated_at) continue
+      db.run(`
+        INSERT INTO investment_positions
+          (asset_key, name, asset_type, quantity, cost_basis, market_value, currency, as_of, source_note, cloud_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(asset_key) DO UPDATE SET
+          name = excluded.name, asset_type = excluded.asset_type, quantity = excluded.quantity,
+          cost_basis = excluded.cost_basis, market_value = excluded.market_value, currency = excluded.currency,
+          as_of = excluded.as_of, source_note = excluded.source_note, cloud_id = excluded.cloud_id,
+          updated_at = excluded.updated_at
+      `, [row.asset_key, row.name, row.asset_type, row.quantity, row.cost_basis, row.market_value,
+        row.currency, row.as_of, row.source_note, row._id ?? null,
+        row.created_at, row.updated_at])
+      db.run(`
+        INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
+        VALUES (?, 'upsert', 'synced', NULL, datetime('now', 'localtime'))
+        ON CONFLICT(asset_key) DO UPDATE SET status = 'synced', error = NULL,
+          revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
+      `, [row.asset_key])
+    }
+    db.run('COMMIT')
+    saveDb()
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction may already have committed */ }
+    throw error
+  }
+}
+
+/** 清除用户业务数据（预设分类保留）；保留 Agent 幂等账本，并排入云端持仓删除任务。 */
+export function clearAllData(): void {
+  db.run('BEGIN TRANSACTION')
+  try {
+    const positions = db.exec('SELECT asset_key FROM investment_positions')
+    for (const [assetKey] of (positions[0]?.values || [])) {
+      db.run(`
+        INSERT INTO investment_sync_outbox (asset_key, operation, status, error, updated_at)
+        VALUES (?, 'delete', 'pending', NULL, datetime('now', 'localtime'))
+        ON CONFLICT(asset_key) DO UPDATE SET
+          operation = 'delete', status = 'pending', error = NULL,
+          revision = investment_sync_outbox.revision + 1, updated_at = datetime('now', 'localtime')
+      `, [assetKey])
+    }
+    db.run('DELETE FROM bills')
+    db.run('DELETE FROM categories WHERE is_preset = 0')
+    db.run('DELETE FROM recurrings')
+    db.run('DELETE FROM investment_positions')
+    db.run('COMMIT')
+    saveDb()
+  } catch (error) {
+    try { db.run('ROLLBACK') } catch { /* transaction may already have committed */ }
+    throw error
+  }
 }
 
 // ─── Cloud Sync Helpers ─────────────────────────

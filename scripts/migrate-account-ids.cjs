@@ -23,7 +23,6 @@ const crypto = require('crypto')
 
 // ─── Config ────────────────────────────────────
 const ENV_ID = 'shio-d0gsoo414401468d6'
-const ADMIN_EMAIL = '15211073887@163.com'
 const ACCOUNT_ID_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 // ─── 加载 .env（手动解析，无需 dotenv 依赖）──
@@ -49,7 +48,8 @@ loadEnvFile(path.join(__dirname, '..', '.env'))
 
 // ─── 规范化生成函数（与 main-process/cloudbase.ts 保持一致）──
 function generateStandardAccountId(email) {
-  if (email === ADMIN_EMAIL) return 'TBAdmin'
+  const adminEmail = (process.env['THUNDER_ADMIN_EMAIL'] || '').trim()
+  if (adminEmail && email === adminEmail) return 'TBAdmin'
 
   const local = (email || '').split('@')[0]
 
