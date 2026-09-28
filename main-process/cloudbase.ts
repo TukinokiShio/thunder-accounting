@@ -7,7 +7,7 @@ import type { BillRow, CategoryRow, RecurringRow, InvestmentPositionRow, CloudIn
 import { clearAllData, getDbPath, getBills, getCategories, getRecurrings, getInvestmentPositions, getInvestmentSnapshotHistory, setBillCloudId, setCategoryCloudId, setRecurringCloudId } from './database'
 import { validateInvestmentBatch } from '../src/utils/investmentHoldings'
 import { investmentDocumentId, investmentSnapshotDocumentId } from './investment-cloud-key'
-import { bindCloudbaseUserDatabase } from './cloudbase-session'
+import { bindCloudbaseUserDatabaseWithRefresh, isExplicitAccessTokenExpiredError, safeCloudbaseErrorCode } from './cloudbase-session'
 import { readOptionalCloudBaseCollectionPage } from './cloudbase-collection'
 import {
   upsertInvestmentCloudCurrent,
@@ -171,7 +171,7 @@ export async function initCloudBase(): Promise<void> {
     db = apiKey ? cloudbase.init({ env: ENV_ID, accessKey: apiKey }).database() : null
   } catch (e) {
     db = null
-    console.error('CloudBase SDK 初始化失败，云同步功能不可用:', e)
+    console.error('CloudBase SDK 初始化失败，云同步功能不可用:', safeCloudbaseErrorCode(e))
   }
   try {
     // User business data is accessed with the authenticated user's session.
@@ -182,7 +182,7 @@ export async function initCloudBase(): Promise<void> {
     userDb = null
     userDatabaseUid = null
     userDatabaseError = 'cloud_sdk_init_failed'
-    console.error('CloudBase 用户态 SDK 初始化失败:', e)
+    console.error('CloudBase 用户态 SDK 初始化失败:', safeCloudbaseErrorCode(e))
   }
   const saved = loadSession()
   if (saved) {
@@ -190,7 +190,7 @@ export async function initCloudBase(): Promise<void> {
     try {
       await bindCurrentUserDatabase(saved)
     } catch (error) {
-      console.error('[CloudBase] 恢复用户态数据库会话失败:', error instanceof Error ? error.message : String(error))
+      console.error('[CloudBase] 恢复用户态数据库会话失败:', safeCloudbaseErrorCode(error))
     }
   }
 }
@@ -211,13 +211,47 @@ async function bindCurrentUserDatabaseSerial(session: AuthSession): Promise<void
   userDatabaseError = null
   if (!userCloudApp) throw new Error('cloud_sdk_not_initialized')
   try {
-    const bound = await bindCloudbaseUserDatabase({
+    const bound = await bindCloudbaseUserDatabaseWithRefresh({
       auth: () => userCloudApp!.auth(),
       database: () => userCloudApp!.database()
     }, {
       access_token: session.accessToken,
       refresh_token: session.refreshToken
-    }, session.user.uid)
+    }, session.user.uid, async () => {
+      const activeSession = currentSession
+      if (!activeSession || activeSession.user.uid !== session.user.uid || generation !== userSessionGeneration) {
+        throw new Error('cloud_session_changed')
+      }
+      const refreshed = await authFetch('/auth/v1/token', {
+        grant_type: 'refresh_token',
+        refresh_token: activeSession.refreshToken
+      }, undefined, 'POST', false)
+      if (!refreshed.ok) {
+        const payload = authPayload(refreshed.data)
+        throw new Error(`cloud_session_refresh_failed:${safeCloudbaseErrorCode({ ...payload, status: refreshed.status }, `http_${refreshed.status}`)}`)
+      }
+      const tokens = authPayload(refreshed.data) as {
+        access_token?: unknown
+        refresh_token?: unknown
+        expires_in?: unknown
+      }
+      if (typeof tokens.access_token !== 'string' || !tokens.access_token ||
+        (tokens.refresh_token !== undefined && typeof tokens.refresh_token !== 'string')) {
+        throw new Error('cloud_session_refresh_incomplete')
+      }
+      if (currentSession?.user.uid !== activeSession.user.uid || generation !== userSessionGeneration) {
+        throw new Error('cloud_session_changed')
+      }
+      const updatedSession: AuthSession = {
+        ...activeSession,
+        accessToken: tokens.access_token,
+        refreshToken: typeof tokens.refresh_token === 'string' && tokens.refresh_token ? tokens.refresh_token : activeSession.refreshToken,
+        expiresAt: Date.now() + (typeof tokens.expires_in === 'number' && Number.isFinite(tokens.expires_in) ? tokens.expires_in : 7200) * 1000
+      }
+      currentSession = updatedSession
+      saveSession(updatedSession)
+      return { access_token: updatedSession.accessToken, refresh_token: updatedSession.refreshToken }
+    })
     if (generation !== userSessionGeneration || currentSession?.user.uid !== bound.userId) return
     userDb = bound.database
     userDatabaseUid = bound.userId
@@ -226,9 +260,23 @@ async function bindCurrentUserDatabaseSerial(session: AuthSession): Promise<void
     if (generation === userSessionGeneration) {
       userDb = null
       userDatabaseUid = null
-      userDatabaseError = error instanceof Error ? error.message : 'cloud_session_rejected'
+      const code = safeCloudbaseErrorCode(error)
+      userDatabaseError = error instanceof Error && /^cloud_session_[a-z0-9_-]+(?::[a-z0-9_.-]+)*$/i.test(error.message)
+        ? error.message
+        : `cloud_session_rejected:${code}`
     }
     throw error
+  }
+}
+
+/** Retry the signed-in user's SDK database binding without reading or changing local ledger data. */
+export async function retryCurrentUserDatabaseBinding(expectedUserId = getUserId()): Promise<void> {
+  const session = currentSession
+  if (!session) throw new Error('cloud_session_unavailable')
+  if (!expectedUserId || session.user.uid !== expectedUserId) throw new Error('cloud_session_uid_mismatch')
+  await bindCurrentUserDatabase(session)
+  if (!userDb || userDatabaseUid !== expectedUserId) {
+    throw new Error(userDatabaseError || 'cloud_session_binding_unavailable')
   }
 }
 
@@ -246,7 +294,7 @@ export async function saveCredentials(identifier: string, rememberAccount: boole
   try {
     await safeSave(identifier, rememberAccount, autoLogin)
   } catch (e) {
-    console.error('保存加密凭据失败：', e)
+    console.error('保存加密凭据失败：', safeCloudbaseErrorCode(e))
   }
 }
 
@@ -281,7 +329,7 @@ async function authFetch(
     ? data.data as Record<string, unknown>
     : data
   const businessError = payload.error || payload.error_description || payload.error_code
-  if (res.status === 401 && retryOn401 && token && currentSession?.refreshToken && endpoint !== '/auth/v1/token') {
+  if (res.status === 401 && isExplicitAccessTokenExpiredError(payload) && retryOn401 && token && currentSession?.refreshToken && endpoint !== '/auth/v1/token') {
     const refreshed = await authFetch('/auth/v1/token', {
       grant_type: 'refresh_token',
       refresh_token: currentSession.refreshToken
@@ -298,7 +346,7 @@ async function authFetch(
         currentSession.expiresAt = Date.now() + (refreshedData.expires_in || 7200) * 1000
         saveSession(currentSession)
         void bindCurrentUserDatabase(currentSession).catch((error) => {
-          console.error('[CloudBase] 刷新用户态数据库会话失败:', error instanceof Error ? error.message : String(error))
+          console.error('[CloudBase] 刷新用户态数据库会话失败:', safeCloudbaseErrorCode(error))
         })
         return authFetch(endpoint, body, currentSession.accessToken, method, false)
       }
@@ -425,7 +473,7 @@ export async function resolveLoginIdentifier(identifier: string): Promise<string
         return account.email
       }
     } catch (e) {
-      console.error('解析登录标识符失败:', e)
+      console.error('解析登录标识符失败:', safeCloudbaseErrorCode(e))
     }
   }
 
@@ -457,7 +505,7 @@ export async function resolveVerificationTarget(identifier: string): Promise<{ t
         if (account.email) return { type: 'email', target: account.email }
       }
     } catch (e) {
-      console.error('解析验证码接收方失败:', e)
+      console.error('解析验证码接收方失败:', safeCloudbaseErrorCode(e))
     }
   }
 
@@ -479,7 +527,7 @@ async function createAccountRecord(email: string, uid: string, accountId: string
       createdAt: new Date().toISOString()
     })
   } catch (e) {
-    console.error('创建账号记录失败:', e)
+    console.error('创建账号记录失败:', safeCloudbaseErrorCode(e))
   }
 }
 
@@ -638,7 +686,7 @@ export async function loginWithEmail(email: string, password: string): Promise<L
       accountId = generateStandardAccountId(sessionEmail)
     }
   } catch (e) {
-    console.error('获取 accountId 失败（用规范化算法兜底）:', e)
+    console.error('获取 accountId 失败（用规范化算法兜底）:', safeCloudbaseErrorCode(e))
     accountId = generateStandardAccountId(sessionEmail)
   }
 
@@ -671,7 +719,7 @@ export async function loginWithEmail(email: string, password: string): Promise<L
   currentSession = session
   saveSession(session)
   try { await bindCurrentUserDatabase(session) }
-  catch (error) { console.error('[CloudBase] 登录成功，但用户态数据库会话绑定失败:', error instanceof Error ? error.message : String(error)) }
+  catch (error) { console.error('[CloudBase] 登录成功，但用户态数据库会话绑定失败:', safeCloudbaseErrorCode(error)) }
   // 只返回用户信息，不暴露 token
   return { user: session.user, accountId }
 }
@@ -753,7 +801,7 @@ export async function loginWithVerificationCode(identifier: string, code: string
       accountId = generateStandardAccountId(target.target)
     }
   } catch (e) {
-    console.error('获取 accountId 失败（用规范化算法兜底）:', e)
+    console.error('获取 accountId 失败（用规范化算法兜底）:', safeCloudbaseErrorCode(e))
     accountId = generateStandardAccountId(target.target)
   }
   if (!nickname) nickname = generateDefaultNickname(target.target)
@@ -774,7 +822,7 @@ export async function loginWithVerificationCode(identifier: string, code: string
   currentSession = session
   saveSession(session)
   try { await bindCurrentUserDatabase(session) }
-  catch (error) { console.error('[CloudBase] 验证码登录成功，但用户态数据库会话绑定失败:', error instanceof Error ? error.message : String(error)) }
+  catch (error) { console.error('[CloudBase] 验证码登录成功，但用户态数据库会话绑定失败:', safeCloudbaseErrorCode(error)) }
   return { user: session.user, accountId }
 }
 
@@ -789,7 +837,7 @@ export async function checkSession(): Promise<LoginResult | null> {
   if (currentSession.expiresAt > Date.now() + 60_000) {
     if (!userDb || userDatabaseUid !== currentSession.user.uid) {
       try { await bindCurrentUserDatabase(currentSession) }
-      catch (error) { console.error('[CloudBase] 当前登录仍可本机使用，用户态数据库尚不可用:', error instanceof Error ? error.message : String(error)) }
+      catch (error) { console.error('[CloudBase] 当前登录仍可本机使用，用户态数据库尚不可用:', safeCloudbaseErrorCode(error)) }
     }
     // session 有效，但确保 accountId 存在
     let accountId = currentSession.user.accountId
@@ -821,7 +869,7 @@ export async function checkSession(): Promise<LoginResult | null> {
           saveSession(currentSession)
         }
       } catch (e) {
-        console.error('checkSession 获取 accountId 失败:', e)
+        console.error('checkSession 获取 accountId 失败:', safeCloudbaseErrorCode(e))
         // 即便出错也兜底
         accountId = generateStandardAccountId(refEmail)
         currentSession.user.accountId = accountId
@@ -830,27 +878,27 @@ export async function checkSession(): Promise<LoginResult | null> {
     return { user: currentSession.user, accountId }
   }
   if (!currentSession.refreshToken) {
-    clearUserDatabaseSession()
-    currentSession = null
-    clearSession()
-    return null
+    return { user: currentSession.user, accountId: currentSession.user.accountId }
   }
   try {
     const { ok, data } = await authFetch('/auth/v1/token', {
       grant_type: 'refresh_token', refresh_token: currentSession.refreshToken
     })
-    if (!ok) { clearUserDatabaseSession(); currentSession = null; clearSession(); return null }
-    const t = authPayload(data) as { access_token: string; refresh_token: string; expires_in: number }
+    if (!ok) return { user: currentSession.user, accountId: currentSession.user.accountId }
+    const t = authPayload(data) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
+    if (typeof t.access_token !== 'string' || !t.access_token) {
+      return { user: currentSession.user, accountId: currentSession.user.accountId }
+    }
     currentSession.accessToken = t.access_token
-    currentSession.refreshToken = t.refresh_token
-    currentSession.expiresAt = Date.now() + (t.expires_in || 7200) * 1000
+    if (typeof t.refresh_token === 'string' && t.refresh_token) currentSession.refreshToken = t.refresh_token
+    currentSession.expiresAt = Date.now() + (typeof t.expires_in === 'number' && Number.isFinite(t.expires_in) ? t.expires_in : 7200) * 1000
     saveSession(currentSession)
     try { await bindCurrentUserDatabase(currentSession) }
-    catch (error) { console.error('[CloudBase] 会话刷新成功，但用户态数据库绑定失败:', error instanceof Error ? error.message : String(error)) }
+    catch (error) { console.error('[CloudBase] 会话刷新成功，但用户态数据库绑定失败:', safeCloudbaseErrorCode(error)) }
     return { user: currentSession.user, accountId: currentSession.user.accountId }
-  } catch {
-    clearUserDatabaseSession()
-    currentSession = null; clearSession(); return null
+  } catch (error) {
+    console.error('[CloudBase] 会话刷新暂不可用；保留本机会话:', safeCloudbaseErrorCode(error))
+    return currentSession ? { user: currentSession.user, accountId: currentSession.user.accountId } : null
   }
 }
 
@@ -964,7 +1012,7 @@ export async function upsertRemoteBill(bill: BillRow): Promise<void> {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`同步账单失败 (localId=${bill.id}):`, msg)
+    console.error(`同步账单失败 (localId=${bill.id}):`, safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_sync_bill_failed: ${msg}`)
   }
 }
@@ -979,7 +1027,7 @@ export async function deleteRemoteBill(localId: number): Promise<void> {
     if (existing.data?.length) await database.collection('bills').doc(existing.data[0]._id).remove()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`删除云端账单失败 (localId=${localId}):`, msg)
+    console.error(`删除云端账单失败 (localId=${localId}):`, safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_delete_bill_failed: ${msg}`)
   }
 }
@@ -1007,7 +1055,7 @@ export async function upsertRemoteCategory(cat: CategoryRow): Promise<void> {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`同步分类失败 (localId=${cat.id}):`, msg)
+    console.error(`同步分类失败 (localId=${cat.id}):`, safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_sync_category_failed: ${msg}`)
   }
 }
@@ -1022,7 +1070,7 @@ export async function deleteRemoteCategory(localId: number): Promise<void> {
     if (existing.data?.length) await database.collection('categories').doc(existing.data[0]._id).remove()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`删除云端分类失败 (localId=${localId}):`, msg)
+    console.error(`删除云端分类失败 (localId=${localId}):`, safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_delete_category_failed: ${msg}`)
   }
 }
@@ -1058,7 +1106,7 @@ export async function upsertRemoteRecurring(rec: RecurringRow): Promise<void> {
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`同步周期支出规则失败 (localId=${rec.id}):`, msg)
+    console.error(`同步周期支出规则失败 (localId=${rec.id}):`, safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_sync_recurring_failed: ${msg}`)
   }
 }
@@ -1073,7 +1121,7 @@ export async function deleteRemoteRecurring(localId: number): Promise<void> {
     if (existing.data?.length) await database.collection('recurrings').doc(existing.data[0]._id).remove()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(`删除云端周期支出规则失败 (localId=${localId}):`, msg)
+    console.error(`删除云端周期支出规则失败 (localId=${localId}):`, safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_delete_recurring_failed: ${msg}`)
   }
 }
@@ -1134,9 +1182,9 @@ export async function upsertRemoteInvestmentPosition(position: InvestmentPositio
     if (currentWriteError) throw currentWriteError
     return documentId
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`同步投资持仓失败 (asset_key=${position.asset_key}):`, message)
-    throw new Error(`cloud_sync_investment_failed: ${message}`)
+    const errorCode = safeCloudbaseErrorCode(error)
+    console.error('同步投资持仓失败:', errorCode)
+    throw new Error(`cloud_sync_investment_failed:${errorCode}`)
   }
 }
 
@@ -1157,8 +1205,7 @@ export async function deleteRemoteInvestmentPosition(assetKey: string): Promise<
       }).remove()
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`cloud_delete_investment_failed: ${message}`)
+    throw new Error(`cloud_delete_investment_failed:${safeCloudbaseErrorCode(error)}`)
   }
 }
 
@@ -1236,7 +1283,7 @@ export async function pullBillsFromCloud(): Promise<CloudBill[]> {
     return data
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error('从云端拉取账单失败:', msg)
+    console.error('从云端拉取账单失败:', safeCloudbaseErrorCode(msg))
     throw new Error(`cloud_pull_bills_failed: ${msg}`)
   }
 }
@@ -1260,7 +1307,7 @@ export async function pullCategoriesFromCloud(): Promise<CloudCategory[]> {
     }
     return data
   } catch (e) {
-    console.error('从云端拉取分类失败:', e)
+    console.error('从云端拉取分类失败:', safeCloudbaseErrorCode(e))
     throw new Error(`cloud_pull_categories_failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
@@ -1284,7 +1331,7 @@ export async function pullRecurringsFromCloud(): Promise<CloudRecurring[]> {
     }
     return data
   } catch (e) {
-    console.error('从云端拉取周期支出规则失败:', e)
+    console.error('从云端拉取周期支出规则失败:', safeCloudbaseErrorCode(e))
     throw new Error(`cloud_pull_recurrings_failed: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
@@ -1334,8 +1381,9 @@ export async function pullInvestmentPositionsFromCloud(): Promise<CloudInvestmen
     }
     return rows
   } catch (error) {
-    console.error('从 CloudBase 拉取投资持仓失败:', error)
-    throw new Error(`cloud_pull_investments_failed: ${error instanceof Error ? error.message : String(error)}`)
+    const errorCode = safeCloudbaseErrorCode(error)
+    console.error('从 CloudBase 拉取投资持仓失败:', errorCode)
+    throw new Error(`cloud_pull_investments_failed:${errorCode}`)
   }
 }
 
@@ -1392,8 +1440,9 @@ export async function pullInvestmentSnapshotsFromCloud(): Promise<{
     }
     return { rows, collectionAvailable: true }
   } catch (error) {
-    console.error('从 CloudBase 拉取投资快照失败:', error)
-    throw new Error(`cloud_pull_investment_snapshots_failed: ${error instanceof Error ? error.message : String(error)}`)
+    const errorCode = safeCloudbaseErrorCode(error)
+    console.error('从 CloudBase 拉取投资快照失败:', errorCode)
+    throw new Error(`cloud_pull_investment_snapshots_failed:${errorCode}`)
   }
 }
 
@@ -1448,7 +1497,7 @@ async function readAuthBindings(): Promise<Pick<AccountInfo, 'email' | 'phone'> 
     }
     return { email, phone }
   } catch (e) {
-    console.warn('读取 CloudBase Auth 绑定信息失败，将使用本地映射:', e)
+    console.warn('读取 CloudBase Auth 绑定信息失败，将使用本地映射:', safeCloudbaseErrorCode(e))
     return null
   }
 }
@@ -1483,7 +1532,7 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
               phone: resolved.phone
             })
           } catch (e) {
-            console.warn('Auth 绑定状态已读取，但 accounts 映射回写失败:', e)
+            console.warn('Auth 绑定状态已读取，但 accounts 映射回写失败:', safeCloudbaseErrorCode(e))
           }
         }
         return {
@@ -1491,7 +1540,7 @@ export async function getAccountBindings(): Promise<AccountInfo | null> {
         }
       }
     } catch (e) {
-      console.error('获取账号绑定信息失败:', e)
+      console.error('获取账号绑定信息失败:', safeCloudbaseErrorCode(e))
       // 继续 fallback
     }
   }
@@ -1645,7 +1694,7 @@ async function persistAccountBinding(userId: string, binding: { email?: string; 
     await db.collection('accounts').doc(result.data[0]._id).update(binding)
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    console.warn(`binding_mapping_pending: CloudBase Auth 已完成，但账号映射同步失败（${message}）。`, e)
+    console.warn(`binding_mapping_pending: CloudBase Auth 已完成，但账号映射同步失败（${safeCloudbaseErrorCode(message)}）。`, safeCloudbaseErrorCode(e))
   }
 }
 
@@ -1796,7 +1845,7 @@ export async function getUserStats(): Promise<UserStats> {
       totalIncome: Math.round(totalIncome * 100) / 100
     }
   } catch (e) {
-    console.error('获取用户统计失败:', e)
+    console.error('获取用户统计失败:', safeCloudbaseErrorCode(e))
     return { billCount: 0, categoryCount: 0, totalExpense: 0, totalIncome: 0 }
   }
 }

@@ -5,7 +5,8 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, addBill, getBills, updateBill, deleteBill, getStats, exportCSV, getCategories, addCategory, updateCategory, deleteCategory, reorderCategories, exportAllJSON, importAllJSON, clearAllData, switchToUserDatabase, getCurrentUserId, insertCloudBills, insertCloudCategories, getRecurrings, addRecurring, updateRecurring, deleteRecurring, insertCloudRecurrings, getInvestmentPositions, getInvestmentSnapshotHistory, getInvestmentSyncOutbox, getInvestmentSyncState, completeInvestmentSync, insertCloudInvestmentPositions, insertCloudInvestmentSnapshots, getAgentOperation, applyAgentExpenses, applyAgentInvestments } from './database/index'
 import { setStoragePort } from './database/storage'
 import { createDesktopStoragePort } from './database/desktop-storage'
-import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, upsertRemoteInvestmentPosition, deleteRemoteInvestmentPosition, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, pullInvestmentPositionsFromCloud, pullInvestmentSnapshotsFromCloud, resolveLoginIdentifier, shouldMigrateLegacyDatabase, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { initCloudBase, registerWithEmail, registerWithPhone, loginWithEmail, loginWithVerificationCode, logout, checkSession, isLoggedIn, getUserId, retryCurrentUserDatabaseBinding, upsertRemoteBill, deleteRemoteBill, upsertRemoteCategory, deleteRemoteCategory, upsertRemoteRecurring, deleteRemoteRecurring, upsertRemoteInvestmentPosition, deleteRemoteInvestmentPosition, saveCredentials, loadCredentials, changePassword, sendReauthCode, sendVerificationCode, resetPassword, pullBillsFromCloud, pullCategoriesFromCloud, pullRecurringsFromCloud, pullInvestmentPositionsFromCloud, pullInvestmentSnapshotsFromCloud, resolveLoginIdentifier, shouldMigrateLegacyDatabase, getAccountBindings, bindPhone, unbindPhone, bindEmail, unbindEmail, sendBindVerificationCode, sendBindingReauthCode, deleteAccount, getUserStats, isCloudSyncEnabled } from './cloudbase'
+import { safeCloudbaseErrorCode } from './cloudbase-session'
 import { logoutAndDisableAutoLogin } from './auth-preferences'
 import { AgentSyncService } from './agent-sync'
 import { retryPendingInvestmentSync } from './investment-sync'
@@ -235,34 +236,42 @@ async function syncCloudData(uid: string): Promise<void> {
 }
 
 async function refreshCloudInvestmentPositions(expectedUserId = getUserId()): Promise<boolean> {
-  const databaseUserId = getCurrentUserId()
-  if (!expectedUserId || !isLoggedIn() || expectedUserId !== databaseUserId) {
+  if (!expectedUserId || expectedUserId !== getUserId()) {
     investmentCloudPullState = { status: 'unknown', error: null }
     return false
   }
   investmentCloudPullState = { status: 'pulling', error: null }
+  let databaseUserId: string | null = null
   try {
+    await retryCurrentUserDatabaseBinding(expectedUserId)
+    databaseUserId = getCurrentUserId()
+    if (!databaseUserId || !isLoggedIn() || expectedUserId !== getUserId() || expectedUserId !== databaseUserId) {
+      throw new Error('cloud_session_or_local_database_unavailable')
+    }
     const cloudInvestments = await pullInvestmentPositionsFromCloud()
     const snapshotPull = await pullInvestmentSnapshotsFromCloud()
-    if (!isLoggedIn() || getUserId() !== expectedUserId || getCurrentUserId() !== databaseUserId) return false
+    if (!isLoggedIn() || getUserId() !== expectedUserId || getCurrentUserId() !== databaseUserId) {
+      investmentCloudPullState = { status: 'unknown', error: null }
+      return false
+    }
     if (snapshotPull.rows.length > 0) insertCloudInvestmentSnapshots(snapshotPull.rows)
     if (cloudInvestments.length > 0) insertCloudInvestmentPositions(cloudInvestments)
     if (!snapshotPull.collectionAvailable) {
       investmentCloudPullState = {
         status: 'failed',
-        error: 'investment_history_collection_missing:migration_required: pre-create investment_snapshots and user-scoped security rules; the client SDK cannot create collections. Current positions were read, but history and complete investment sync are unavailable.'
+        error: 'investment_history_collection_missing'
       }
       return false
     }
     investmentCloudPullState = { status: 'synced', error: null }
     return true
   } catch (error) {
-    if (isLoggedIn() && getUserId() === expectedUserId && getCurrentUserId() === databaseUserId) {
+    if (getUserId() === expectedUserId) {
       investmentCloudPullState = {
         status: 'failed',
-        error: (error instanceof Error ? error.message : String(error)).slice(0, 500)
+        error: safeCloudbaseErrorCode(error)
       }
-      console.error('[Sync] 云端投资持仓拉取失败；本地持仓未覆盖:', error)
+      console.error('[Sync] 云端投资持仓拉取失败；本地持仓未覆盖:', safeCloudbaseErrorCode(error))
     }
     return false
   }

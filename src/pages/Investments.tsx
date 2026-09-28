@@ -10,12 +10,11 @@ import { calculateInvestmentReturns } from '@/utils/investmentReturns'
 import { buildInvestmentAllocation, buildInvestmentTrend, hasCurrentSnapshotForEveryPosition, positionTotalCost } from '@/utils/investmentDashboard'
 
 const INVESTMENT_COLORS = ['#d59b25', '#3c8d72', '#5478a8', '#af725c', '#8b73a9', '#6998a8']
-type InvestmentDisplayField =
-  | 'asset_key' | 'name' | 'asset_type' | 'quantity' | 'cost_basis'
-  | 'market_value' | 'currency' | 'as_of' | 'source_note'
+type InvestmentDisplayField = keyof InvestmentHolding
 
 const HOLDING_FIELDS: InvestmentDisplayField[] = [
-  'asset_key', 'name', 'asset_type', 'quantity', 'cost_basis', 'market_value', 'currency', 'as_of', 'source_note'
+  'asset_key', 'name', 'asset_type', 'quantity', 'quantity_kind', 'cost_basis', 'cost_basis_kind',
+  'market_value', 'currency', 'as_of', 'cash_flows_complete', 'cash_flows', 'source_note'
 ]
 
 function holdingFieldLabel(field: InvestmentDisplayField, t: (key: string) => string): string {
@@ -24,16 +23,35 @@ function holdingFieldLabel(field: InvestmentDisplayField, t: (key: string) => st
     case 'name': return t('资产名称')
     case 'asset_type': return t('资产类型')
     case 'quantity': return t('数量')
+    case 'quantity_kind': return t('数量口径')
     case 'cost_basis': return t('总成本')
+    case 'cost_basis_kind': return t('成本口径')
     case 'market_value': return t('市值')
     case 'currency': return t('币种')
     case 'as_of': return t('数据日期')
+    case 'cash_flows_complete': return t('现金流记录完整')
+    case 'cash_flows': return t('现金流记录')
     case 'source_note': return t('数据来源')
   }
 }
 
-function displayHoldingValue(value: string | null): string {
-  return value === null ? '—' : value
+function displayHoldingValue(value: unknown, t: (key: string) => string): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? t('是') : t('否')
+  if (Array.isArray(value)) {
+    if (value.length === 0) return t('无')
+    return value.map((item) => {
+      if (!item || typeof item !== 'object') return String(item)
+      const flow = item as { date?: unknown; kind?: unknown; amount?: unknown; currency?: unknown; included_in_market_value?: unknown }
+      return [flow.date, flow.kind, `${String(flow.amount ?? '—')} ${String(flow.currency ?? '')}`.trim(), flow.included_in_market_value ? t('计入市值') : t('未计入市值')].filter(Boolean).join(' ')
+    }).join('; ')
+  }
+  return String(value)
+}
+
+function displayProposalChangeValue(field: InvestmentDisplayField, value: unknown, t: (key: string) => string): string {
+  if (field === 'cash_flows' && Array.isArray(value)) return `${value.length} ${t('条现金流')}`
+  return displayHoldingValue(value, t)
 }
 
 type CloudPullStatus = 'unknown' | 'pulling' | 'synced' | 'failed'
@@ -197,7 +215,15 @@ export function InvestmentsPage() {
 
   const currencies = [...new Set(positions.map((position) => position.currency))].sort()
   const activeCurrency = currencies.includes(selectedCurrency ?? '') ? selectedCurrency! : (currencies[0] ?? 'CNY')
-  const currencyPositions = positions.filter((position) => position.currency === activeCurrency)
+  const currencyPositions = positions.filter((position) => position.currency === activeCurrency).sort((left, right) => {
+    const leftValue = left.market_value === null ? null : Number(left.market_value)
+    const rightValue = right.market_value === null ? null : Number(right.market_value)
+    const leftKnown = leftValue !== null && Number.isFinite(leftValue)
+    const rightKnown = rightValue !== null && Number.isFinite(rightValue)
+    if (leftKnown && rightKnown && leftValue !== rightValue) return rightValue! - leftValue!
+    if (leftKnown !== rightKnown) return leftKnown ? -1 : 1
+    return left.name.localeCompare(right.name) || left.asset_key.localeCompare(right.asset_key)
+  })
   const currencyKeys = currencyPositions.map((position) => position.asset_key)
   const allocation = buildInvestmentAllocation(positions, activeCurrency)
   const trend = buildInvestmentTrend(snapshots, currencyKeys, activeCurrency)
@@ -281,6 +307,33 @@ export function InvestmentsPage() {
 
       {error && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">{error}</div>}
 
+      <section aria-label={t('云端同步状态')} data-testid="investment-cloud-status" className="aurora-card flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
+        <div className="min-w-0 text-sm">
+          {syncState.cloudPullStatus === 'pulling' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('正在读取云端持仓…')}</p>}
+          {syncState.cloudPullStatus === 'failed' && <p role="alert" className="text-red-700 dark:text-red-300">{t('云端读取失败；本机持仓仍可查看，云端状态未知。')}</p>}
+          {syncState.cloudPullStatus === 'synced' && syncState.pending === 0 && syncState.failed === 0 && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('云端持仓已同步')}</p>}
+          {syncState.cloudPullStatus === 'synced' && (syncState.pending > 0 || syncState.failed > 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{t('待同步 {pending} 项，失败 {failed} 项。').replace('{pending}', String(syncState.pending)).replace('{failed}', String(syncState.failed))}</p>}
+          {syncState.cloudPullStatus === 'unknown' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('云端同步状态未知；本机持仓仍可查看。')}</p>}
+          {syncState.cloudPullError && <details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">{t('查看错误代码')}</summary><code className="mt-1 block break-all">{syncState.cloudPullError}</code></details>}
+        </div>
+        {(syncState.pending > 0 || syncState.failed > 0 || syncState.cloudPullStatus !== 'synced') && (
+          <button type="button" onClick={() => void handleRetry()} disabled={retrying} className="aurora-button-secondary inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50">
+            {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}{t('重试云同步')}
+          </button>
+        )}
+      </section>
+
+      <section aria-labelledby="positions-heading" data-testid="investment-holdings-section">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h2 id="positions-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('当前持仓')}</h2><p className="text-sm text-gray-500">{t('{n} 项资产').replace('{n}', String(currencyPositions.length))} · {activeCurrency}</p></div></div>
+        {currencyPositions.length === 0 ? <div className="aurora-card rounded-xl border p-5 text-sm text-gray-500 dark:text-gray-400">{loading ? t('正在读取…') : positions.length > 0 ? t('该币种下暂无持仓。') : syncState.cloudPullStatus === 'failed' ? t('本机暂无可显示持仓；云端状态未知。请重试云同步后再确认。') : syncState.cloudPullStatus === 'pulling' ? t('正在确认云端持仓…') : syncState.cloudPullStatus === 'synced' ? t('当前没有已同步的持仓。') : t('本机暂无持仓记录。')}</div> : <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {currencyPositions.map((position) => <article key={position.asset_key} data-testid="investment-holding-card" className="aurora-card min-w-0 rounded-xl border p-4">
+            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">{position.name}</h3><p className="mt-1 break-all text-xs text-gray-500">{position.asset_type} · {position.asset_key}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${position.sync_status === 'failed' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' : position.sync_status === 'synced' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>{syncLabel(position.sync_status, t)}</span></div>
+            <div className="mt-4 grid grid-cols-2 gap-3"><div><p className="text-xs text-gray-500">{t('市值')}</p><p className="mt-1 break-all font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatMoney(position.market_value, position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数量')}</p><p className="mt-1 break-all font-medium tabular-nums text-gray-800 dark:text-gray-200">{position.quantity}</p></div><div><p className="text-xs text-gray-500">{t('总成本')}</p><p className="mt-1 break-all text-sm tabular-nums text-gray-700 dark:text-gray-300">{positionTotalCost(position) === null ? '—' : formatMoney(positionTotalCost(position)!.toFixed(2), position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数据日期')}</p><p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{position.as_of}</p></div></div>
+            <details className="mt-3 border-t aurora-border pt-2"><summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">{t('来源与同步详情')}</summary><div className="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400"><p className="break-words">{t('数据来源：')}{position.source_note || '—'}</p>{position.sync_error && <p className="break-words text-red-600 dark:text-red-300">{position.sync_error}</p>}</div></details>
+          </article>)}
+        </div>}
+      </section>
+
       <section aria-labelledby="allocation-heading" className="space-y-4" data-testid="investment-dashboard">
         <div className="aurora-card flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -297,16 +350,7 @@ export function InvestmentsPage() {
                 {currency}
               </button>
             ))}
-            {(syncState.pending > 0 || syncState.failed > 0 || syncState.cloudPullStatus === 'failed') && (
-              <button type="button" onClick={() => void handleRetry()} disabled={retrying} className="aurora-button-secondary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50">
-                {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}{t('重试云同步')}
-              </button>
-            )}
           </div>
-          {syncState.cloudPullStatus === 'pulling' && <p role="status" className="w-full text-sm text-gray-500">{t('正在读取云端持仓…')}</p>}
-          {syncState.cloudPullStatus === 'failed' && <p role="alert" className="w-full break-words text-sm text-red-700 dark:text-red-300">{t('云端持仓读取失败。本机数据保留，尚不能确认云端是否为空。')} {syncState.cloudPullError}</p>}
-          {(syncState.pending > 0 || syncState.failed > 0) && <p role="status" className="w-full text-sm text-amber-700 dark:text-amber-300">{t('待同步 {pending} 项，失败 {failed} 项。').replace('{pending}', String(syncState.pending)).replace('{failed}', String(syncState.failed))}</p>}
-          {syncState.cloudPullStatus === 'synced' && syncState.pending === 0 && syncState.failed === 0 && <p role="status" className="w-full text-sm text-emerald-700 dark:text-emerald-400">{t('云端持仓已同步')}</p>}
         </div>
 
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
@@ -334,7 +378,7 @@ export function InvestmentsPage() {
                   </li>)}
                 </ul>
               </>
-            ) : <div className="flex h-[250px] items-center justify-center rounded-lg bg-gray-50 px-5 text-center text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('暂无持仓。使用投资 Skill 生成第一份快照提案。') : t('当前没有可用于配置图的已知市值。')}</div>}
+            ) : <div className="flex h-[180px] items-center justify-center rounded-lg bg-gray-50 px-5 text-center text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('暂无可用于配置图的持仓数据。') : t('当前没有可用于配置图的已知市值。')}</div>}
           </section>
 
           <div className="grid min-w-0 gap-4">
@@ -360,44 +404,9 @@ export function InvestmentsPage() {
               <Tooltip formatter={(value: number) => [formatMoney(value.toFixed(2), activeCurrency), t('市值')]} />
               <Line type="monotone" dataKey="marketValue" name={t('市值')} stroke="var(--accent)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--accent)' }} activeDot={{ r: 5 }} isAnimationActive={false} />
             </LineChart></ResponsiveContainer>
-          </div> : <div className="mt-3 flex h-[190px] items-center justify-center rounded-lg bg-gray-50 text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('添加持仓快照后，这里会显示历史趋势。') : t('暂无完整且可比较的估值日期。')}</div>}
+          </div> : <div className="mt-3 flex h-[150px] items-center justify-center rounded-lg bg-gray-50 text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('暂无可比较的持仓历史。') : t('暂无完整且可比较的估值日期。')}</div>}
         </section>
 
-        <section aria-labelledby="positions-heading">
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-2"><div><h2 id="positions-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('当前持仓')}</h2><p className="text-sm text-gray-500">{t('{n} 项资产').replace('{n}', String(currencyPositions.length))} · {activeCurrency}</p></div><span className="text-xs text-gray-500">{t('收益是基于低频确认快照的估算，不代表实时行情')}</span></div>
-          {currencyPositions.length === 0 ? <div className="aurora-card rounded-xl border p-5 text-sm text-gray-500 dark:text-gray-400">{positions.length === 0 ? t('暂无持仓。使用投资 Skill 生成第一份快照提案。') : t('该币种下暂无持仓。')}</div> : <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {currencyPositions.map((position) => <article key={position.asset_key} data-testid="investment-holding-card" className="aurora-card min-w-0 rounded-xl border p-4">
-              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-semibold text-gray-900 dark:text-gray-100">{position.name}</h3><p className="mt-1 break-all text-xs text-gray-500">{position.asset_type} · {position.asset_key}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${position.sync_status === 'failed' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' : position.sync_status === 'synced' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}>{syncLabel(position.sync_status, t)}</span></div>
-              <div className="mt-4 grid grid-cols-2 gap-3"><div><p className="text-xs text-gray-500">{t('市值')}</p><p className="mt-1 break-all font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatMoney(position.market_value, position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数量')}</p><p className="mt-1 break-all font-medium tabular-nums text-gray-800 dark:text-gray-200">{position.quantity}</p></div><div><p className="text-xs text-gray-500">{t('总成本')}</p><p className="mt-1 break-all text-sm tabular-nums text-gray-700 dark:text-gray-300">{positionTotalCost(position) === null ? '—' : formatMoney(positionTotalCost(position)!.toFixed(2), position.currency)}</p></div><div><p className="text-xs text-gray-500">{t('数据日期')}</p><p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{position.as_of}</p></div></div>
-              <details className="mt-3 border-t aurora-border pt-2"><summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">{t('来源与同步详情')}</summary><div className="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400"><p className="break-words">{t('数据来源：')}{position.source_note || '—'}</p>{position.sync_error && <p className="break-words text-red-600 dark:text-red-300">{position.sync_error}</p>}</div></details>
-            </article>)}
-          </div>}
-        </section>
-      </section>
-
-      <section className="aurora-card rounded-xl border p-4 sm:p-5" aria-labelledby="investment-agent-heading">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-[var(--accent-dim)] p-2 text-[var(--accent)]"><ShieldCheck size={20} /></div>
-          <div className="min-w-0 flex-1">
-            <h2 id="investment-agent-heading" className="font-semibold text-gray-900 dark:text-gray-100">{t('连接 Agent Skill')}</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {t('把上下文文件提供给你信任的 Agent。文件包含当前分类、持仓摘要和短期作用域令牌；不要公开分享。Agent 只能生成提案，不能直接改账。')}
-            </p>
-            {context?.available ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <code className="max-w-full break-all rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-200">{context.contextPath}</code>
-                <button type="button" onClick={() => void copyContextPath()} className="aurora-button-secondary inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
-                  <Clipboard size={13} />{t('复制路径')}
-                </button>
-                <button type="button" onClick={() => void openInbox()} className="aurora-button-secondary inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
-                  <FolderOpen size={13} />{t('打开提案目录')}
-                </button>
-                {context.expiresAt && <span className="text-xs text-gray-500">{t('有效期至')} {new Date(context.expiresAt).toLocaleDateString()}</span>}
-              </div>
-            ) : <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">{context?.reason || t('正在读取当前登录状态…')}</p>}
-            {context?.available && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('提案目录：')}<code className="break-all">{context.inboxPath}</code></p>}
-          </div>
-        </div>
       </section>
 
       <section aria-labelledby="agent-proposals-heading" className="space-y-3">
@@ -419,7 +428,6 @@ export function InvestmentsPage() {
                   {proposal.kind === 'expenses' ? t('支出提案') : proposal.kind === 'investments' ? t('持仓提案') : t('无效提案')}
                   <span className="ml-2 text-xs font-normal text-gray-500">{proposal.createdAt ? new Date(proposal.createdAt).toLocaleString() : proposal.fileName}</span>
                 </h3>
-                {proposal.operationId && <p className="mt-1 break-all text-xs text-gray-400">ID: {proposal.operationId}</p>}
               </div>
               {(proposal.kind === 'expenses' || proposal.kind === 'investments') && proposal.errors.length === 0 && (
                 <span className="rounded-full bg-[var(--accent-dim)] px-2.5 py-1 text-xs font-medium text-[var(--accent)]">
@@ -429,6 +437,44 @@ export function InvestmentsPage() {
                 </span>
               )}
             </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border aurora-border bg-white/70 p-3 dark:bg-gray-900/40">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{proposal.errors.length === 0 ? t('仅在你确认后写入。') : t('提案存在问题，修复后才能确认写入。')}</p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={() => void handleReject(proposal.fileName)} disabled={busyFile === proposal.fileName} className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+                  <X size={14} />{t('拒绝并归档')}
+                </button>
+                {proposal.operationId && proposal.payloadHash && proposal.baselineHash && proposal.errors.length === 0 && (
+                  <button type="button" onClick={() => void handleApply(proposal)} disabled={busyFile === proposal.fileName} className="aurora-button-primary inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
+                    {busyFile === proposal.fileName ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                    {proposal.kind === 'expenses'
+                      ? t('确认写入 {n} 笔支出').replace('{n}', String(proposal.expenses.length))
+                      : (proposal.investmentDiff?.added.length ?? 0) + (proposal.investmentDiff?.changed.length ?? 0) === 0
+                        ? t('确认并归档（无持仓变更）')
+                        : t('确认更新 {n} 项持仓').replace('{n}', String((proposal.investmentDiff?.added.length ?? 0) + (proposal.investmentDiff?.changed.length ?? 0)))}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {proposal.kind === 'investments' && proposal.investmentDiff && proposal.errors.length === 0 && (
+              <div className="mt-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-800/70" data-testid="investment-proposal-summary">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                  {t('新增 {added} 项 · 更新 {changed} 项 · 保留 {kept} 项').replace('{added}', String(proposal.investmentDiff.added.length)).replace('{changed}', String(proposal.investmentDiff.changed.length)).replace('{kept}', String(proposal.investmentDiff.unmentioned.length))}
+                </p>
+                {(proposal.investmentDiff.added.length > 0 || proposal.investmentDiff.changed.length > 0) && <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto text-xs text-gray-700 dark:text-gray-300">
+                  {proposal.investmentDiff.added.map((position) => <li key={`added-${position.asset_key}`} className="break-words">
+                    <b>{position.name}</b> · {position.asset_type} · {t('数量')} {position.quantity} · {t('总成本')} {displayHoldingValue(position.cost_basis, t)} · {t('市值')} {displayHoldingValue(position.market_value, t)} {position.currency} · {position.as_of}
+                  </li>)}
+                  {proposal.investmentDiff.changed.map(({ before, after }) => <li key={`changed-${after.asset_key}`} className="break-words">
+                    <b>{after.name}</b> · {HOLDING_FIELDS.filter((field) => before[field] !== after[field]).map((field) => `${holdingFieldLabel(field, t)} ${displayProposalChangeValue(field, before[field], t)} → ${displayProposalChangeValue(field, after[field], t)}`).join(' · ')}
+                  </li>)}
+                </ul>}
+                {proposal.investmentDiff.added.length + proposal.investmentDiff.changed.length === 0 && <p className="mt-1 text-xs text-gray-500">{t('没有持仓字段变化；确认后只归档该提案。')}</p>}
+              </div>
+            )}
+
+            {proposal.operationId && <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('技术信息')}</summary><code className="mt-1 block break-all">{proposal.operationId}</code></details>}
 
             {proposal.errors.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-red-700 dark:text-red-300">{proposal.errors.map((item, index) => <li key={index}>{item}</li>)}</ul>}
 
@@ -448,11 +494,13 @@ export function InvestmentsPage() {
             )}
 
             {proposal.kind === 'investments' && proposal.investmentDiff && proposal.errors.length === 0 && (
-              <div className="mt-3 space-y-3">
+              <details className="mt-3 rounded-lg border aurora-border p-3">
+                <summary className="cursor-pointer text-sm font-medium text-[var(--accent)]">{t('查看完整字段差异与保留项目')}</summary>
+                <div className="mt-3 space-y-3">
                 {proposal.investmentDiff.added.length > 0 && <section className="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/70">
                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t('新增')} · {proposal.investmentDiff.added.length}</h4>
                   <div className="mt-2 grid gap-3 lg:grid-cols-2">{proposal.investmentDiff.added.map((position) => <dl key={position.asset_key} className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg border aurora-border bg-white p-3 text-xs dark:bg-gray-900">
-                    {HOLDING_FIELDS.map((field) => <div key={field} className="min-w-0"><dt className="text-gray-500">{holdingFieldLabel(field, t)}</dt><dd className="mt-0.5 break-all font-medium text-gray-800 dark:text-gray-100">{displayHoldingValue(position[field])}</dd></div>)}
+                    {HOLDING_FIELDS.map((field) => <div key={field} className="min-w-0"><dt className="text-gray-500">{holdingFieldLabel(field, t)}</dt><dd className="mt-0.5 break-all font-medium text-gray-800 dark:text-gray-100">{displayHoldingValue(position[field], t)}</dd></div>)}
                   </dl>)}</div>
                 </section>}
 
@@ -460,7 +508,7 @@ export function InvestmentsPage() {
                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t('变更')} · {proposal.investmentDiff.changed.length}</h4>
                   <div className="mt-2 space-y-3">{proposal.investmentDiff.changed.map(({ before, after }) => <article key={after.asset_key} className="rounded-lg border aurora-border bg-white p-3 dark:bg-gray-900">
                     <h5 className="mb-2 break-all text-xs font-semibold text-gray-800 dark:text-gray-100">{after.asset_key}</h5>
-                    <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead className="aurora-muted"><tr><th className="px-2 py-1.5">{t('字段')}</th><th className="px-2 py-1.5">{t('当前值')}</th><th className="px-2 py-1.5">{t('提案值')}</th></tr></thead><tbody>{HOLDING_FIELDS.map((field) => <tr key={field} className="border-t aurora-border"><th className="px-2 py-1.5 font-medium">{holdingFieldLabel(field, t)}</th><td className="max-w-80 break-all px-2 py-1.5 text-gray-500">{displayHoldingValue(before[field])}</td><td className="max-w-80 break-all px-2 py-1.5 font-medium text-gray-900 dark:text-gray-100">{displayHoldingValue(after[field])}</td></tr>)}</tbody></table></div>
+                    <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead className="aurora-muted"><tr><th className="px-2 py-1.5">{t('字段')}</th><th className="px-2 py-1.5">{t('当前值')}</th><th className="px-2 py-1.5">{t('提案值')}</th></tr></thead><tbody>{HOLDING_FIELDS.map((field) => <tr key={field} className="border-t aurora-border"><th className="px-2 py-1.5 font-medium">{holdingFieldLabel(field, t)}</th><td className="max-w-80 break-all px-2 py-1.5 text-gray-500">{displayHoldingValue(before[field], t)}</td><td className="max-w-80 break-all px-2 py-1.5 font-medium text-gray-900 dark:text-gray-100">{displayHoldingValue(after[field], t)}</td></tr>)}</tbody></table></div>
                   </article>)}</div>
                 </section>}
 
@@ -473,27 +521,35 @@ export function InvestmentsPage() {
                     {(rows as InvestmentHolding[]).length > 0 && <ul className="mt-2 space-y-1 text-xs text-gray-600 dark:text-gray-300">{(rows as InvestmentHolding[]).map((item) => <li key={item.asset_key} className="break-all">{item.asset_key} · {item.name} · {item.quantity} {item.currency}</li>)}</ul>}
                   </section>)}
                 </div>
-              </div>
+                </div>
+              </details>
             )}
-
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => void handleReject(proposal.fileName)} disabled={busyFile === proposal.fileName} className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
-                <X size={14} />{t('拒绝并归档')}
-              </button>
-              {proposal.operationId && proposal.payloadHash && proposal.baselineHash && proposal.errors.length === 0 && (
-                <button type="button" onClick={() => void handleApply(proposal)} disabled={busyFile === proposal.fileName} className="aurora-button-primary inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50">
-                  {busyFile === proposal.fileName ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  {proposal.kind === 'expenses'
-                    ? t('确认写入 {n} 笔支出').replace('{n}', String(proposal.expenses.length))
-                    : (proposal.investmentDiff?.added.length ?? 0) + (proposal.investmentDiff?.changed.length ?? 0) === 0
-                      ? t('确认并归档（无持仓变更）')
-                      : t('确认更新 {n} 项持仓').replace('{n}', String((proposal.investmentDiff?.added.length ?? 0) + (proposal.investmentDiff?.changed.length ?? 0)))}
-                </button>
-              )}
-            </div>
           </article>
         ))}
       </section>
+
+      <details className="aurora-card rounded-xl border p-4 sm:p-5">
+        <summary className="flex cursor-pointer list-none items-center gap-3 font-semibold text-gray-900 dark:text-gray-100">
+          <span className="rounded-lg bg-[var(--accent-dim)] p-2 text-[var(--accent)]"><ShieldCheck size={20} /></span>
+          <span>{t('连接 Agent Skill')}</span>
+        </summary>
+        <div className="mt-3 border-t aurora-border pt-3">
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('把上下文文件提供给你信任的 Agent。文件包含当前分类、持仓摘要和短期作用域令牌；不要公开分享。Agent 只能生成提案，不能直接改账。')}</p>
+          {context?.available ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <code className="max-w-full break-all rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-200">{context.contextPath}</code>
+              <button type="button" onClick={() => void copyContextPath()} className="aurora-button-secondary inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
+                <Clipboard size={13} />{t('复制路径')}
+              </button>
+              <button type="button" onClick={() => void openInbox()} className="aurora-button-secondary inline-flex items-center gap-1 rounded px-2 py-1 text-xs">
+                <FolderOpen size={13} />{t('打开提案目录')}
+              </button>
+              {context.expiresAt && <span className="text-xs text-gray-500">{t('有效期至')} {new Date(context.expiresAt).toLocaleDateString()}</span>}
+            </div>
+          ) : <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">{context?.reason || t('正在读取当前登录状态…')}</p>}
+          {context?.available && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('提案目录：')}<code className="break-all">{context.inboxPath}</code></p>}
+        </div>
+      </details>
 
     </div>
   )
