@@ -109,6 +109,7 @@ export const T: Record<string, string> = {
   '云端同步状态': 'Cloud sync status',
   '云端同步状态未知；本机持仓仍可查看。': 'Cloud sync status is unknown; local holdings remain available.',
   '云端读取失败；本机持仓仍可查看，云端状态未知。': 'Cloud holdings could not be loaded; local holdings remain available and cloud state is unknown.',
+  '云端登录会话已失效。请退出当前账号后重新登录；本机持仓和账单不会删除。': 'The cloud session has expired. Sign out of this account and sign in again; local holdings and bills will remain.',
   '当前没有已同步的持仓。': 'There are no synced holdings.',
   '本机暂无持仓记录。': 'There are no local holdings.',
   '本机暂无可显示持仓；云端状态未知。请重试云同步后再确认。': 'No local holdings are available to display; cloud state is unknown. Retry cloud sync before drawing a conclusion.',

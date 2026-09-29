@@ -1,12 +1,126 @@
 export interface ExternalCloudbaseSession {
   access_token: string
   refresh_token: string
+  expires_in?: number
+  expires_at?: Date | string | number
+}
+
+export interface SdkTokenRefreshSession {
+  access_token?: unknown
+  refresh_token?: unknown
+  expires_in?: unknown
+  user?: { id?: unknown } | null
+}
+
+/** True when a refresh notification refers to credentials that are already the active binding. */
+export function isAlreadyBoundSdkCredentialPair(
+  currentAccessToken: string | null,
+  currentRefreshToken: string | null,
+  boundAccessToken: string | null,
+  boundRefreshToken: string | null,
+  credentials: SdkTokenRefreshSession | null | undefined
+): boolean {
+  return !!credentials && !!currentAccessToken && !!currentRefreshToken &&
+    currentAccessToken === boundAccessToken && currentRefreshToken === boundRefreshToken &&
+    credentials.access_token === currentAccessToken && credentials.refresh_token === currentRefreshToken
+}
+
+/** Validate a token rotation against the bound credential lineage before relying on SDK user metadata. */
+export function isSdkTokenRefreshForBoundLineage(
+  expectedUserId: string | null,
+  currentAccessToken: string | null,
+  currentRefreshToken: string | null,
+  lastBoundAccessToken: string | null,
+  lastBoundRefreshToken: string | null,
+  session: SdkTokenRefreshSession | null | undefined
+): boolean {
+  return !!session && !!expectedUserId && !!currentAccessToken && !!currentRefreshToken &&
+    !!lastBoundAccessToken && !!lastBoundRefreshToken &&
+    currentAccessToken === lastBoundAccessToken && currentRefreshToken === lastBoundRefreshToken &&
+    typeof session.access_token === 'string' && !!session.access_token &&
+    typeof session.refresh_token === 'string' && !!session.refresh_token &&
+    (session.access_token !== currentAccessToken || session.refresh_token !== currentRefreshToken)
+}
+
+/** Accept an SDK background rotation only when both its credential lineage and UID are confirmed. */
+export function isCurrentSdkTokenRefresh(
+  expectedUserId: string | null,
+  currentAccessToken: string | null,
+  currentRefreshToken: string | null,
+  lastBoundAccessToken: string | null,
+  lastBoundRefreshToken: string | null,
+  session: SdkTokenRefreshSession | null | undefined
+): boolean {
+  return isSdkTokenRefreshForBoundLineage(expectedUserId, currentAccessToken, currentRefreshToken,
+    lastBoundAccessToken, lastBoundRefreshToken, session) && session?.user?.id === expectedUserId
+}
+
+interface SdkSessionResult {
+  access_token?: unknown
+  refresh_token?: unknown
+  expires_in?: unknown
+  expires_at?: unknown
+}
+
+/** Share one in-flight operation per key; a rotating refresh token must never be redeemed concurrently. */
+export class SingleFlight<K, Value> {
+  private readonly pending = new Map<K, Promise<Value>>()
+
+  getPending(key: K): Promise<Value> | null {
+    return this.pending.get(key) || null
+  }
+
+  run(key: K, operation: () => Promise<Value>): Promise<Value> {
+    const existing = this.pending.get(key)
+    if (existing) return existing
+
+    const next = Promise.resolve().then(operation)
+    this.pending.set(key, next)
+    void next.finally(() => {
+      if (this.pending.get(key) === next) this.pending.delete(key)
+    }).catch(() => undefined)
+    return next
+  }
+}
+
+/** Serialize credential reads and writes across accounts that share one SDK auth store. */
+export class SerialQueue {
+  private tail: Promise<void> = Promise.resolve()
+
+  run<Value>(operation: () => Promise<Value> | Value): Promise<Value> {
+    const next = this.tail.then(operation, operation)
+    this.tail = next.then(() => undefined, () => undefined)
+    return next
+  }
+}
+
+const CLOUD_DATABASE_REQUEST_METHODS = new Set(['get', 'add', 'set', 'update', 'remove', 'count'])
+const CLOUD_DATABASE_CHAIN_METHODS = new Set(['collection', 'where', 'doc', 'skip', 'limit', 'orderBy', 'field'])
+
+/** Queue terminal SDK database requests because their internal token refresh bypasses auth APIs. */
+export function serializeCloudDatabase<T extends object>(database: T, queue: SerialQueue): T {
+  return new Proxy(database, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (typeof value !== 'function') return value
+      if (typeof property === 'string' && CLOUD_DATABASE_REQUEST_METHODS.has(property)) {
+        return (...args: unknown[]) => queue.run(() => Reflect.apply(value, target, args))
+      }
+      if (typeof property !== 'string' || !CLOUD_DATABASE_CHAIN_METHODS.has(property)) {
+        return (...args: unknown[]) => Reflect.apply(value, target, args)
+      }
+      return (...args: unknown[]) => {
+        const result: unknown = Reflect.apply(value, target, args)
+        return result && typeof result === 'object' ? serializeCloudDatabase(result, queue) : result
+      }
+    }
+  })
 }
 
 export interface CloudbaseUserSessionClient<Database> {
   auth: () => {
     setSession(session: ExternalCloudbaseSession): Promise<{
-      data: { user?: { id?: unknown } | null } | null
+      data: { user?: { id?: unknown } | null; session?: SdkSessionResult | null } | null
       error: unknown | null
     }>
   }
@@ -18,7 +132,10 @@ type ErrorRecord = Record<string, unknown>
 const SAFE_CLOUDBASE_CODES = new Set([
   'cloud_unknown_error', 'cloud_session_incomplete', 'cloud_session_uid_mismatch', 'cloud_session_rejected',
   'cloud_session_changed', 'cloud_session_refresh_failed', 'cloud_session_refresh_incomplete',
+  'cloud_session_identity_unconfirmed', 'cloud_session_rotation_unverified',
+  'cloud_session_persist_failed',
   'cloud_session_unavailable', 'cloud_session_binding_unavailable', 'cloud_session_or_local_database_unavailable',
+  'cloud_session_rotation_incomplete',
   'cloud_sdk_not_initialized', 'cloud_sdk_init_failed', 'cloud_user_database_unavailable',
   'cloud_pull_investments_failed', 'cloud_pull_investment_snapshots_failed', 'cloud_sync_investment_failed', 'cloud_delete_investment_failed',
   'token_expired', 'access_token_expired', 'invalid_refresh_token', 'refresh_token_expired',
@@ -175,7 +292,7 @@ export async function bindCloudbaseUserDatabase<Database>(
   client: CloudbaseUserSessionClient<Database>,
   session: ExternalCloudbaseSession,
   expectedUserId: string
-): Promise<{ userId: string; database: Database }> {
+): Promise<{ userId: string; database: Database; session: ExternalCloudbaseSession }> {
   if (!session.access_token || !session.refresh_token || !expectedUserId) {
     throw new Error('cloud_session_incomplete')
   }
@@ -193,7 +310,25 @@ export async function bindCloudbaseUserDatabase<Database>(
     throw new Error('cloud_session_uid_mismatch')
   }
 
-  return { userId: actualUserId, database: client.database() }
+  // setSession refreshes and rotates credentials. Persist the returned pair instead of
+  // keeping the now-invalid refresh token supplied by the caller.
+  const sdkSession = result.data?.session
+  if (typeof sdkSession?.access_token !== 'string' || !sdkSession.access_token ||
+    typeof sdkSession.refresh_token !== 'string' || !sdkSession.refresh_token) {
+    throw new Error('cloud_session_rotation_incomplete')
+  }
+  const rotatedSession: ExternalCloudbaseSession = {
+    access_token: sdkSession.access_token,
+    refresh_token: sdkSession.refresh_token
+  }
+  if (typeof sdkSession.expires_in === 'number' && Number.isFinite(sdkSession.expires_in) && sdkSession.expires_in > 0) {
+    rotatedSession.expires_in = sdkSession.expires_in
+  }
+  if (sdkSession.expires_at instanceof Date || typeof sdkSession.expires_at === 'string' || typeof sdkSession.expires_at === 'number') {
+    rotatedSession.expires_at = sdkSession.expires_at
+  }
+
+  return { userId: actualUserId, database: client.database(), session: rotatedSession }
 }
 
 /** Refresh once only for an explicit access-token-expired code, then bind and re-check UID. */
@@ -204,8 +339,7 @@ export async function bindCloudbaseUserDatabaseWithRefresh<Database>(
   refreshTokens: () => Promise<ExternalCloudbaseSession>
 ): Promise<{ userId: string; database: Database; session: ExternalCloudbaseSession }> {
   try {
-    const bound = await bindCloudbaseUserDatabase(client, session, expectedUserId)
-    return { ...bound, session }
+    return await bindCloudbaseUserDatabase(client, session, expectedUserId)
   } catch (error) {
     if (!isExplicitAccessTokenExpiredError(error)) throw error
   }
@@ -218,6 +352,5 @@ export async function bindCloudbaseUserDatabaseWithRefresh<Database>(
     throw new Error(`cloud_session_refresh_failed:${safeCloudbaseErrorCode(error)}`)
   }
   if (!refreshed.access_token || !refreshed.refresh_token) throw new Error('cloud_session_refresh_incomplete')
-  const bound = await bindCloudbaseUserDatabase(client, refreshed, expectedUserId)
-  return { ...bound, session: refreshed }
+  return await bindCloudbaseUserDatabase(client, refreshed, expectedUserId)
 }

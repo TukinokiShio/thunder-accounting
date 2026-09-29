@@ -100,6 +100,7 @@ export function InvestmentsPage() {
   const [busyFile, setBusyFile] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const cloudSessionNeedsLogin = /(?:^|:)(?:invalid_grant|invalid_refresh_token|refresh_token_expired)$/.test(syncState.cloudPullError || '')
 
   const reload = useCallback(async () => {
     const api = window.electronAgentAPI
@@ -326,6 +327,7 @@ export function InvestmentsPage() {
         <div className="min-w-0 text-sm">
           {syncState.cloudPullStatus === 'pulling' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('正在读取云端持仓…')}</p>}
           {syncState.cloudPullStatus === 'failed' && <p role="alert" className="text-red-700 dark:text-red-300">{t('云端读取失败；本机持仓仍可查看，云端状态未知。')}</p>}
+          {syncState.cloudPullStatus === 'failed' && cloudSessionNeedsLogin && <p role="status" className="mt-1 text-amber-800 dark:text-amber-300">{t('云端登录会话已失效。请退出当前账号后重新登录；本机持仓和账单不会删除。')}</p>}
           {syncState.cloudPullStatus === 'synced' && syncState.pending === 0 && syncState.failed === 0 && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('云端持仓已同步')}</p>}
           {syncState.cloudPullStatus === 'synced' && (syncState.pending > 0 || syncState.failed > 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{t('待同步 {pending} 项，失败 {failed} 项。').replace('{pending}', String(syncState.pending)).replace('{failed}', String(syncState.failed))}</p>}
           {syncState.cloudPullStatus === 'unknown' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('云端同步状态未知；本机持仓仍可查看。')}</p>}

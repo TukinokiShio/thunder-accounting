@@ -149,6 +149,16 @@ describe('Investments page asset-allocation direction', () => {
     expect(screen.getByText('持仓读取阶段 · 错误代码: cloud_unknown_error')).toBeVisible()
   })
 
+  it('explains that invalid_grant needs a fresh login while local holdings remain available', async () => {
+    ;(window as any).electronAgentAPI.getSyncState.mockResolvedValueOnce({
+      pending: 0, failed: 0, cloudPullStatus: 'failed', cloudPullError: 'session_binding:cloud_session_rejected:invalid_grant'
+    })
+    render(<InvestmentsPage />)
+
+    expect(await screen.findByText('云端登录会话已失效。请退出当前账号后重新登录；本机持仓和账单不会删除。')).toBeVisible()
+    expect(screen.getByText('云端读取失败；本机持仓仍可查看，云端状态未知。')).toBeVisible()
+  })
+
   it('puts proposal confirmation before the collapsed technical holding diff', async () => {
     ;(window as any).electronAgentAPI.listProposals.mockResolvedValueOnce([{
       fileName: 'synthetic-investment.json', operationId: 'synthetic-op', payloadHash: 'hash-a', baselineHash: 'hash-b',

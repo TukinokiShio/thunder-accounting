@@ -7,7 +7,7 @@ import type { BillRow, CategoryRow, RecurringRow, InvestmentPositionRow, CloudIn
 import { clearAllData, getDbPath, getBills, getCategories, getRecurrings, getInvestmentPositions, getInvestmentSnapshotHistory, setBillCloudId, setCategoryCloudId, setRecurringCloudId } from './database'
 import { validateInvestmentBatch } from '../src/utils/investmentHoldings'
 import { investmentDocumentId, investmentSnapshotDocumentId } from './investment-cloud-key'
-import { bindCloudbaseUserDatabaseWithRefresh, isExplicitAccessTokenExpiredError, safeCloudbaseErrorCode } from './cloudbase-session'
+import { bindCloudbaseUserDatabaseWithRefresh, isAlreadyBoundSdkCredentialPair, isCurrentSdkTokenRefresh, isSdkTokenRefreshForBoundLineage, isExplicitAccessTokenExpiredError, safeCloudbaseErrorCode, SerialQueue, serializeCloudDatabase, SingleFlight, type SdkTokenRefreshSession } from './cloudbase-session'
 import { readOptionalCloudBaseCollectionPage } from './cloudbase-collection'
 import {
   upsertInvestmentCloudCurrent,
@@ -117,8 +117,27 @@ let userDatabaseUid: string | null = null
 let userDatabaseError: string | null = null
 let userSessionGeneration = 0
 let userSessionBinding: Promise<void> = Promise.resolve()
+let sdkBoundAccessToken: string | null = null
+let sdkBoundRefreshToken: string | null = null
+let userAuthStateUnsubscribe: (() => void) | null = null
+const currentSessionRefresh = new SingleFlight<string, AuthSession | null>()
+const sdkAuthOperations = new SerialQueue()
+let sdkTokenRefreshQueue: Promise<void> = Promise.resolve()
 let cloudApiKey = ''
 let currentSession: AuthSession | null = null
+
+type CompleteSdkTokenPair = SdkTokenRefreshSession & { access_token: string; refresh_token: string }
+
+function isCompleteSdkTokenPair(value: SdkTokenRefreshSession | null | undefined): value is CompleteSdkTokenPair {
+  return typeof value?.access_token === 'string' && !!value.access_token &&
+    typeof value.refresh_token === 'string' && !!value.refresh_token
+}
+
+async function getSdkUserWithoutRefresh(auth: ReturnType<NonNullable<typeof userCloudApp>['auth']>) {
+  // The locked runtime exposes this optional argument even though the Node declaration omits it.
+  const getUser = auth.getUser as unknown as (this: typeof auth, isRefresh?: boolean) => Promise<Awaited<ReturnType<typeof auth.getUser>>>
+  return getUser.call(auth, false)
+}
 
 // ─── Session Persistence ──────────────────────────
 
@@ -145,6 +164,134 @@ function saveSession(session: AuthSession): void {
 
 function clearSession(): void {
   try { fs.unlinkSync(getSessionPath()) } catch { /* ignore */ }
+}
+
+function markUserDatabaseUnavailable(errorCode: string): void {
+  userDb = null
+  userDatabaseUid = null
+  sdkBoundAccessToken = null
+  sdkBoundRefreshToken = null
+  userDatabaseError = errorCode
+}
+
+function queueSdkTokenRefresh(session: SdkTokenRefreshSession | null): void {
+  sdkTokenRefreshQueue = sdkTokenRefreshQueue
+    .catch(() => undefined)
+    .then(() => persistSdkTokenRefresh(session))
+  void sdkTokenRefreshQueue.catch((error) => {
+    console.error('[CloudBase] SDK 自动轮换会话核对失败:', safeCloudbaseErrorCode(error))
+  })
+}
+
+/** Persist SDK background rotations only after verifying the SDK's latest session twice. */
+async function persistSdkTokenRefresh(session: SdkTokenRefreshSession | null): Promise<void> {
+  if (!session || !userCloudApp) return
+  await userSessionBinding.catch(() => undefined)
+  await sdkAuthOperations.run(() => persistSdkTokenRefreshSerial(session))
+}
+
+async function persistSdkTokenRefreshSerial(session: SdkTokenRefreshSession): Promise<void> {
+  const authApp = userCloudApp
+  if (!authApp) return
+  const activeSession = currentSession
+  const expectedUserId = activeSession?.user.uid || null
+  const boundAccessToken = sdkBoundAccessToken
+  const boundRefreshToken = sdkBoundRefreshToken
+  const generation = userSessionGeneration
+  if (!activeSession || !expectedUserId || !userDb || userDatabaseUid !== expectedUserId ||
+    !boundAccessToken || !boundRefreshToken) return
+  if (activeSession.accessToken !== boundAccessToken || activeSession.refreshToken !== boundRefreshToken) {
+    markUserDatabaseUnavailable('cloud_session_rotation_unverified')
+    return
+  }
+
+  const stillBoundToStartingSession = (): boolean => {
+    const current = currentSession
+    return !!current && userSessionGeneration === generation && current.user.uid === expectedUserId &&
+      current.accessToken === activeSession.accessToken && current.refreshToken === activeSession.refreshToken &&
+      userDatabaseUid === expectedUserId && !!userDb && sdkBoundAccessToken === boundAccessToken &&
+      sdkBoundRefreshToken === boundRefreshToken
+  }
+  const failClosed = (code: string): void => {
+    if (stillBoundToStartingSession()) markUserDatabaseUnavailable(code)
+  }
+
+  try {
+    const auth = authApp.auth()
+    const firstSession = await auth.getCredentials() as SdkTokenRefreshSession | null
+    if (!isCompleteSdkTokenPair(firstSession)) {
+      failClosed('cloud_session_rotation_unverified')
+      return
+    }
+
+    // TOKEN_REFRESHED can be delayed across an account switch. Treat its payload as a hint;
+    // if SDK storage still equals the already-bound pair, there is no work to persist.
+    if (isAlreadyBoundSdkCredentialPair(activeSession.accessToken, activeSession.refreshToken,
+      sdkBoundAccessToken, sdkBoundRefreshToken, firstSession)) return
+
+    // SDK 3.10.1 can swallow getUser(false)'s error in getSession/refreshSession;
+    // confirm the current credential store identity explicitly.
+    const userRead = await getSdkUserWithoutRefresh(auth)
+    const latestSession = await auth.getCredentials() as SdkTokenRefreshSession | null
+    if (!isCompleteSdkTokenPair(latestSession) ||
+      latestSession.access_token !== firstSession.access_token ||
+      latestSession.refresh_token !== firstSession.refresh_token) {
+      failClosed('cloud_session_rotation_unverified')
+      return
+    }
+
+    const eventUserId = session.user?.id
+    const sdkUserId = userRead.error ? undefined : userRead.data?.user?.id
+    const eventMatchesCurrentCredentials = session.access_token === latestSession.access_token &&
+      session.refresh_token === latestSession.refresh_token
+    const confirmedUserId: unknown = sdkUserId ?? (eventMatchesCurrentCredentials ? eventUserId : undefined)
+    if (typeof confirmedUserId !== 'string' || !confirmedUserId) {
+      failClosed('cloud_session_identity_unconfirmed')
+      return
+    }
+    if (confirmedUserId !== expectedUserId ||
+      (eventMatchesCurrentCredentials && typeof eventUserId === 'string' && eventUserId !== confirmedUserId)) {
+      failClosed('cloud_session_uid_mismatch')
+      return
+    }
+
+    // The two direct reads bracket identity lookup, so delayed SDK snapshots cannot overwrite the session.
+    if (!stillBoundToStartingSession()) return
+    if (latestSession.access_token === activeSession.accessToken &&
+      latestSession.refresh_token === activeSession.refreshToken) return
+    if (!isSdkTokenRefreshForBoundLineage(expectedUserId, activeSession.accessToken, activeSession.refreshToken,
+      boundAccessToken, boundRefreshToken, latestSession)) {
+      failClosed('cloud_session_rotation_unverified')
+      return
+    }
+    if (!isCurrentSdkTokenRefresh(expectedUserId, activeSession.accessToken, activeSession.refreshToken,
+      boundAccessToken, boundRefreshToken, { ...latestSession, user: { id: confirmedUserId } })) {
+      failClosed('cloud_session_rotation_unverified')
+      return
+    }
+
+    const expiresIn = typeof latestSession.expires_in === 'number' && Number.isFinite(latestSession.expires_in) && latestSession.expires_in > 0
+      ? latestSession.expires_in
+      : 7200
+    const rotatedSession: AuthSession = {
+      ...activeSession,
+      accessToken: latestSession.access_token,
+      refreshToken: latestSession.refresh_token,
+      expiresAt: Date.now() + expiresIn * 1000
+    }
+    currentSession = rotatedSession
+    try {
+      saveSession(rotatedSession)
+      sdkBoundAccessToken = rotatedSession.accessToken
+      sdkBoundRefreshToken = rotatedSession.refreshToken
+    } catch {
+      markUserDatabaseUnavailable('cloud_session_persist_failed')
+      console.error('[CloudBase] SDK 自动轮换令牌未能持久化，已暂停云同步:', 'cloud_session_persist_failed')
+    }
+  } catch {
+    failClosed('cloud_session_rotation_unverified')
+    throw new Error('cloud_session_rotation_unverified')
+  }
 }
 
 // ─── Initialization ───────────────────────────────
@@ -176,12 +323,20 @@ export async function initCloudBase(): Promise<void> {
   try {
     // User business data is accessed with the authenticated user's session.
     // This client carries no server API Key and is checked against the UID.
+    userAuthStateUnsubscribe?.()
+    userAuthStateUnsubscribe = null
     userCloudApp = userCloudbase.init({ env: ENV_ID, region: 'ap-shanghai' })
+    const authState = userCloudApp.auth().onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') queueSdkTokenRefresh(session)
+    })
+    userAuthStateUnsubscribe = authState.data.subscription.unsubscribe
   } catch (e) {
     userCloudApp = null
     userDb = null
     userDatabaseUid = null
     userDatabaseError = 'cloud_sdk_init_failed'
+    sdkBoundAccessToken = null
+    sdkBoundRefreshToken = null
     console.error('CloudBase 用户态 SDK 初始化失败:', safeCloudbaseErrorCode(e))
   }
   const saved = loadSession()
@@ -203,67 +358,77 @@ function bindCurrentUserDatabase(session: AuthSession): Promise<void> {
 
 async function bindCurrentUserDatabaseSerial(session: AuthSession): Promise<void> {
   if (currentSession?.user.uid !== session.user.uid) return
+  const pendingRefresh = currentSessionRefresh.getPending(session.user.uid)
+  if (pendingRefresh) {
+    try { await pendingRefresh } catch { /* local mode remains available; this bind reports its own safe failure */ }
+  }
+  const boundSession = currentSession
+  if (!boundSession || boundSession.user.uid !== session.user.uid) return
   const generation = ++userSessionGeneration
-  if (userDatabaseUid !== session.user.uid) {
+  if (userDatabaseUid !== boundSession.user.uid) {
     userDb = null
     userDatabaseUid = null
+    sdkBoundAccessToken = null
+    sdkBoundRefreshToken = null
   }
   userDatabaseError = null
   if (!userCloudApp) throw new Error('cloud_sdk_not_initialized')
   try {
-    const bound = await bindCloudbaseUserDatabaseWithRefresh({
-      auth: () => userCloudApp!.auth(),
-      database: () => userCloudApp!.database()
-    }, {
-      access_token: session.accessToken,
-      refresh_token: session.refreshToken
-    }, session.user.uid, async () => {
+    await sdkAuthOperations.run(async () => {
+      const bound = await bindCloudbaseUserDatabaseWithRefresh({
+        auth: () => userCloudApp!.auth(),
+        database: () => userCloudApp!.database()
+      }, {
+        access_token: boundSession.accessToken,
+        refresh_token: boundSession.refreshToken
+      }, boundSession.user.uid, async () => {
+        const activeSession = currentSession
+        if (!activeSession || activeSession.user.uid !== boundSession.user.uid || generation !== userSessionGeneration) {
+          throw new Error('cloud_session_changed')
+        }
+        const updatedSession = await refreshCurrentSessionTokens(boundSession.user.uid, true)
+        if (!updatedSession || currentSession?.user.uid !== boundSession.user.uid || generation !== userSessionGeneration) {
+          throw new Error('cloud_session_refresh_incomplete')
+        }
+        return { access_token: updatedSession.accessToken, refresh_token: updatedSession.refreshToken }
+      })
+      if (generation !== userSessionGeneration || currentSession?.user.uid !== bound.userId) return
       const activeSession = currentSession
-      if (!activeSession || activeSession.user.uid !== session.user.uid || generation !== userSessionGeneration) {
-        throw new Error('cloud_session_changed')
-      }
-      const refreshed = await authFetch('/auth/v1/token', {
-        grant_type: 'refresh_token',
-        refresh_token: activeSession.refreshToken
-      }, undefined, 'POST', false)
-      if (!refreshed.ok) {
-        const payload = authPayload(refreshed.data)
-        throw new Error(`cloud_session_refresh_failed:${safeCloudbaseErrorCode({ ...payload, status: refreshed.status }, `http_${refreshed.status}`)}`)
-      }
-      const tokens = authPayload(refreshed.data) as {
-        access_token?: unknown
-        refresh_token?: unknown
-        expires_in?: unknown
-      }
-      if (typeof tokens.access_token !== 'string' || !tokens.access_token ||
-        (tokens.refresh_token !== undefined && typeof tokens.refresh_token !== 'string')) {
-        throw new Error('cloud_session_refresh_incomplete')
-      }
-      if (currentSession?.user.uid !== activeSession.user.uid || generation !== userSessionGeneration) {
-        throw new Error('cloud_session_changed')
-      }
-      const updatedSession: AuthSession = {
+      if (!activeSession || activeSession.user.uid !== bound.userId) return
+      const sdkExpiry = bound.session.expires_at instanceof Date
+        ? bound.session.expires_at.getTime()
+        : typeof bound.session.expires_at === 'number'
+          ? bound.session.expires_at
+          : typeof bound.session.expires_at === 'string'
+            ? Date.parse(bound.session.expires_at)
+            : Number.NaN
+      const expiresAt = Number.isFinite(sdkExpiry)
+        ? sdkExpiry
+        : typeof bound.session.expires_in === 'number'
+          ? Date.now() + bound.session.expires_in * 1000
+          : Date.now() + 7200 * 1000
+      const rotatedSession: AuthSession = {
         ...activeSession,
-        accessToken: tokens.access_token,
-        refreshToken: typeof tokens.refresh_token === 'string' && tokens.refresh_token ? tokens.refresh_token : activeSession.refreshToken,
-        expiresAt: Date.now() + (typeof tokens.expires_in === 'number' && Number.isFinite(tokens.expires_in) ? tokens.expires_in : 7200) * 1000
+        accessToken: bound.session.access_token,
+        refreshToken: bound.session.refresh_token,
+        expiresAt
       }
-      currentSession = updatedSession
-      saveSession(updatedSession)
-      return { access_token: updatedSession.accessToken, refresh_token: updatedSession.refreshToken }
+      currentSession = rotatedSession
+      try { saveSession(rotatedSession) }
+      catch { throw new Error('cloud_session_persist_failed') }
+      sdkBoundAccessToken = rotatedSession.accessToken
+      sdkBoundRefreshToken = rotatedSession.refreshToken
+      userDb = bound.database
+      userDatabaseUid = bound.userId
+      userDatabaseError = null
     })
-    if (generation !== userSessionGeneration || currentSession?.user.uid !== bound.userId) return
-    userDb = bound.database
-    userDatabaseUid = bound.userId
-    userDatabaseError = null
   } catch (error) {
     if (generation === userSessionGeneration) {
-      userDb = null
-      userDatabaseUid = null
       const code = safeCloudbaseErrorCode(error)
-      userDatabaseError = error instanceof Error && /^cloud_session_[a-z0-9_-]+(?::[a-z0-9_.-]+)*$/i.test(error.message)
+      const errorCode = error instanceof Error && /^cloud_session_[a-z0-9_-]+(?::[a-z0-9_.-]+)*$/i.test(error.message)
         ? error.message
         : `cloud_session_rejected:${code}`
+      markUserDatabaseUnavailable(errorCode)
     }
     throw error
   }
@@ -284,6 +449,8 @@ function clearUserDatabaseSession(): void {
   userSessionGeneration++
   userDb = null
   userDatabaseUid = null
+  sdkBoundAccessToken = null
+  sdkBoundRefreshToken = null
   userDatabaseError = null
 }
 
@@ -309,6 +476,113 @@ export async function loadCredentials(): Promise<{ identifier: string; rememberA
 
 // ─── HTTP helpers ─────────────────────────────────
 
+/** Route app-managed refreshes through the same JS SDK credential store/lock as database requests. */
+function refreshCurrentSessionTokens(expectedUserId: string, sdkAuthLockHeld = false): Promise<AuthSession | null> {
+  if (sdkAuthLockHeld) return refreshCurrentSessionTokensSerial(expectedUserId)
+  return currentSessionRefresh.run(expectedUserId, () =>
+    sdkAuthOperations.run(() => refreshCurrentSessionTokensSerial(expectedUserId)))
+}
+
+async function refreshCurrentSessionTokensSerial(expectedUserId: string): Promise<AuthSession | null> {
+    const startingSession = currentSession
+    if (!startingSession || startingSession.user.uid !== expectedUserId || !startingSession.refreshToken) return null
+    const generation = userSessionGeneration
+    const failClosed = (code: string): void => {
+      const current = currentSession
+      if (userSessionGeneration === generation && current?.user.uid === expectedUserId &&
+        current.accessToken === startingSession.accessToken && current.refreshToken === startingSession.refreshToken) {
+        markUserDatabaseUnavailable(code)
+      }
+    }
+    const auth = userCloudApp?.auth()
+    if (!auth) {
+      failClosed('cloud_sdk_not_initialized')
+      throw new Error('cloud_sdk_not_initialized')
+    }
+    let result: Awaited<ReturnType<typeof auth.refreshSession>>
+    try { result = await auth.refreshSession() }
+    catch {
+      failClosed('cloud_session_refresh_failed:cloud_unknown_error')
+      throw new Error('cloud_session_refresh_failed:cloud_unknown_error')
+    }
+    if (result.error) {
+      const code = safeCloudbaseErrorCode(result.error)
+      failClosed(`cloud_session_refresh_failed:${code}`)
+      throw new Error(`cloud_session_refresh_failed:${code}`)
+    }
+    const tokens = result.data?.session
+    let startingCredentials: SdkTokenRefreshSession | null
+    let userRead: Awaited<ReturnType<typeof auth.getUser>>
+    let latestCredentials: SdkTokenRefreshSession | null
+    try {
+      startingCredentials = await auth.getCredentials() as SdkTokenRefreshSession | null
+      userRead = await getSdkUserWithoutRefresh(auth)
+      latestCredentials = await auth.getCredentials() as SdkTokenRefreshSession | null
+    } catch {
+      failClosed('cloud_session_rotation_unverified')
+      throw new Error('cloud_session_rotation_unverified')
+    }
+    if (typeof startingCredentials?.access_token !== 'string' || !startingCredentials.access_token ||
+      typeof startingCredentials.refresh_token !== 'string' || !startingCredentials.refresh_token) {
+      failClosed('cloud_session_refresh_incomplete')
+      throw new Error('cloud_session_refresh_incomplete')
+    }
+
+    // Verify the current SDK credential store on both sides of an explicit user lookup.
+    // refreshSession() can rotate tokens, swallow getUser(false)'s error, and still return error:null.
+    if (!isCompleteSdkTokenPair(latestCredentials)) {
+      failClosed('cloud_session_refresh_incomplete')
+      throw new Error('cloud_session_refresh_incomplete')
+    }
+    const returnedUserIds = [result.data?.user?.id, tokens?.user?.id]
+      .filter((id): id is string => typeof id === 'string' && !!id)
+    const freshUserId = userRead.error ? undefined : userRead.data?.user?.id
+    const resultPairMatchesLatest = tokens?.access_token === latestCredentials.access_token &&
+      tokens?.refresh_token === latestCredentials.refresh_token
+    const confirmedUserId: unknown = freshUserId ?? (resultPairMatchesLatest ? returnedUserIds[0] : undefined)
+    const identityConflict = returnedUserIds.some((id) => id !== confirmedUserId)
+    if (typeof confirmedUserId !== 'string' || !confirmedUserId) {
+      failClosed('cloud_session_identity_unconfirmed')
+      throw new Error('cloud_session_identity_unconfirmed')
+    }
+    if (confirmedUserId !== expectedUserId ||
+      identityConflict ||
+      latestCredentials.access_token !== startingCredentials.access_token ||
+      latestCredentials.refresh_token !== startingCredentials.refresh_token ||
+      latestCredentials.access_token === startingSession.accessToken &&
+      latestCredentials.refresh_token === startingSession.refreshToken) {
+      const code = confirmedUserId !== expectedUserId || identityConflict
+        ? 'cloud_session_uid_mismatch'
+        : 'cloud_session_rotation_unverified'
+      failClosed(code)
+      throw new Error(code)
+    }
+    const activeSession = currentSession
+    if (userSessionGeneration !== generation || !activeSession || activeSession.user.uid !== expectedUserId) return null
+    if (activeSession.refreshToken !== startingSession.refreshToken || activeSession.accessToken !== startingSession.accessToken) {
+      return activeSession
+    }
+
+    const updatedSession: AuthSession = {
+      ...activeSession,
+      accessToken: latestCredentials.access_token,
+      refreshToken: latestCredentials.refresh_token,
+      expiresAt: Date.now() + (typeof tokens?.expires_in === 'number' && Number.isFinite(tokens.expires_in) && tokens.expires_in > 0 ? tokens.expires_in : 7200) * 1000
+    }
+    currentSession = updatedSession
+    try { saveSession(updatedSession) }
+    catch {
+      markUserDatabaseUnavailable('cloud_session_persist_failed')
+      throw new Error('cloud_session_persist_failed')
+    }
+    if (userDb && userDatabaseUid === expectedUserId) {
+      sdkBoundAccessToken = updatedSession.accessToken
+      sdkBoundRefreshToken = updatedSession.refreshToken
+      userDatabaseError = null
+    }
+    return updatedSession
+}
+
 async function authFetch(
   endpoint: string,
   body: Record<string, unknown> = {},
@@ -316,6 +590,7 @@ async function authFetch(
   method: string = 'POST',
   retryOn401 = true
 ): Promise<{ ok: boolean; data: Record<string, unknown>; status: number }> {
+  const requestSessionUid = token && currentSession?.accessToken === token ? currentSession.user.uid : null
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
   const request: RequestInit = { method, headers }
@@ -329,26 +604,20 @@ async function authFetch(
     ? data.data as Record<string, unknown>
     : data
   const businessError = payload.error || payload.error_description || payload.error_code
-  if (res.status === 401 && isExplicitAccessTokenExpiredError(payload) && retryOn401 && token && currentSession?.refreshToken && endpoint !== '/auth/v1/token') {
-    const refreshed = await authFetch('/auth/v1/token', {
-      grant_type: 'refresh_token',
-      refresh_token: currentSession.refreshToken
-    }, undefined, 'POST', false)
-    if (refreshed.ok) {
-      const refreshedData = authPayload(refreshed.data) as {
-        access_token?: string
-        refresh_token?: string
-        expires_in?: number
+  if (res.status === 401 && isExplicitAccessTokenExpiredError(payload) && retryOn401 && token &&
+    requestSessionUid && endpoint !== '/auth/v1/token') {
+    await userSessionBinding.catch(() => undefined)
+    if (currentSession?.user.uid === requestSessionUid) {
+      let refreshedSession: AuthSession | null = currentSession.accessToken !== token ? currentSession : null
+      if (!refreshedSession) {
+        try { refreshedSession = await refreshCurrentSessionTokens(requestSessionUid) }
+        catch (error) { console.error('[CloudBase] 访问令牌刷新失败:', safeCloudbaseErrorCode(error)) }
       }
-      if (refreshedData.access_token) {
-        currentSession.accessToken = refreshedData.access_token
-        currentSession.refreshToken = refreshedData.refresh_token || currentSession.refreshToken
-        currentSession.expiresAt = Date.now() + (refreshedData.expires_in || 7200) * 1000
-        saveSession(currentSession)
-        void bindCurrentUserDatabase(currentSession).catch((error) => {
+      if (refreshedSession && currentSession?.user.uid === requestSessionUid && refreshedSession.accessToken !== token) {
+        void bindCurrentUserDatabase(refreshedSession).catch((error) => {
           console.error('[CloudBase] 刷新用户态数据库会话失败:', safeCloudbaseErrorCode(error))
         })
-        return authFetch(endpoint, body, currentSession.accessToken, method, false)
+        return authFetch(endpoint, body, refreshedSession.accessToken, method, false)
       }
     }
   }
@@ -716,6 +985,7 @@ export async function loginWithEmail(email: string, password: string): Promise<L
     refreshToken: result.refresh_token || '',
     expiresAt: Date.now() + (result.expires_in || 7200) * 1000
   }
+  clearUserDatabaseSession()
   currentSession = session
   saveSession(session)
   try { await bindCurrentUserDatabase(session) }
@@ -819,6 +1089,7 @@ export async function loginWithVerificationCode(identifier: string, code: string
     refreshToken: result.refresh_token || '',
     expiresAt: Date.now() + (result.expires_in || 7200) * 1000
   }
+  clearUserDatabaseSession()
   currentSession = session
   saveSession(session)
   try { await bindCurrentUserDatabase(session) }
@@ -877,25 +1148,17 @@ export async function checkSession(): Promise<LoginResult | null> {
     }
     return { user: currentSession.user, accountId }
   }
-  if (!currentSession.refreshToken) {
-    return { user: currentSession.user, accountId: currentSession.user.accountId }
+  const sessionToRefresh = currentSession
+  if (!sessionToRefresh.refreshToken) {
+    return { user: sessionToRefresh.user, accountId: sessionToRefresh.user.accountId }
   }
   try {
-    const { ok, data } = await authFetch('/auth/v1/token', {
-      grant_type: 'refresh_token', refresh_token: currentSession.refreshToken
-    })
-    if (!ok) return { user: currentSession.user, accountId: currentSession.user.accountId }
-    const t = authPayload(data) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
-    if (typeof t.access_token !== 'string' || !t.access_token) {
-      return { user: currentSession.user, accountId: currentSession.user.accountId }
-    }
-    currentSession.accessToken = t.access_token
-    if (typeof t.refresh_token === 'string' && t.refresh_token) currentSession.refreshToken = t.refresh_token
-    currentSession.expiresAt = Date.now() + (typeof t.expires_in === 'number' && Number.isFinite(t.expires_in) ? t.expires_in : 7200) * 1000
-    saveSession(currentSession)
-    try { await bindCurrentUserDatabase(currentSession) }
+    await userSessionBinding.catch(() => undefined)
+    const refreshedSession = await refreshCurrentSessionTokens(sessionToRefresh.user.uid)
+    if (!refreshedSession) return { user: sessionToRefresh.user, accountId: sessionToRefresh.user.accountId }
+    try { await bindCurrentUserDatabase(refreshedSession) }
     catch (error) { console.error('[CloudBase] 会话刷新成功，但用户态数据库绑定失败:', safeCloudbaseErrorCode(error)) }
-    return { user: currentSession.user, accountId: currentSession.user.accountId }
+    return { user: refreshedSession.user, accountId: refreshedSession.user.accountId }
   } catch (error) {
     console.error('[CloudBase] 会话刷新暂不可用；保留本机会话:', safeCloudbaseErrorCode(error))
     return currentSession ? { user: currentSession.user, accountId: currentSession.user.accountId } : null
@@ -986,7 +1249,7 @@ function ensureDbAndUser(): { userId: string; database: UserCloudDatabase } {
   if (!userDb || userDatabaseUid !== userId) {
     throw new Error(userDatabaseError ? `cloud_user_database_unavailable:${userDatabaseError}` : 'cloud_user_database_unavailable')
   }
-  return { userId, database: userDb }
+  return { userId, database: serializeCloudDatabase(userDb, sdkAuthOperations) }
 }
 
 export async function upsertRemoteBill(bill: BillRow): Promise<void> {
