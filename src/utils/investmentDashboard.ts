@@ -13,6 +13,13 @@ export interface InvestmentTrendPoint {
   marketValue: number
 }
 
+/** Empty, invalid, and negative valuation values are unknown; zero is valid. */
+export function parseMarketValue(value: string | null): number | null {
+  if (value === null || value.trim() === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 /** Only values with a known currency and market value contribute to the chart. */
 export function buildInvestmentAllocation(
   positions: InvestmentPositionView[],
@@ -20,9 +27,9 @@ export function buildInvestmentAllocation(
 ): InvestmentAllocation[] {
   const totals = new Map<string, { value: number; count: number }>()
   for (const position of positions) {
-    if (position.currency !== currency || position.market_value === null) continue
-    const value = Number(position.market_value)
-    if (!Number.isFinite(value) || value <= 0) continue
+    if (position.currency !== currency) continue
+    const value = parseMarketValue(position.market_value)
+    if (value === null || value <= 0) continue
     const name = position.asset_type.trim() || position.name
     const row = totals.get(name) ?? { value: 0, count: 0 }
     row.value += value
@@ -61,8 +68,8 @@ export function buildInvestmentTrend(
 
   return commonDates.flatMap((date) => {
     const rows = keys.map((key) => (byKey.get(key) ?? []).find((row) => row.as_of === date))
-    if (rows.some((row) => !row || row.market_value === null)) return []
-    const marketValue = rows.reduce((sum, row) => sum + Number(row!.market_value), 0)
+    if (rows.some((row) => !row || parseMarketValue(row.market_value) === null)) return []
+    const marketValue = rows.reduce((sum, row) => sum + parseMarketValue(row!.market_value)!, 0)
     return Number.isFinite(marketValue) ? [{ date, marketValue }] : []
   })
 }

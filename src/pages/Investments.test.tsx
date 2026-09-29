@@ -68,7 +68,7 @@ describe('Investments page asset-allocation direction', () => {
     await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('success', '提案已导入，请检查差异并逐次确认。'))
   })
 
-  it('keeps known values and category shares visible when most positions are unvalued', async () => {
+  it('keeps known value visible but hides partial category shares when positions are unvalued', async () => {
     const valued = [
       makePosition({ asset_key: 'CNY:FUND:VALUED', name: '有估值基金', asset_type: '基金', market_value: '120' }),
       makePosition({ asset_key: 'CNY:GOLD:VALUED', name: '有估值黄金', asset_type: '黄金 ETF', market_value: '80' })
@@ -84,19 +84,12 @@ describe('Investments page asset-allocation direction', () => {
     render(<InvestmentsPage />)
 
     const card = screen.getByRole('region', { name: '资产类别占比图' })
-    expect(await within(card).findByText('6 项缺少估值')).toBeVisible()
-    expect(within(card).getByText('当前已知市值')).toBeVisible()
-    expect(within(card).getByText('200.00 CNY')).toBeVisible()
-    const details = within(card).getByRole('list', { name: '资产占比明细' })
-    expect(details).toHaveTextContent('基金')
-    expect(details).toHaveTextContent('120.00 CNY')
-    expect(details).toHaveTextContent('60.0%')
-    expect(details).toHaveTextContent('黄金 ETF')
-    expect(details).toHaveTextContent('80.00 CNY')
-    expect(details).toHaveTextContent('40.0%')
-    expect(details).not.toHaveTextContent('待估值')
-    expect(screen.getByTestId('investment-allocation-content')).toHaveClass('md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]')
-    expect(within(card).getByRole('img', { name: /200\.00 CNY.*基金 120\.00 CNY 60\.0%/ })).toBeVisible()
+    expect(await within(card).findAllByText('6 项缺少有效估值')).toHaveLength(2)
+    expect(within(card).getByText(/估值不完整，暂不展示资产占比/)).toBeVisible()
+    expect(within(card).getByText(/200\.00 CNY/)).toBeVisible()
+    expect(within(card).queryByRole('list', { name: '资产占比明细' })).not.toBeInTheDocument()
+    expect(within(card).queryByTestId('investment-allocation-content')).not.toBeInTheDocument()
+    expect(within(card).queryByText(/100\.0%/)).not.toBeInTheDocument()
   })
 
   it('keeps absent return data explicitly uncomputable and exposes cloud pull failures', async () => {

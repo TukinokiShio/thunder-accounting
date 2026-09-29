@@ -7,7 +7,7 @@ import type { AgentProposalPreview, AgentSyncContextInfo, InvestmentPositionView
 import type { InvestmentHolding } from '@/utils/investmentHoldings'
 import type { InvestmentSnapshot } from '@/utils/investmentReturns'
 import { calculateInvestmentReturns } from '@/utils/investmentReturns'
-import { buildInvestmentAllocation, buildInvestmentTrend, hasCurrentSnapshotForEveryPosition, positionTotalCost } from '@/utils/investmentDashboard'
+import { buildInvestmentAllocation, buildInvestmentTrend, hasCurrentSnapshotForEveryPosition, parseMarketValue, positionTotalCost } from '@/utils/investmentDashboard'
 
 const INVESTMENT_COLORS = ['#d59b25', '#3c8d72', '#5478a8', '#af725c', '#8b73a9', '#6998a8']
 type InvestmentDisplayField = keyof InvestmentHolding
@@ -231,30 +231,29 @@ export function InvestmentsPage() {
   const currencies = [...new Set(positions.map((position) => position.currency))].sort()
   const activeCurrency = currencies.includes(selectedCurrency ?? '') ? selectedCurrency! : (currencies[0] ?? 'CNY')
   const currencyPositions = positions.filter((position) => position.currency === activeCurrency).sort((left, right) => {
-    const leftValue = left.market_value === null ? null : Number(left.market_value)
-    const rightValue = right.market_value === null ? null : Number(right.market_value)
-    const leftKnown = leftValue !== null && Number.isFinite(leftValue)
-    const rightKnown = rightValue !== null && Number.isFinite(rightValue)
+    const leftValue = parseMarketValue(left.market_value)
+    const rightValue = parseMarketValue(right.market_value)
+    const leftKnown = leftValue !== null
+    const rightKnown = rightValue !== null
     if (leftKnown && rightKnown && leftValue !== rightValue) return rightValue! - leftValue!
     if (leftKnown !== rightKnown) return leftKnown ? -1 : 1
     return left.name.localeCompare(right.name) || left.asset_key.localeCompare(right.asset_key)
   })
+  const knownValues = currencyPositions.map((position) => parseMarketValue(position.market_value))
+  const knownMarketValue = knownValues.reduce<number>((sum, value) => value === null ? sum : sum + value, 0)
+  const valuedPositionCount = knownValues.filter((value) => value !== null).length
+  const missingValuationCount = currencyPositions.length - valuedPositionCount
+  const hasCompleteValuations = currencyPositions.length > 0 && missingValuationCount === 0
   const currencyKeys = currencyPositions.map((position) => position.asset_key)
   const allocation = buildInvestmentAllocation(positions, activeCurrency)
   const trend = buildInvestmentTrend(snapshots, currencyKeys, activeCurrency)
   const returnReport = calculateInvestmentReturns(snapshots, currencyKeys)
   const historyMatchesCurrent = hasCurrentSnapshotForEveryPosition(positions, snapshots, activeCurrency)
-  const portfolioReturns = historyMatchesCurrent ? returnReport.portfolios.find((portfolio) => portfolio.currency === activeCurrency) : undefined
+  const portfolioReturns = historyMatchesCurrent && hasCompleteValuations ? returnReport.portfolios.find((portfolio) => portfolio.currency === activeCurrency) : undefined
   const hasHistoryForCurrent = currencyPositions.every((position) => snapshots.some((snapshot) => snapshot.asset_key === position.asset_key && snapshot.as_of === position.as_of))
-  const knownMarketValue = currencyPositions.reduce((sum, position) => {
-    const value = position.market_value === null ? null : Number(position.market_value)
-    return value !== null && Number.isFinite(value) ? sum + value : sum
-  }, 0)
-  const valuedPositionCount = currencyPositions.filter((position) => position.market_value !== null && Number.isFinite(Number(position.market_value))).length
   const knownCosts = currencyPositions.map(positionTotalCost)
   const hasCompleteCosts = knownCosts.length > 0 && knownCosts.every((value) => value !== null)
   const totalCost = hasCompleteCosts ? knownCosts.reduce<number>((sum, value) => sum + value!, 0) : null
-  const missingValuationCount = currencyPositions.filter((position) => position.market_value === null).length
   const allocationDescription = [formatMoney(knownMarketValue.toFixed(2), activeCurrency), ...allocation.map((row) => `${row.name} ${formatMoney(row.value.toFixed(2), activeCurrency)} ${row.percentage.toFixed(1)}%`)].join(' | ')
 
   const metricLabel = (formulaId: string) => t(formulaId === 'floating_profit'
@@ -323,52 +322,53 @@ export function InvestmentsPage() {
 
       {error && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">{error}</div>}
 
-      <section aria-label={t('云端同步状态')} data-testid="investment-cloud-status" className="aurora-card flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
-        <div className="min-w-0 text-sm">
-          {syncState.cloudPullStatus === 'pulling' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('正在读取云端持仓…')}</p>}
-          {syncState.cloudPullStatus === 'failed' && <p role="alert" className="text-red-700 dark:text-red-300">{t('云端读取失败；本机持仓仍可查看，云端状态未知。')}</p>}
-          {syncState.cloudPullStatus === 'failed' && cloudSessionNeedsLogin && <p role="status" className="mt-1 text-amber-800 dark:text-amber-300">{t('云端登录会话已失效。请退出当前账号后重新登录；本机持仓和账单不会删除。')}</p>}
-          {syncState.cloudPullStatus === 'synced' && syncState.pending === 0 && syncState.failed === 0 && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('云端持仓已同步')}</p>}
-          {syncState.cloudPullStatus === 'synced' && (syncState.pending > 0 || syncState.failed > 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{t('待同步 {pending} 项，失败 {failed} 项。').replace('{pending}', String(syncState.pending)).replace('{failed}', String(syncState.failed))}</p>}
-          {syncState.cloudPullStatus === 'unknown' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('云端同步状态未知；本机持仓仍可查看。')}</p>}
-          {syncState.cloudPullError && <details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">{t('查看错误代码')}</summary><code className="mt-1 block break-all">{formatCloudPullDiagnostic(syncState.cloudPullError, t)}</code></details>}
-        </div>
-        {(syncState.pending > 0 || syncState.failed > 0 || syncState.cloudPullStatus !== 'synced') && (
-          <button type="button" onClick={() => void handleRetry()} disabled={retrying} className="aurora-button-secondary inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50">
-            {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}{t('重试云同步')}
-          </button>
-        )}
-      </section>
-
       <section aria-labelledby="allocation-heading" className="space-y-4" data-testid="investment-dashboard">
-        <div className="aurora-card flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="rounded-lg bg-[var(--accent-dim)] p-2 text-[var(--accent)]"><Wallet size={19} /></span>
-            <div className="min-w-0">
-              <h2 id="allocation-heading" className="font-semibold text-gray-900 dark:text-gray-100">{t('资产配置')}</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t('按已记录市值展示；不含缺少估值的项目')}</p>
+        <section data-testid="investment-cloud-status" aria-label={t('云端同步状态')} className="aurora-card rounded-xl border p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="rounded-lg bg-[var(--accent-dim)] p-2 text-[var(--accent)]"><Wallet size={19} /></span>
+              <div className="min-w-0">
+                <h2 id="allocation-heading" className="font-semibold text-gray-900 dark:text-gray-100">{t('资产配置')}</h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('按已记录市值展示；不含缺少估值的项目')}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {currencies.length > 1 && currencies.map((currency) => (
+                <button key={currency} type="button" onClick={() => setSelectedCurrency(currency)} aria-pressed={activeCurrency === currency}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium ${activeCurrency === currency ? 'border-[var(--accent)] bg-[var(--accent-dim)] text-[var(--accent)]' : 'aurora-border text-gray-600 dark:text-gray-300'}`}>
+                  {currency}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {currencies.length > 1 && currencies.map((currency) => (
-              <button key={currency} type="button" onClick={() => setSelectedCurrency(currency)} aria-pressed={activeCurrency === currency}
-                className={`rounded-full border px-3 py-1.5 text-xs font-medium ${activeCurrency === currency ? 'border-[var(--accent)] bg-[var(--accent-dim)] text-[var(--accent)]' : 'aurora-border text-gray-600 dark:text-gray-300'}`}>
-                {currency}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t aurora-border pt-3">
+            <div className="min-w-0 text-sm">
+              {syncState.cloudPullStatus === 'pulling' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('正在读取云端持仓…')}</p>}
+              {syncState.cloudPullStatus === 'failed' && <p role="alert" className="text-red-700 dark:text-red-300">{t('云端读取失败；本机持仓仍可查看，云端状态未知。')}</p>}
+              {syncState.cloudPullStatus === 'failed' && cloudSessionNeedsLogin && <p role="status" className="mt-1 text-amber-800 dark:text-amber-300">{t('云端登录会话已失效。请退出当前账号后重新登录；本机持仓和账单不会删除。')}</p>}
+              {syncState.cloudPullStatus === 'synced' && syncState.pending === 0 && syncState.failed === 0 && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('云端持仓已同步')}</p>}
+              {syncState.cloudPullStatus === 'synced' && (syncState.pending > 0 || syncState.failed > 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{t('待同步 {pending} 项，失败 {failed} 项。').replace('{pending}', String(syncState.pending)).replace('{failed}', String(syncState.failed))}</p>}
+              {syncState.cloudPullStatus === 'unknown' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('云端同步状态未知；本机持仓仍可查看。')}</p>}
+              {syncState.cloudPullError && <details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">{t('查看错误代码')}</summary><code className="mt-1 block break-all">{formatCloudPullDiagnostic(syncState.cloudPullError, t)}</code></details>}
+            </div>
+            {(syncState.pending > 0 || syncState.failed > 0 || syncState.cloudPullStatus !== 'synced') && (
+              <button type="button" onClick={() => void handleRetry()} disabled={retrying} className="aurora-button-secondary inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50">
+                {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}{t('重试云同步')}
               </button>
-            ))}
+            )}
           </div>
-        </div>
+        </section>
 
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-4 min-[1025px]:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
           <section className="aurora-card min-w-0 rounded-xl border p-4 sm:p-5" aria-label={t('资产类别占比图')}>
             <div className="flex items-start justify-between gap-3">
               <div><h3 className="font-semibold text-gray-900 dark:text-gray-100">{t('资产类别占比')}</h3><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t('币种')} · {activeCurrency}</p></div>
-              {missingValuationCount > 0 && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{t('{n} 项缺少估值').replace('{n}', String(missingValuationCount))}</span>}
+              {missingValuationCount > 0 && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{t('{n} 项缺少有效估值').replace('{n}', String(missingValuationCount))}</span>}
             </div>
-            {allocation.length > 0 ? (
+            {hasCompleteValuations && allocation.length > 0 ? (
               <>
-                <div data-testid="investment-allocation-content" className="mt-2 grid min-w-0 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] md:items-center">
-                  <div className="relative mx-auto h-[158px] w-full max-w-[200px] min-w-0 md:mx-0 md:max-w-none">
+                <div data-testid="investment-allocation-content" className="mt-2 grid min-w-0 gap-2 min-[1025px]:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] min-[1025px]:items-center">
+                  <div className="relative mx-auto h-[158px] w-full max-w-[200px] min-w-0 min-[1025px]:mx-0 min-[1025px]:max-w-none">
                     <div role="img" aria-label={t('资产类别占比图表说明：{details}').replace('{details}', allocationDescription)} className="h-full w-full min-w-0">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
@@ -380,11 +380,11 @@ export function InvestmentsPage() {
                       </ResponsiveContainer>
                     </div>
                     <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-[10px] text-gray-500 dark:text-gray-400">{t('当前已知市值')}</span>
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400">{t('组合市值')}</span>
                       <span className="max-w-[112px] truncate text-center text-xs font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatMoney(knownMarketValue.toFixed(2), activeCurrency)}</span>
                     </div>
                   </div>
-                  <ul aria-label={t('资产占比明细')} className="space-y-1.5 border-t aurora-border pt-2 md:border-l md:border-t-0 md:pl-3 md:pt-0">
+                  <ul aria-label={t('资产占比明细')} className="space-y-1.5 border-t aurora-border pt-2 min-[1025px]:border-l min-[1025px]:border-t-0 min-[1025px]:pl-3 min-[1025px]:pt-0">
                     {allocation.map((row, index) => <li key={row.name} className="flex min-w-0 items-center justify-between gap-2 text-xs sm:text-sm">
                       <span className="flex min-w-0 items-center gap-2"><i aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: INVESTMENT_COLORS[index % INVESTMENT_COLORS.length] }} /><span className="truncate text-gray-700 dark:text-gray-300">{row.name}</span><span className="shrink-0 text-[10px] text-gray-400">{row.count}</span></span>
                       <span className="shrink-0 text-right tabular-nums"><b className="font-medium text-gray-900 dark:text-gray-100">{formatMoney(row.value.toFixed(2), activeCurrency)}</b><span className="ml-1.5 text-[10px] text-gray-500 sm:ml-2 sm:text-xs">{row.percentage.toFixed(1)}%</span></span>
@@ -392,17 +392,31 @@ export function InvestmentsPage() {
                   </ul>
                 </div>
               </>
-            ) : <div className="flex h-[180px] items-center justify-center rounded-lg bg-gray-50 px-5 text-center text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('暂无可用于配置图的持仓数据。') : t('当前没有可用于配置图的已知市值。')}</div>}
+            ) : (
+              <div role={loading ? 'status' : 'note'} data-testid="investment-allocation-incomplete" className="mt-3 flex min-h-[180px] flex-col items-center justify-center rounded-lg bg-gray-50 px-5 text-center dark:bg-gray-800/50">
+                {loading ? <p className="text-sm text-gray-500 dark:text-gray-400">{t('正在读取…')}</p> : currencyPositions.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{positions.length > 0 ? t('该币种下暂无持仓。') : t('暂无可用于配置图的持仓数据。')}</p>
+                ) : missingValuationCount > 0 ? (
+                  <>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('{n} 项缺少有效估值').replace('{n}', String(missingValuationCount))}</p>
+                    <p className="mt-2 max-w-md text-sm text-gray-600 dark:text-gray-300">{t('估值不完整，暂不展示资产占比；补充可核实的持仓市值后再汇总。')}</p>
+                    {valuedPositionCount > 0 && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{t('当前已知市值')} · {formatMoney(knownMarketValue.toFixed(2), activeCurrency)}</p>}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('所有持仓估值均为 0，无法形成资产占比。')}</p>
+                )}
+              </div>
+            )}
           </section>
 
           <div className="grid min-w-0 gap-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="aurora-card min-w-0 rounded-xl border p-4"><p className="text-xs text-gray-500 dark:text-gray-400">{t('当前已知市值')}</p><p className="mt-1 break-all text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100">{loading ? t('正在读取…') : valuedPositionCount === 0 ? '—' : formatMoney(knownMarketValue.toFixed(2), activeCurrency)}</p><p className="mt-1 text-xs text-gray-500">{loading ? '' : t('{n} 项持仓').replace('{n}', String(currencyPositions.length))}{!loading && missingValuationCount > 0 ? ` · ${t('{n} 项待估值').replace('{n}', String(missingValuationCount))}` : ''}</p></div>
+              <div className="aurora-card min-w-0 rounded-xl border p-4"><p className="text-xs text-gray-500 dark:text-gray-400">{t(hasCompleteValuations ? '组合市值' : '当前已知市值')}</p><p className="mt-1 break-all text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100">{loading ? t('正在读取…') : valuedPositionCount === 0 ? '—' : formatMoney(knownMarketValue.toFixed(2), activeCurrency)}</p><p className="mt-1 text-xs text-gray-500">{loading ? '' : t('{n} 项持仓').replace('{n}', String(currencyPositions.length))}{!loading && missingValuationCount > 0 ? ` · ${t('{n} 项待估值').replace('{n}', String(missingValuationCount))}` : ''}</p></div>
               <div className="aurora-card min-w-0 rounded-xl border p-4"><p className="text-xs text-gray-500 dark:text-gray-400">{t('总成本')}</p><p className="mt-1 break-all text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100">{loading ? t('正在读取…') : totalCost === null ? '—' : formatMoney(totalCost.toFixed(2), activeCurrency)}</p><p className="mt-1 text-xs text-gray-500">{loading ? '' : totalCost === null ? t('部分持仓的成本口径未知') : t('成本口径完整')}</p></div>
             </div>
             <div className="grid min-w-0 gap-3 sm:grid-cols-3">
               {portfolioReturns ? [portfolioReturns.floating, portfolioReturns.daily, portfolioReturns.cumulative].map(renderMetric) : (
-                ['floating_profit', 'daily_return', 'cumulative_return'].map((formula) => <div key={formula} className="aurora-card min-w-0 rounded-xl border p-4"><p className="text-xs text-gray-500 dark:text-gray-400">{metricLabel(formula)}</p><p className="mt-2 text-base font-medium text-gray-500">{loading ? t('正在读取…') : t('暂不可计算')}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{loading ? '' : !hasHistoryForCurrent ? t('缺少持仓快照') : t('持仓与快照数据不一致')}</p><p className="mt-2 text-[11px] text-gray-400">{t('低频估算 · 来源与公式可追溯')}</p></div>)
+                ['floating_profit', 'daily_return', 'cumulative_return'].map((formula) => <div key={formula} className="aurora-card min-w-0 rounded-xl border p-4"><p className="text-xs text-gray-500 dark:text-gray-400">{metricLabel(formula)}</p><p className="mt-2 text-base font-medium text-gray-500">{loading ? t('正在读取…') : t('暂不可计算')}</p><p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{loading ? '' : missingValuationCount > 0 ? t('部分持仓缺少有效估值') : !hasHistoryForCurrent ? t('缺少持仓快照') : t('持仓与快照数据不一致')}</p><p className="mt-2 text-[11px] text-gray-400">{t('低频估算 · 来源与公式可追溯')}</p></div>)
               )}
             </div>
           </div>
