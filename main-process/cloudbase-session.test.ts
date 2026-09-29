@@ -48,6 +48,19 @@ describe('CloudBase user-session database binding', () => {
     expect(fixture.getDatabase).not.toHaveBeenCalled()
   })
 
+  it('preserves safe AuthError status and numeric codes through the binding wrapper', async () => {
+    const authError = Object.assign(new Error('private token detail'), {
+      name: 'AuthError', code: 'unknown', status: 'unauthenticated', errorCode: 16,
+      category: 'INVALID_CREDENTIALS', requestId: 'private-request-id'
+    })
+    const fixture = fakeClient('fixture-user-a', authError)
+
+    await expect(bindCloudbaseUserDatabase(fixture.client, {
+      access_token: 'synthetic-access', refresh_token: 'synthetic-refresh'
+    }, 'fixture-user-a')).rejects.toThrow('cloud_session_rejected:unauthenticated')
+    expect(fixture.getDatabase).not.toHaveBeenCalled()
+  })
+
   it('keeps only a safe machine code and recognizes explicit token expiry', async () => {
     const sensitiveMessage = new Error('request contained a secret and private endpoint')
     Object.assign(sensitiveMessage, { code: 'TOKEN_EXPIRED', status: 401, requestId: 'private-request-id' })
@@ -72,6 +85,30 @@ describe('CloudBase user-session database binding', () => {
     expect(safeCloudbaseErrorCode({ response: { data: { code: 'DATABASE_TIMEOUT' } } })).toBe('database_timeout')
     expect(safeCloudbaseErrorCode(Object.assign(new Error('private SDK message'), { code: 'INVALID_PARAM', requestId: 'private-request-id' }))).toBe('invalid_param')
     expect(safeCloudbaseErrorCode({ code: 'DATABASE_TRANSACTION_CONFLICT' })).toBe('database_transaction_conflict')
+    expect(safeCloudbaseErrorCode({
+      name: 'AuthError', code: 'unknown', status: 'unauthenticated', errorCode: 16,
+      category: 'INVALID_CREDENTIALS', requestId: 'private-request-id', message: 'private token detail'
+    })).toBe('unauthenticated')
+    expect(safeCloudbaseErrorCode({
+      name: 'AuthError', code: '16', errorCode: 16, category: 'INVALID_CREDENTIALS',
+      requestId: 'private-request-id', message: 'private token detail'
+    })).toBe('unauthenticated')
+    expect(safeCloudbaseErrorCode({
+      name: 'AuthError', code: 'unknown', errorCode: 14, category: 'SERVICE_ERROR',
+      requestId: 'private-request-id', message: 'private token detail'
+    })).toBe('unavailable')
+    expect(safeCloudbaseErrorCode({
+      name: 'AuthError', code: 'unknown', category: 'SERVICE_ERROR',
+      requestId: 'private-request-id', message: 'private token detail'
+    })).toBe('cloud_auth_service_error')
+    expect(safeCloudbaseErrorCode({
+      name: 'AuthError', code: 'invalid_credentials', status: 'unauthenticated', errorCode: 13,
+      category: 'UNKNOWN', requestId: 'private-request-id', message: 'private token detail'
+    })).toBe('cloud_auth_metadata_conflict')
+    expect(safeCloudbaseErrorCode({
+      name: 'AuthError', code: 'unknown', category: 'UNKNOWN',
+      requestId: 'private-request-id', message: 'private token detail'
+    })).toBe('cloud_auth_unknown_error')
     expect(safeCloudbaseErrorCode(new Error('cloud_session_or_local_database_unavailable'))).toBe('cloud_session_or_local_database_unavailable')
     expect(safeCloudbaseErrorCode(new Error('cloud_investment_positions_payload_invalid'))).toBe('cloud_investment_positions_payload_invalid')
     expect(safeCloudbaseErrorCode(Object.assign(new Error('private detail'), { code: 'PRIVATE_SERVICE_CODE', errMsg: 'secret token' }))).toBe('cloud_unknown_error')
