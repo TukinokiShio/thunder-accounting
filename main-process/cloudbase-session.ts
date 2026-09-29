@@ -23,8 +23,15 @@ const SAFE_CLOUDBASE_CODES = new Set([
   'cloud_pull_investments_failed', 'cloud_pull_investment_snapshots_failed', 'cloud_sync_investment_failed', 'cloud_delete_investment_failed',
   'token_expired', 'access_token_expired', 'invalid_refresh_token', 'refresh_token_expired',
   'investment_history_collection_missing', 'migration_required', 'reauth_required',
+  'cloud_session_or_local_database_unavailable',
   'database_permission_denied', 'database_collection_not_exist', 'database_timeout', 'database_request_failed',
-  'database_invalid_operrator', 'database_duplicate_write', 'permission_denied', 'invalid_credentials',
+  'database_invalid_operrator', 'database_duplicate_write', 'database_transaction_fail', 'database_transaction_conflict',
+  'database_collection_exceed_limit', 'database_collection_already_exist',
+  'cloud_investment_positions_payload_invalid', 'cloud_investment_snapshots_payload_invalid',
+  'sys_err', 'server_timeout', 'invalid_param', 'invalid_common_param', 'invalid_request_source',
+  'resource_not_found', 'invalid_region', 'invalid_host', 'request_canceled', 'request_forbidden',
+  'access_denied', 'exceed_authority', 'missing_required_param', 'missing_credentials',
+  'authentication_failed', 'action_forbidden', 'permission_denied', 'invalid_credentials',
   'access_token_invalid', 'unauthorized', 'network_error', 'request_timeout', 'fetch_failed', 'failed_to_fetch'
 ])
 

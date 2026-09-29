@@ -67,6 +67,20 @@ function formatMoney(value: string | null, currency: string): string {
   return value === null ? '—' : `${value} ${currency}`
 }
 
+function formatCloudPullDiagnostic(error: string, t: (key: string) => string): string {
+  const separator = error.indexOf(':')
+  if (separator < 0) return error
+  const labels: Record<string, string> = {
+    session_binding: t('会话绑定阶段'),
+    positions_read: t('持仓读取阶段'),
+    snapshots_read: t('快照读取阶段'),
+    local_merge: t('本机合并阶段')
+  }
+  const phase = labels[error.slice(0, separator)]
+  if (!phase) return error
+  return `${t(phase)} · ${t('错误代码')}: ${error.slice(separator + 1)}`
+}
+
 export function InvestmentsPage() {
   const { t } = useLanguage()
   const addToast = useStore((state) => state.addToast)
@@ -240,6 +254,7 @@ export function InvestmentsPage() {
   const hasCompleteCosts = knownCosts.length > 0 && knownCosts.every((value) => value !== null)
   const totalCost = hasCompleteCosts ? knownCosts.reduce<number>((sum, value) => sum + value!, 0) : null
   const missingValuationCount = currencyPositions.filter((position) => position.market_value === null).length
+  const allocationDescription = [formatMoney(knownMarketValue.toFixed(2), activeCurrency), ...allocation.map((row) => `${row.name} ${formatMoney(row.value.toFixed(2), activeCurrency)} ${row.percentage.toFixed(1)}%`)].join(' | ')
 
   const metricLabel = (formulaId: string) => t(formulaId === 'floating_profit'
     ? '持仓浮盈'
@@ -314,7 +329,7 @@ export function InvestmentsPage() {
           {syncState.cloudPullStatus === 'synced' && syncState.pending === 0 && syncState.failed === 0 && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('云端持仓已同步')}</p>}
           {syncState.cloudPullStatus === 'synced' && (syncState.pending > 0 || syncState.failed > 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{t('待同步 {pending} 项，失败 {failed} 项。').replace('{pending}', String(syncState.pending)).replace('{failed}', String(syncState.failed))}</p>}
           {syncState.cloudPullStatus === 'unknown' && <p role="status" className="text-gray-600 dark:text-gray-300">{t('云端同步状态未知；本机持仓仍可查看。')}</p>}
-          {syncState.cloudPullError && <details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">{t('查看错误代码')}</summary><code className="mt-1 block break-all">{syncState.cloudPullError}</code></details>}
+          {syncState.cloudPullError && <details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">{t('查看错误代码')}</summary><code className="mt-1 block break-all">{formatCloudPullDiagnostic(syncState.cloudPullError, t)}</code></details>}
         </div>
         {(syncState.pending > 0 || syncState.failed > 0 || syncState.cloudPullStatus !== 'synced') && (
           <button type="button" onClick={() => void handleRetry()} disabled={retrying} className="aurora-button-secondary inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50">
@@ -350,22 +365,30 @@ export function InvestmentsPage() {
             </div>
             {allocation.length > 0 ? (
               <>
-                <div role="img" aria-label={t('资产类别占比图表说明：{details}').replace('{details}', allocation.map((row) => `${row.name} ${row.percentage.toFixed(1)}%`).join(', '))} className="mt-2 h-[250px] w-full min-w-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={allocation} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={62} outerRadius={98} paddingAngle={2} strokeWidth={0} isAnimationActive={false}>
-                        {allocation.map((row, index) => <Cell key={row.name} fill={INVESTMENT_COLORS[index % INVESTMENT_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip formatter={(value: number, _name: string, item: { payload?: { name?: string } }) => [`${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${activeCurrency}`, item.payload?.name ?? '']} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                <div data-testid="investment-allocation-content" className="mt-2 grid min-w-0 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] md:items-center">
+                  <div className="relative mx-auto h-[158px] w-full max-w-[200px] min-w-0 md:mx-0 md:max-w-none">
+                    <div role="img" aria-label={t('资产类别占比图表说明：{details}').replace('{details}', allocationDescription)} className="h-full w-full min-w-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={allocation} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={73} paddingAngle={2} strokeWidth={0} isAnimationActive={false}>
+                            {allocation.map((row, index) => <Cell key={row.name} fill={INVESTMENT_COLORS[index % INVESTMENT_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip formatter={(value: number, _name: string, item: { payload?: { name?: string } }) => [`${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${activeCurrency}`, item.payload?.name ?? '']} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400">{t('当前已知市值')}</span>
+                      <span className="max-w-[112px] truncate text-center text-xs font-semibold tabular-nums text-gray-900 dark:text-gray-100">{formatMoney(knownMarketValue.toFixed(2), activeCurrency)}</span>
+                    </div>
+                  </div>
+                  <ul aria-label={t('资产占比明细')} className="space-y-1.5 border-t aurora-border pt-2 md:border-l md:border-t-0 md:pl-3 md:pt-0">
+                    {allocation.map((row, index) => <li key={row.name} className="flex min-w-0 items-center justify-between gap-2 text-xs sm:text-sm">
+                      <span className="flex min-w-0 items-center gap-2"><i aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: INVESTMENT_COLORS[index % INVESTMENT_COLORS.length] }} /><span className="truncate text-gray-700 dark:text-gray-300">{row.name}</span><span className="shrink-0 text-[10px] text-gray-400">{row.count}</span></span>
+                      <span className="shrink-0 text-right tabular-nums"><b className="font-medium text-gray-900 dark:text-gray-100">{formatMoney(row.value.toFixed(2), activeCurrency)}</b><span className="ml-1.5 text-[10px] text-gray-500 sm:ml-2 sm:text-xs">{row.percentage.toFixed(1)}%</span></span>
+                    </li>)}
+                  </ul>
                 </div>
-                <ul aria-label={t('资产占比明细')} className="space-y-2 border-t aurora-border pt-3">
-                  {allocation.map((row, index) => <li key={row.name} className="flex min-w-0 items-center justify-between gap-3 text-sm">
-                    <span className="flex min-w-0 items-center gap-2"><i aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: INVESTMENT_COLORS[index % INVESTMENT_COLORS.length] }} /><span className="truncate text-gray-700 dark:text-gray-300">{row.name}</span><span className="shrink-0 text-xs text-gray-400">{row.count}</span></span>
-                    <span className="shrink-0 text-right tabular-nums"><b className="font-medium text-gray-900 dark:text-gray-100">{formatMoney(row.value.toFixed(2), activeCurrency)}</b><span className="ml-2 text-xs text-gray-500">{row.percentage.toFixed(1)}%</span></span>
-                  </li>)}
-                </ul>
               </>
             ) : <div className="flex h-[180px] items-center justify-center rounded-lg bg-gray-50 px-5 text-center text-sm text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">{loading ? t('正在读取…') : positions.length === 0 ? t('暂无可用于配置图的持仓数据。') : t('当前没有可用于配置图的已知市值。')}</div>}
           </section>

@@ -50,6 +50,7 @@ describe('Investments page asset-allocation direction', () => {
 
     expect(await screen.findByText('资产配置')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /资产类别占比图表说明/ })).toBeVisible()
+    expect(within(screen.getByRole('region', { name: '资产类别占比图' })).getByRole('img', { name: /120\.00 CNY/ })).toBeVisible()
     expect(screen.getByText('基金')).toBeInTheDocument()
     expect(screen.getAllByText('120.00 CNY').length).toBeGreaterThan(1)
     expect(screen.getByText('历史市值趋势')).toBeInTheDocument()
@@ -65,6 +66,37 @@ describe('Investments page asset-allocation direction', () => {
     fireEvent.click(screen.getByRole('button', { name: '导入提案文件' }))
     await waitFor(() => expect((window as any).electronAgentAPI.importProposalFile).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('success', '提案已导入，请检查差异并逐次确认。'))
+  })
+
+  it('keeps known values and category shares visible when most positions are unvalued', async () => {
+    const valued = [
+      makePosition({ asset_key: 'CNY:FUND:VALUED', name: '有估值基金', asset_type: '基金', market_value: '120' }),
+      makePosition({ asset_key: 'CNY:GOLD:VALUED', name: '有估值黄金', asset_type: '黄金 ETF', market_value: '80' })
+    ]
+    const unvalued = Array.from({ length: 6 }, (_, index) => makePosition({
+      id: index + 3,
+      asset_key: `CNY:UNVALUED:${index}`,
+      name: `待估值 ${index + 1}`,
+      market_value: null
+    }))
+    ;(window as any).electronAgentAPI.getPositions.mockResolvedValueOnce([...valued, ...unvalued])
+    ;(window as any).electronAgentAPI.getSnapshotHistory.mockResolvedValueOnce([])
+    render(<InvestmentsPage />)
+
+    const card = screen.getByRole('region', { name: '资产类别占比图' })
+    expect(await within(card).findByText('6 项缺少估值')).toBeVisible()
+    expect(within(card).getByText('当前已知市值')).toBeVisible()
+    expect(within(card).getByText('200.00 CNY')).toBeVisible()
+    const details = within(card).getByRole('list', { name: '资产占比明细' })
+    expect(details).toHaveTextContent('基金')
+    expect(details).toHaveTextContent('120.00 CNY')
+    expect(details).toHaveTextContent('60.0%')
+    expect(details).toHaveTextContent('黄金 ETF')
+    expect(details).toHaveTextContent('80.00 CNY')
+    expect(details).toHaveTextContent('40.0%')
+    expect(details).not.toHaveTextContent('待估值')
+    expect(screen.getByTestId('investment-allocation-content')).toHaveClass('md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]')
+    expect(within(card).getByRole('img', { name: /200\.00 CNY.*基金 120\.00 CNY 60\.0%/ })).toBeVisible()
   })
 
   it('keeps absent return data explicitly uncomputable and exposes cloud pull failures', async () => {
@@ -106,6 +138,15 @@ describe('Investments page asset-allocation direction', () => {
     expect(errorDetails).not.toHaveAttribute('open')
     fireEvent.click(screen.getByText('查看错误代码'))
     expect(screen.getByText('cloud_session_rejected:token_expired')).toBeVisible()
+  })
+
+  it('shows a safe cloud failure phase beside the machine code', async () => {
+    ;(window as any).electronAgentAPI.getSyncState.mockResolvedValueOnce({ pending: 0, failed: 0, cloudPullStatus: 'failed', cloudPullError: 'positions_read:cloud_unknown_error' })
+    render(<InvestmentsPage />)
+
+    expect(await screen.findByRole('alert')).toBeVisible()
+    fireEvent.click(screen.getByText('查看错误代码'))
+    expect(screen.getByText('持仓读取阶段 · 错误代码: cloud_unknown_error')).toBeVisible()
   })
 
   it('puts proposal confirmation before the collapsed technical holding diff', async () => {

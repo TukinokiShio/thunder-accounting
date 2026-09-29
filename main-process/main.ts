@@ -242,24 +242,28 @@ async function refreshCloudInvestmentPositions(expectedUserId = getUserId()): Pr
   }
   investmentCloudPullState = { status: 'pulling', error: null }
   let databaseUserId: string | null = null
+  let phase: 'session_binding' | 'positions_read' | 'snapshots_read' | 'local_merge' = 'session_binding'
   try {
     await retryCurrentUserDatabaseBinding(expectedUserId)
     databaseUserId = getCurrentUserId()
     if (!databaseUserId || !isLoggedIn() || expectedUserId !== getUserId() || expectedUserId !== databaseUserId) {
       throw new Error('cloud_session_or_local_database_unavailable')
     }
+    phase = 'positions_read'
     const cloudInvestments = await pullInvestmentPositionsFromCloud()
+    phase = 'snapshots_read'
     const snapshotPull = await pullInvestmentSnapshotsFromCloud()
     if (!isLoggedIn() || getUserId() !== expectedUserId || getCurrentUserId() !== databaseUserId) {
       investmentCloudPullState = { status: 'unknown', error: null }
       return false
     }
+    phase = 'local_merge'
     if (snapshotPull.rows.length > 0) insertCloudInvestmentSnapshots(snapshotPull.rows)
     if (cloudInvestments.length > 0) insertCloudInvestmentPositions(cloudInvestments)
     if (!snapshotPull.collectionAvailable) {
       investmentCloudPullState = {
         status: 'failed',
-        error: 'investment_history_collection_missing'
+        error: 'snapshots_read:investment_history_collection_missing'
       }
       return false
     }
@@ -267,11 +271,13 @@ async function refreshCloudInvestmentPositions(expectedUserId = getUserId()): Pr
     return true
   } catch (error) {
     if (getUserId() === expectedUserId) {
+      const errorCode = safeCloudbaseErrorCode(error)
+      const diagnostic = `${phase}:${errorCode}`
       investmentCloudPullState = {
         status: 'failed',
-        error: safeCloudbaseErrorCode(error)
+        error: diagnostic
       }
-      console.error('[Sync] 云端投资持仓拉取失败；本地持仓未覆盖:', safeCloudbaseErrorCode(error))
+      console.error('[Sync] 云端投资持仓拉取失败；本地持仓未覆盖:', diagnostic)
     }
     return false
   }

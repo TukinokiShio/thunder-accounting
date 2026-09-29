@@ -1365,7 +1365,7 @@ export async function pullInvestmentPositionsFromCloud(): Promise<CloudInvestmen
         ...(Object.prototype.hasOwnProperty.call(record, 'cash_flows_complete') ? { cash_flows_complete: record.cash_flows_complete } : {})
       }))
       const validation = validateInvestmentBatch(normalized)
-      if (!validation.valid) throw new Error(`云端持仓格式无效：${validation.errors[0]?.message || 'unknown'}`)
+      if (!validation.valid) throw new Error('cloud_investment_positions_payload_invalid')
       for (let index = 0; index < page.length; index++) {
         const record = page[index]
         rows.push({
@@ -1424,7 +1424,7 @@ export async function pullInvestmentSnapshotsFromCloud(): Promise<{
         ...(Object.prototype.hasOwnProperty.call(record, 'cash_flows_complete') ? { cash_flows_complete: record.cash_flows_complete } : {})
       }))
       const validation = validateInvestmentBatch(normalized)
-      if (!validation.valid) throw new Error(`云端快照格式无效：${validation.errors[0]?.message || 'unknown'}`)
+      if (!validation.valid) throw new Error('cloud_investment_snapshots_payload_invalid')
       for (let index = 0; index < page.length; index++) {
         const record = page[index]
         const operationId = typeof record.operation_id === 'string' ? record.operation_id : ''
