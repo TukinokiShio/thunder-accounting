@@ -5,7 +5,7 @@ import path from 'path'
 import { app } from 'electron'
 import type { BillRow, CategoryRow, RecurringRow, InvestmentPositionRow, CloudInvestmentPosition, CloudInvestmentSnapshot } from './database'
 import { clearAllData, getDbPath, getBills, getCategories, getRecurrings, getInvestmentPositions, getInvestmentSnapshotHistory, setBillCloudId, setCategoryCloudId, setRecurringCloudId } from './database'
-import { validateInvestmentBatch } from '../src/utils/investmentHoldings'
+import { validateInvestmentBatch, validateInvestmentSnapshotHistory } from '../src/utils/investmentHoldings'
 import { investmentDocumentId, investmentSnapshotDocumentId } from './investment-cloud-key'
 import { bindCloudbaseUserDatabaseWithRefresh, isAlreadyBoundSdkCredentialPair, isCurrentSdkTokenRefresh, isSdkTokenRefreshForBoundLineage, isExplicitAccessTokenExpiredError, safeCloudbaseErrorCode, SerialQueue, serializeCloudDatabase, SingleFlight, type SdkTokenRefreshSession } from './cloudbase-session'
 import { readOptionalCloudBaseCollectionPage } from './cloudbase-collection'
@@ -1657,6 +1657,7 @@ export async function pullInvestmentSnapshotsFromCloud(): Promise<{
 }> {
   const { userId, database } = ensureDbAndUser()
   const rows: CloudInvestmentSnapshot[] = []
+  const seenSnapshotIdentities = new Set<string>()
   const pageSize = 100
   let offset = 0
   try {
@@ -1686,8 +1687,13 @@ export async function pullInvestmentSnapshotsFromCloud(): Promise<{
         ...(Object.prototype.hasOwnProperty.call(record, 'cash_flows') ? { cash_flows: record.cash_flows } : {}),
         ...(Object.prototype.hasOwnProperty.call(record, 'cash_flows_complete') ? { cash_flows_complete: record.cash_flows_complete } : {})
       }))
-      const validation = validateInvestmentBatch(normalized)
+      const validation = validateInvestmentSnapshotHistory(normalized)
       if (!validation.valid) throw new Error('cloud_investment_snapshots_payload_invalid')
+      for (const holding of validation.holdings) {
+        const identity = JSON.stringify([holding.asset_key, holding.as_of])
+        if (seenSnapshotIdentities.has(identity)) throw new Error('cloud_investment_snapshots_payload_invalid')
+        seenSnapshotIdentities.add(identity)
+      }
       for (let index = 0; index < page.length; index++) {
         const record = page[index]
         const operationId = typeof record.operation_id === 'string' ? record.operation_id : ''

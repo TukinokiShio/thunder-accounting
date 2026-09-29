@@ -164,7 +164,13 @@ describe('Investments page asset-allocation direction', () => {
     const proposal = summary.closest('article')!
     const confirm = within(proposal).getByRole('button', { name: '确认更新 1 项持仓' })
     const detailSummary = within(proposal).getByText('查看完整字段差异与保留项目')
+    const pinnedPrompt = screen.getByTestId('investment-pending-proposal-banner')
+    const reviewLink = within(pinnedPrompt).getByRole('link', { name: '查看并前往审核' })
     expect(confirm.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(detailSummary.closest('details')).not.toHaveAttribute('open')
+    expect(pinnedPrompt).toHaveTextContent('只有你确认后才会写入')
+    expect(pinnedPrompt.className).toContain('sticky')
+    expect(reviewLink).toHaveAttribute('href', '#agent-proposals-heading')
+    expect(pinnedPrompt.compareDocumentPosition(screen.getByTestId('investment-dashboard')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

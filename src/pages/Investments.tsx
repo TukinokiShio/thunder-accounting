@@ -320,6 +320,18 @@ export function InvestmentsPage() {
         </button>
       </header>
 
+      {!loading && proposals.length > 0 && (
+        <aside data-testid="investment-pending-proposal-banner" role="status" className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center justify-between gap-3 rounded-xl border aurora-border bg-[var(--bg-card)]/95 px-4 py-3 shadow-sm backdrop-blur">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('{n} 项提案待审核').replace('{n}', String(proposals.length))}</p>
+            <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">{t('只有你确认后才会写入；请先核对提案差异。')}</p>
+          </div>
+          <a href="#agent-proposals-heading" className="aurora-button-primary inline-flex min-h-10 shrink-0 items-center rounded-lg px-3 py-2 text-sm font-medium">
+            {t('查看并前往审核')}
+          </a>
+        </aside>
+      )}
+
       {error && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">{error}</div>}
 
       <section aria-labelledby="allocation-heading" className="space-y-4" data-testid="investment-dashboard">
@@ -448,7 +460,7 @@ export function InvestmentsPage() {
         </div>}
       </section>
 
-      <section aria-labelledby="agent-proposals-heading" className="space-y-3">
+      <section aria-labelledby="agent-proposals-heading" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="agent-proposals-heading" className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('等待确认的 Agent 提案')} <span className="text-sm font-normal text-gray-500">({proposals.length})</span></h2>
           <button type="button" onClick={() => void importProposalFile()} disabled={importing || !context?.available} className="aurora-button-secondary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50">

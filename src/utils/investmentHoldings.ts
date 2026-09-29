@@ -91,6 +91,7 @@ export type InvestmentValidationCode =
   | 'invalid_cash_flow'
   | 'duplicate_cash_flow_id'
   | 'duplicate_asset_key'
+  | 'duplicate_snapshot'
 
 export interface InvestmentValidationIssue {
   /** Zero-based row index; null means the issue applies to the whole batch. */
@@ -127,6 +128,11 @@ export type InvestmentDiffResult =
 /** Validate the strict JSON-like row shape and retain decimal strings verbatim. */
 export function validateInvestmentBatch(input: unknown): InvestmentBatchValidation {
   return validateRows(input, MAX_INVESTMENT_BATCH_ITEMS)
+}
+
+/** Validate historical snapshots, whose natural identity is (asset_key, as_of). */
+export function validateInvestmentSnapshotHistory(input: unknown): InvestmentBatchValidation {
+  return validateRows(input, null, true)
 }
 
 /**
@@ -168,7 +174,7 @@ export function computeInvestmentDiff(existing: unknown, incoming: unknown): Inv
   return { valid: true, errors: [], added, changed, unchanged, unmentioned }
 }
 
-function validateRows(input: unknown, maxItems: number | null): InvestmentBatchValidation {
+function validateRows(input: unknown, maxItems: number | null, allowMultipleSnapshotDates = false): InvestmentBatchValidation {
   if (!Array.isArray(input)) {
     return {
       valid: false,
@@ -190,7 +196,7 @@ function validateRows(input: unknown, maxItems: number | null): InvestmentBatchV
 
   const errors: InvestmentValidationIssue[] = []
   const holdings: InvestmentHolding[] = []
-  const seenAssetKeys = new Set<string>()
+  const seenIdentities = new Set<string>()
 
   for (let itemIndex = 0; itemIndex < input.length; itemIndex++) {
     const row = input[itemIndex]
@@ -246,10 +252,17 @@ function validateRows(input: unknown, maxItems: number | null): InvestmentBatchV
       errors.push(issue(itemIndex, 'cash_flows', 'invalid_cash_flow', 'A complete cash-flow interval must include its cash_flows array, even when empty.'))
     }
 
-    if (assetKey !== null && seenAssetKeys.has(assetKey)) {
-      errors.push(issue(itemIndex, 'asset_key', 'duplicate_asset_key', 'asset_key must be unique within a batch.'))
+    const identity = assetKey === null
+      ? null
+      : allowMultipleSnapshotDates
+        ? asOf === null ? null : JSON.stringify([assetKey, asOf])
+        : assetKey
+    if (identity !== null && seenIdentities.has(identity)) {
+      errors.push(allowMultipleSnapshotDates
+        ? issue(itemIndex, 'as_of', 'duplicate_snapshot', 'A snapshot date must be unique for each asset.')
+        : issue(itemIndex, 'asset_key', 'duplicate_asset_key', 'asset_key must be unique within a batch.'))
     }
-    if (assetKey !== null) seenAssetKeys.add(assetKey)
+    if (identity !== null) seenIdentities.add(identity)
 
     if (errors.length !== rowErrorsBefore) continue
 

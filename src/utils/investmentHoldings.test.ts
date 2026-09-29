@@ -4,6 +4,7 @@ import {
   INVESTMENT_FIELD_LIMITS,
   MAX_INVESTMENT_BATCH_ITEMS,
   validateInvestmentBatch,
+  validateInvestmentSnapshotHistory,
   type InvestmentHolding
 } from './investmentHoldings'
 
@@ -112,6 +113,31 @@ describe('validateInvestmentBatch', () => {
     validateInvestmentBatch([row])
 
     expect(row).toEqual(before)
+  })
+})
+
+describe('validateInvestmentSnapshotHistory', () => {
+  it('allows multiple dates for one asset and rejects duplicate asset/date identities', () => {
+    const result = validateInvestmentSnapshotHistory([
+      holding({ as_of: '2026-09-27' }),
+      holding({ as_of: '2026-09-28' })
+    ])
+    expect(result.valid).toBe(true)
+    if (result.valid) expect(result.holdings.map((row) => row.as_of)).toEqual(['2026-09-27', '2026-09-28'])
+
+    const duplicate = validateInvestmentSnapshotHistory([
+      holding({ as_of: '2026-09-28' }),
+      holding({ as_of: '2026-09-28' })
+    ])
+    expect(duplicate.valid).toBe(false)
+    if (!duplicate.valid) expect(duplicate.errors).toContainEqual(expect.objectContaining({ code: 'duplicate_snapshot', field: 'as_of' }))
+
+    const currentBatch = validateInvestmentBatch([
+      holding({ as_of: '2026-09-27' }),
+      holding({ as_of: '2026-09-28' })
+    ])
+    expect(currentBatch.valid).toBe(false)
+    if (!currentBatch.valid) expect(currentBatch.errors).toContainEqual(expect.objectContaining({ code: 'duplicate_asset_key' }))
   })
 })
 

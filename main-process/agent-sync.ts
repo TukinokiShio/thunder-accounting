@@ -204,13 +204,30 @@ export class AgentSyncService {
       return { name: category.name, children }
     })
     const holdings = this.deps.getInvestments()
+    const snapshotHistory = this.deps.getInvestmentSnapshotHistory().map((snapshot) => ({
+      asset_key: snapshot.asset_key,
+      name: snapshot.name,
+      asset_type: snapshot.asset_type,
+      quantity: snapshot.quantity,
+      cost_basis: snapshot.cost_basis,
+      market_value: snapshot.market_value,
+      currency: snapshot.currency,
+      as_of: snapshot.as_of,
+      source_note: snapshot.source_note,
+      quantity_kind: snapshot.quantity_kind,
+      cost_basis_kind: snapshot.cost_basis_kind,
+      cash_flows: snapshot.cash_flows,
+      cash_flows_complete: snapshot.cash_flows_complete,
+      operation_id: snapshot.operation_id,
+      recorded_at: snapshot.recorded_at
+    }))
     const context = {
       schema_version: 'thunder-agent-context/v1',
       expires_at: new Date(scope.expiresAt).toISOString(),
       scope_token: scope.token,
       expense_categories: categories,
       investment_holdings: holdings,
-      investment_snapshot_history: this.deps.getInvestmentSnapshotHistory()
+      investment_snapshot_history: snapshotHistory
     }
     await this.atomicWrite(paths.contextPath, JSON.stringify(context, null, 2))
 

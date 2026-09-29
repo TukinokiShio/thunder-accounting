@@ -9,7 +9,7 @@ const MAX_CONTEXT_BYTES = 8 * 1024 * 1024
 const MAX_ITEMS = 200
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SKILL_NAME = 'thunder-investment-snapshot'
-const SKILL_VERSION = '1.0.0'
+const SKILL_VERSION = '1.0.1'
 const FIELDS = [
   'asset_key', 'name', 'asset_type', 'quantity', 'cost_basis', 'market_value', 'currency', 'as_of', 'source_note',
   'quantity_kind', 'cost_basis_kind', 'cash_flows', 'cash_flows_complete'
@@ -20,7 +20,7 @@ const COST_BASIS_KINDS = new Set(['total', 'per_unit', 'unknown'])
 const CASH_FLOW_KINDS = new Set(['contribution', 'withdrawal', 'dividend', 'fee'])
 const CONTEXT_BASE_FIELDS = ['asset_key', 'name', 'asset_type', 'quantity', 'cost_basis', 'market_value', 'currency', 'as_of', 'source_note']
 const CONTEXT_SEMANTIC_FIELDS = ['quantity_kind', 'cost_basis_kind', 'cash_flows', 'cash_flows_complete']
-const SNAPSHOT_METADATA_FIELDS = ['operation_id', 'recorded_at']
+const SNAPSHOT_METADATA_FIELDS = ['id', 'operation_id', 'recorded_at']
 const DECIMAL = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/
 
 function fail(message) {
@@ -57,8 +57,9 @@ function isDate(value) {
 }
 
 function validateContextPosition(item, isSnapshot = false) {
-  const required = isSnapshot ? [...CONTEXT_BASE_FIELDS, ...CONTEXT_SEMANTIC_FIELDS, ...SNAPSHOT_METADATA_FIELDS] : CONTEXT_BASE_FIELDS
-  const allowed = [...CONTEXT_BASE_FIELDS, ...CONTEXT_SEMANTIC_FIELDS, ...SNAPSHOT_METADATA_FIELDS]
+  const snapshotRequiredFields = ['operation_id', 'recorded_at']
+  const required = isSnapshot ? [...CONTEXT_BASE_FIELDS, ...CONTEXT_SEMANTIC_FIELDS, ...snapshotRequiredFields] : CONTEXT_BASE_FIELDS
+  const allowed = [...CONTEXT_BASE_FIELDS, ...CONTEXT_SEMANTIC_FIELDS, ...(isSnapshot ? SNAPSHOT_METADATA_FIELDS : [])]
   if (!isRecord(item) || required.some((field) => !Object.hasOwn(item, field)) || Object.keys(item).some((field) => !allowed.includes(field))) {
     throw new Error('The context contains a holding/snapshot with invalid fields.')
   }
@@ -92,7 +93,10 @@ function validateContextPosition(item, isSnapshot = false) {
       if (integer.length > 36 || fraction.length > 18 || typeof flow.currency !== 'string' || !/^[A-Z]{3}$/.test(flow.currency) || typeof flow.included_in_market_value !== 'boolean') throw new Error('The context contains an invalid cash flow value.')
     }
   }
-  if (isSnapshot && (typeof item.operation_id !== 'string' || !UUID_V4.test(item.operation_id) || !Number.isFinite(Date.parse(item.recorded_at)))) {
+  if (isSnapshot && Object.hasOwn(item, 'id') && (!Number.isSafeInteger(item.id) || item.id < 1)) {
+    throw new Error('The context contains an invalid local snapshot id.')
+  }
+  if (isSnapshot && (typeof item.operation_id !== 'string' || (item.operation_id !== '' && !UUID_V4.test(item.operation_id)) || !Number.isFinite(Date.parse(item.recorded_at)))) {
     throw new Error('The context contains invalid snapshot confirmation metadata.')
   }
 }

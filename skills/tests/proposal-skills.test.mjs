@@ -103,11 +103,12 @@ test('investment Skill reads bounded history above 64 KiB, validates its limits,
   const historyMarker = 'SYNTHETIC_HISTORY_ONLY_'
   context.investment_snapshot_history = Array.from({ length: 80 }, (_, index) => ({
     ...holdingRows[0],
+    id: index + 1,
     as_of: new Date(Date.UTC(2026, 0, index + 1)).toISOString().slice(0, 10),
     source_note: `${historyMarker}${String(index).padStart(3, '0')};${'h'.repeat(970)}`,
     cash_flows: [],
     cash_flows_complete: false,
-    operation_id: `33333333-3333-4333-8333-${String(index + 1).padStart(12, '0')}`,
+    operation_id: index === 0 ? '' : `33333333-3333-4333-8333-${String(index + 1).padStart(12, '0')}`,
     recorded_at: '2026-09-28T12:00:00.000Z'
   }))
   writeFileSync(fixture.contextPath, JSON.stringify(context))
@@ -116,6 +117,7 @@ test('investment Skill reads bounded history above 64 KiB, validates its limits,
   assert.equal(result.status, 0, result.stderr)
   const { proposal } = readOnlyProposal(fixture.inbox)
   assert.deepEqual(proposal.items, holdingRows)
+  assert.equal('id' in proposal.items[0], false)
   assert.doesNotMatch(JSON.stringify(proposal), new RegExp(historyMarker))
 
   const oversized = setupContext()
@@ -139,6 +141,19 @@ test('investment Skill reads bounded history above 64 KiB, validates its limits,
   assert.notEqual(stringResult.status, 0)
   assert.match(stringResult.stderr, /source_note/)
   assert.deepEqual(readdirSync(invalidField.inbox), [])
+
+  const invalidLocalId = setupContext()
+  const contextWithInvalidLocalId = JSON.parse(readFileSync(invalidLocalId.contextPath, 'utf8'))
+  contextWithInvalidLocalId.investment_snapshot_history = [{
+    ...holdingRows[0], id: 1.5,
+    operation_id: '33333333-3333-4333-8333-000000000001',
+    recorded_at: '2026-09-28T12:00:00.000Z'
+  }]
+  writeFileSync(invalidLocalId.contextPath, JSON.stringify(contextWithInvalidLocalId))
+  const localIdResult = run(investmentHelper, invalidLocalId.contextPath, holdingRows)
+  assert.notEqual(localIdResult.status, 0)
+  assert.match(localIdResult.stderr, /local snapshot id/)
+  assert.deepEqual(readdirSync(invalidLocalId.inbox), [])
 })
 
 test('proposal item count and string limits are checked before staging', () => {
@@ -192,7 +207,7 @@ test('investment Skill preserves decimal strings and produces an explicit snapsh
   const { proposal } = readOnlyProposal(fixture.inbox)
   assert.equal(proposal.kind, 'investments')
   assert.equal(proposal.skill_name, 'thunder-investment-snapshot')
-  assert.equal(proposal.skill_version, '1.0.0')
+  assert.equal(proposal.skill_version, '1.0.1')
   assert.equal(proposal.source_summary, 'Synthetic statement dated 2026-09-28; one row')
   assert.equal(proposal.items[0].quantity, '1.250000000000000001')
   assert.equal(proposal.items[0].market_value, null)
@@ -262,7 +277,10 @@ test('shared schemas are valid JSON and describe the v1 scoped envelope', () => 
 })
 
 test('published Skills follow the Agent Skills name and description frontmatter limits', () => {
-  for (const skillName of ['thunder-expense-entry', 'thunder-investment-snapshot']) {
+  for (const [skillName, expectedVersion] of [
+    ['thunder-expense-entry', '1.0.0'],
+    ['thunder-investment-snapshot', '1.0.1']
+  ]) {
     const skillPath = path.join(skillsRoot, skillName, 'SKILL.md')
     const source = readFileSync(skillPath, 'utf8')
     const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/m.exec(source)
@@ -273,7 +291,7 @@ test('published Skills follow the Agent Skills name and description frontmatter 
     assert.equal(name, skillName)
     assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*$/)
     assert.ok(description && description.length <= 1024)
-    assert.equal(version, '1.0.0')
+    assert.equal(version, expectedVersion)
     assert.match(source, /<operation_id>\.json/)
     assert.match(source, /打开提案目录/)
     assert.match(source, /刷新/)

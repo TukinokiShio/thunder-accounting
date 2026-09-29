@@ -176,11 +176,15 @@ describe('Agent proposal inbox', () => {
       ...fixtureHolding,
       market_value: '110.25',
       operation_id: 'synthetic-operation',
-      recorded_at: '2026-09-28T12:00:00.000Z'
-    })
+      recorded_at: '2026-09-28T12:00:00.000Z',
+      id: 42
+    } as InvestmentSnapshot & { id: number })
     const contextInfo = await fixture.service.getContextInfo()
     const context = JSON.parse(await fs.promises.readFile(contextInfo.contextPath, 'utf8'))
-    expect(context.investment_snapshot_history).toEqual(fixture.snapshotHistory)
+    const expectedSnapshot = structuredClone(fixture.snapshotHistory[0]) as InvestmentSnapshot & { id?: number }
+    delete expectedSnapshot.id
+    expect(context.investment_snapshot_history).toEqual([expectedSnapshot])
+    expect(Object.hasOwn(context.investment_snapshot_history[0], 'id')).toBe(false)
     expect(JSON.stringify(context)).not.toContain('fixture-a')
 
     await fixture.service.invalidate()

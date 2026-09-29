@@ -143,7 +143,16 @@
         "cost_basis_kind": { "enum": ["total", "per_unit", "unknown"] },
         "cash_flows": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/cashFlow" } },
         "cash_flows_complete": { "type": "boolean" },
-        "operation_id": { "type": "string", "format": "uuid" },
+        "id": {
+          "description": "Optional compatibility field for older app contexts. This local SQLite row id is never included in proposals.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "operation_id": {
+          "description": "An empty string is permitted only for legacy snapshots created before operation ids were recorded.",
+          "anyOf": [{ "type": "string", "format": "uuid" }, { "const": "" }]
+        },
         "recorded_at": { "type": "string", "format": "date-time" }
       }
     }
